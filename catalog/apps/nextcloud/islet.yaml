@@ -1,0 +1,23 @@
+name: Nextcloud
+slug: nextcloud
+category: storage
+description: Files, calendar, contacts, and apps. Your own cloud.
+website: https://nextcloud.com
+service: app
+port: 80
+fields:
+  - key: ADMIN_USER
+    label: Admin user
+    type: text
+    default: 'admin'
+  - key: ADMIN_PASSWORD
+    label: Admin password
+    type: secret
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+volumes:
+  - html
+  - db
+notes: |
+  Give it a domain; the first load takes a minute while it installs.

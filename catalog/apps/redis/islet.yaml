@@ -1,0 +1,13 @@
+name: Redis
+slug: redis
+category: database
+description: In-memory data store for caches, queues and sessions.
+website: https://redis.io
+service: redis
+port: 6379
+fields:
+  - key: REDIS_PASSWORD
+    label: Password
+    type: secret
+volumes:
+  - data

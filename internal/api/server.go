@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
@@ -33,6 +34,7 @@ type Deps struct {
 	Files   *files.Service
 	Runner  *cmdrun.Runner
 	Proxy   *proxy.Manager
+	Catalog *catalog.Service
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -47,6 +49,7 @@ type Server struct {
 	files   *files.Service
 	runner  *cmdrun.Runner
 	proxy   *proxy.Manager
+	catalog *catalog.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -54,7 +57,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -113,6 +116,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/domains/{id}", requireJSON(s.requireAuth(s.handleDomainDelete)))
 	mux.HandleFunc("GET /api/v1/domains/{id}/dns", s.requireAuth(s.handleDomainDNS))
 	mux.HandleFunc("GET /api/v1/dns-check", s.requireAuth(s.handleDNSCheck))
+
+	// Catalog
+	mux.HandleFunc("GET /api/v1/catalog", s.requireAuth(s.handleCatalog))
+	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
+	mux.HandleFunc("GET /api/v1/catalog/{slug}", s.requireAuth(s.handleCatalogApp))
+	mux.HandleFunc("POST /api/v1/catalog/{slug}/install", requireJSON(s.requireAuth(s.handleCatalogInstall)))
 
 	mux.HandleFunc("GET /api/v1/docker/status", s.requireAuth(s.handleDockerStatus))
 	mux.HandleFunc("GET /api/v1/docker/containers", s.requireAuth(s.handleContainers))

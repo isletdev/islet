@@ -1,0 +1,19 @@
+name: WordPress
+slug: wordpress
+category: cms
+description: The web's most used CMS, with MariaDB.
+website: https://wordpress.org
+service: wordpress
+port: 80
+fields:
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+  - key: DB_ROOT_PASSWORD
+    label: Database root password
+    type: secret
+volumes:
+  - html
+  - db
+notes: |
+  Open the domain to finish the WordPress installer.

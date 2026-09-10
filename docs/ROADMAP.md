@@ -95,9 +95,9 @@ After this phase a user can: point a domain at any container, get a certificate 
 - [x] Panel itself moves to the user's own domain (target type "panel")
 
 **App catalog**
-- [ ] Catalog format (Compose plus metadata, form fields, post-install notes) and an in-repo `catalog/` folder
-- [ ] Launch set of 20 templates: Postgres, MySQL, MariaDB, Redis, MongoDB, MinIO, Uptime Kuma, n8n, Plausible, Umami, Gitea, Vaultwarden, Nginx Proxy Manager, Grafana, Metabase, WordPress, Ghost, code-server, Adminer, Nextcloud
-- [ ] Install form with generated secrets, domain picker, volume paths, and resource limits
+- [x] Catalog format (Compose plus metadata, form fields, post-install notes) and an in-repo `catalog/` folder, embedded in the binary
+- [x] Launch set of 21 templates: Postgres, MySQL, MariaDB, Redis, MongoDB, MinIO, Uptime Kuma, n8n, Plausible, Umami, Gitea, Vaultwarden, Nginx Proxy Manager, Grafana, Metabase, WordPress, Ghost, code-server, Adminer, Nextcloud, whoami
+- [x] Install form with generated secrets and domain picker (volume paths and resource limits pending)
 - [ ] Update checks for installed catalog apps with digest diff
 
 **Recipes**

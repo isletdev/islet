@@ -539,6 +539,7 @@ type Stack struct {
 	Status    string `json:"status"`  // from docker compose ls
 	Services  int    `json:"services"`
 	UpdatedAt string `json:"updatedAt,omitempty"`
+	App       string `json:"app,omitempty"` // catalog slug when installed from the catalog
 }
 
 func (s *Service) stackFile(name string) (string, error) {
@@ -558,7 +559,14 @@ func (s *Service) Stacks(ctx context.Context, actor string) ([]Stack, error) {
 		}
 		p := filepath.Join(s.stacksDir, e.Name(), "compose.yaml")
 		if st, err := os.Stat(p); err == nil {
-			byName[e.Name()] = &Stack{Name: e.Name(), Path: p, Managed: true, Status: "down", UpdatedAt: st.ModTime().UTC().Format(time.RFC3339)}
+			sk := &Stack{Name: e.Name(), Path: p, Managed: true, Status: "down", UpdatedAt: st.ModTime().UTC().Format(time.RFC3339)}
+			if b, err := os.ReadFile(filepath.Join(s.stacksDir, e.Name(), "islet-app.json")); err == nil {
+				var meta struct{ Slug string }
+				if json.Unmarshal(b, &meta) == nil {
+					sk.App = meta.Slug
+				}
+			}
+			byName[e.Name()] = sk
 		}
 	}
 	if res, err := s.run.Run(ctx, actor, "docker", "compose", "ls", "-a", "--format", "json"); err == nil {

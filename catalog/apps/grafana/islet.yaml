@@ -1,0 +1,15 @@
+name: Grafana
+slug: grafana
+category: monitoring
+description: Dashboards for metrics and logs.
+website: https://grafana.com
+service: grafana
+port: 3000
+fields:
+  - key: ADMIN_PASSWORD
+    label: Admin password
+    type: secret
+volumes:
+  - data
+notes: |
+  Login: admin plus the generated password.

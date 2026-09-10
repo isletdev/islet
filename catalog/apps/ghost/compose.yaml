@@ -1,0 +1,27 @@
+services:
+  ghost:
+    image: ghost:5-alpine
+    restart: unless-stopped
+    environment:
+      url: https://${ISLET_DOMAIN}
+      database__client: mysql
+      database__connection__host: db
+      database__connection__user: ghost
+      database__connection__password: ${DB_PASSWORD}
+      database__connection__database: ghost
+    volumes:
+      - content:/var/lib/ghost/content
+    depends_on: [db]
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ghost
+      MYSQL_USER: ghost
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db:/var/lib/mysql
+volumes:
+  content:
+  db:

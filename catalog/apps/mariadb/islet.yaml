@@ -1,0 +1,24 @@
+name: MariaDB
+slug: mariadb
+category: database
+description: MySQL-compatible, community-driven.
+website: https://mariadb.org
+service: db
+port: 3306
+fields:
+  - key: MARIADB_ROOT_PASSWORD
+    label: Root password
+    type: secret
+  - key: MARIADB_DATABASE
+    label: Database
+    type: text
+    default: 'app'
+  - key: MARIADB_USER
+    label: User
+    type: text
+    default: 'app'
+  - key: MARIADB_PASSWORD
+    label: Password
+    type: secret
+volumes:
+  - data

@@ -1,0 +1,19 @@
+name: Ghost
+slug: ghost
+category: cms
+description: Publishing platform for newsletters and blogs.
+website: https://ghost.org
+service: ghost
+port: 2368
+fields:
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+  - key: DB_ROOT_PASSWORD
+    label: Database root password
+    type: secret
+volumes:
+  - content
+  - db
+notes: |
+  Set up the owner account at /ghost.

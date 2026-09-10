@@ -1,0 +1,10 @@
+services:
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    volumes:
+      - data:/data
+      - letsencrypt:/etc/letsencrypt
+volumes:
+  data:
+  letsencrypt:

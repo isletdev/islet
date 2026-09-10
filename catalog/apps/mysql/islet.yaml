@@ -1,0 +1,24 @@
+name: MySQL
+slug: mysql
+category: database
+description: The most widely deployed relational database.
+website: https://www.mysql.com
+service: db
+port: 3306
+fields:
+  - key: MYSQL_ROOT_PASSWORD
+    label: Root password
+    type: secret
+  - key: MYSQL_DATABASE
+    label: Database
+    type: text
+    default: 'app'
+  - key: MYSQL_USER
+    label: User
+    type: text
+    default: 'app'
+  - key: MYSQL_PASSWORD
+    label: Password
+    type: secret
+volumes:
+  - data

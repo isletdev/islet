@@ -1,0 +1,10 @@
+services:
+  code:
+    image: codercom/code-server:latest
+    restart: unless-stopped
+    environment:
+      PASSWORD: ${PASSWORD}
+    volumes:
+      - data:/home/coder
+volumes:
+  data:

@@ -8,8 +8,8 @@ export function streamLines(path: string, onLine: (l: string) => void, onEnd?: (
 }
 
 /** POST an action whose response is an SSE stream of lines (Compose up, image pull). */
-export async function postStream(path: string, onLine: (l: string) => void): Promise<void> {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, credentials: "same-origin" });
+export async function postStream(path: string, onLine: (l: string) => void, body?: unknown): Promise<void> {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) });
   if (!res.ok || !res.body) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { message: string }).message; } catch { /* ignore */ }

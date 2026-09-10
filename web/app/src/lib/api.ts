@@ -84,6 +84,9 @@ export interface ProxyStatus { installed: boolean; running: boolean; image: stri
 export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; enabled: boolean; createdAt: string; updatedAt: string }
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
 
+export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
+export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -160,6 +163,9 @@ export const api = {
   domainDelete: (id: string) => post<void>(`/api/v1/domains/${id}`, undefined, "DELETE"),
   domainDns: (id: string) => request<DNSCheck>(`/api/v1/domains/${id}/dns`),
   dnsCheck: (host: string) => request<DNSCheck>(`/api/v1/dns-check?host=${encodeURIComponent(host)}`),
+  catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
+  catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
+  installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
   commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
   dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
   containers: () => request<Container[]>("/api/v1/docker/containers"),

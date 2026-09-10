@@ -1,0 +1,12 @@
+services:
+  vw:
+    image: vaultwarden/server:latest
+    restart: unless-stopped
+    environment:
+      DOMAIN: https://${ISLET_DOMAIN}
+      SIGNUPS_ALLOWED: "${SIGNUPS_ALLOWED}"
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    volumes:
+      - data:/data
+volumes:
+  data:

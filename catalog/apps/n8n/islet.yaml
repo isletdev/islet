@@ -1,0 +1,19 @@
+name: n8n
+slug: n8n
+category: automation
+description: Workflow automation with hundreds of integrations.
+website: https://n8n.io
+service: n8n
+port: 5678
+fields:
+  - key: TZ
+    label: Timezone
+    type: text
+    default: 'UTC'
+  - key: N8N_ENCRYPTION_KEY
+    label: Encryption key
+    type: secret
+volumes:
+  - data
+notes: |
+  Needs a domain so webhooks have a public URL.

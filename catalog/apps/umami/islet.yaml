@@ -1,0 +1,18 @@
+name: Umami
+slug: umami
+category: analytics
+description: Privacy-friendly web analytics.
+website: https://umami.is
+service: umami
+port: 3000
+fields:
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+  - key: APP_SECRET
+    label: App secret
+    type: secret
+volumes:
+  - db
+notes: |
+  Default login is admin / umami. Change it immediately.

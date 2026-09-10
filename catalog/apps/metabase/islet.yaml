@@ -1,0 +1,15 @@
+name: Metabase
+slug: metabase
+category: analytics
+description: Business intelligence and dashboards on your databases.
+website: https://www.metabase.com
+service: metabase
+port: 3000
+fields:
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+volumes:
+  - db
+notes: |
+  Needs about 2 GB of RAM.

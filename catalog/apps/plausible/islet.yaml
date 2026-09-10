@@ -1,0 +1,22 @@
+name: Plausible
+slug: plausible
+category: analytics
+description: Lightweight, open-source Google Analytics alternative.
+website: https://plausible.io
+service: plausible
+port: 8000
+fields:
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+  - key: SECRET_KEY_BASE
+    label: Secret key base
+    type: secret
+  - key: TOTP_VAULT_KEY
+    label: TOTP vault key
+    type: secret
+volumes:
+  - db
+  - events
+notes: |
+  Needs about 1 GB of RAM. Requires a domain.

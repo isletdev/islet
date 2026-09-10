@@ -1,0 +1,4 @@
+services:
+  whoami:
+    image: traefik/whoami:latest
+    restart: unless-stopped

@@ -1,0 +1,11 @@
+services:
+  grafana:
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://${ISLET_DOMAIN}
+    volumes:
+      - data:/var/lib/grafana
+volumes:
+  data:

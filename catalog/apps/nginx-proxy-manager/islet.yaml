@@ -1,0 +1,12 @@
+name: Nginx Proxy Manager
+slug: nginx-proxy-manager
+category: networking
+description: Nginx with a UI for hosts and certificates. Islet already routes domains; use this only if you prefer it.
+website: https://nginxproxymanager.com
+service: npm
+port: 81
+volumes:
+  - data
+  - letsencrypt
+notes: |
+  Ports 80 and 443 belong to Islet's proxy; NPM's own listeners are not published. Default login: admin@example.com / changeme.

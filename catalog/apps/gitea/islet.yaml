@@ -1,0 +1,11 @@
+name: Gitea
+slug: gitea
+category: developer
+description: Lightweight self-hosted Git service with issues and CI runners.
+website: https://gitea.com
+service: gitea
+port: 3000
+volumes:
+  - data
+notes: |
+  SSH clones use port 2222. Open it in the firewall if you need SSH access to repositories.

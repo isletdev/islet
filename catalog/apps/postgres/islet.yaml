@@ -1,0 +1,23 @@
+name: PostgreSQL
+slug: postgres
+category: database
+description: The default relational database. Reliable, extensible, everywhere.
+website: https://www.postgresql.org
+service: db
+port: 5432
+fields:
+  - key: POSTGRES_USER
+    label: User
+    type: text
+    default: 'app'
+  - key: POSTGRES_PASSWORD
+    label: Password
+    type: secret
+  - key: POSTGRES_DB
+    label: Database
+    type: text
+    default: 'app'
+volumes:
+  - data
+notes: |
+  Connect from other containers at db:5432 on this stack's network. Not published to the internet.

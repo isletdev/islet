@@ -1,0 +1,20 @@
+name: Vaultwarden
+slug: vaultwarden
+category: security
+description: Bitwarden-compatible password manager server.
+website: https://github.com/dani-garcia/vaultwarden
+service: vw
+port: 80
+fields:
+  - key: SIGNUPS_ALLOWED
+    label: Allow sign-ups
+    type: text
+    default: 'true'
+    hint: Set to false after creating your account.
+  - key: ADMIN_TOKEN
+    label: Admin token
+    type: secret
+volumes:
+  - data
+notes: |
+  Requires HTTPS. The admin panel is at /admin with the admin token.

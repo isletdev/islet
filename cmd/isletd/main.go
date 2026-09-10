@@ -21,6 +21,7 @@ import (
 
 	"github.com/isletdev/islet/internal/api"
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
@@ -99,6 +100,7 @@ func run() error {
 	dk := docker.New(runner, filepath.Join(*dataDir, "stacks"))
 	fl := files.New(*dataDir)
 	px := proxy.New(runner, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
+	cat := catalog.New(dk, px, filepath.Join(*dataDir, "stacks"))
 	go func() {
 		for {
 			fl.PurgeOlderThan(7 * 24 * time.Hour)
@@ -117,7 +119,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

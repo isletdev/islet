@@ -1,0 +1,14 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      N8N_HOST: ${ISLET_DOMAIN}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${ISLET_DOMAIN}/
+      GENERIC_TIMEZONE: ${TZ}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+    volumes:
+      - data:/home/node/.n8n
+volumes:
+  data:

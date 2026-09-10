@@ -1,0 +1,14 @@
+services:
+  gitea:
+    image: docker.gitea.com/gitea:1.24
+    restart: unless-stopped
+    environment:
+      GITEA__server__ROOT_URL: https://${ISLET_DOMAIN}/
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__database__DB_TYPE: sqlite3
+    volumes:
+      - data:/data
+    ports:
+      - "2222:22"
+volumes:
+  data:

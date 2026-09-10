@@ -1,0 +1,11 @@
+name: Uptime Kuma
+slug: uptime-kuma
+category: monitoring
+description: Self-hosted uptime monitoring with a status page.
+website: https://github.com/louislam/uptime-kuma
+service: kuma
+port: 3001
+volumes:
+  - data
+notes: |
+  Open the domain and create the first admin user.

@@ -1,0 +1,23 @@
+services:
+  metabase:
+    image: metabase/metabase:latest
+    restart: unless-stopped
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: "5432"
+      MB_DB_USER: metabase
+      MB_DB_PASS: ${DB_PASSWORD}
+      MB_DB_HOST: db
+    depends_on: [db]
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: metabase
+    volumes:
+      - db:/var/lib/postgresql/data
+volumes:
+  db:

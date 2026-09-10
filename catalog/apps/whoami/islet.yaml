@@ -1,0 +1,9 @@
+name: whoami
+slug: whoami
+category: developer
+description: Tiny web server that echoes request details. Handy for testing domains.
+website: https://github.com/traefik/whoami
+service: whoami
+port: 80
+notes: |
+  Useful to confirm a domain and certificate work before pointing them at a real app.

@@ -1,0 +1,15 @@
+name: code-server
+slug: code-server
+category: developer
+description: VS Code in the browser.
+website: https://github.com/coder/code-server
+service: code
+port: 8080
+fields:
+  - key: PASSWORD
+    label: Password
+    type: secret
+volumes:
+  - data
+notes: |
+  Put this behind a domain with Islet's basic auth or an IP allowlist as well; it can run anything.

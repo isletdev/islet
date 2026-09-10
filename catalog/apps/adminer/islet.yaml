@@ -1,0 +1,9 @@
+name: Adminer
+slug: adminer
+category: developer
+description: Single-file database admin for Postgres, MySQL and more.
+website: https://www.adminer.org
+service: adminer
+port: 8080
+notes: |
+  Reach databases from other stacks by attaching Adminer to their network, or by their published ports.

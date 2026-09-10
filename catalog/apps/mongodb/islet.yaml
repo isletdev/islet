@@ -1,0 +1,17 @@
+name: MongoDB
+slug: mongodb
+category: database
+description: Document database.
+website: https://www.mongodb.com
+service: mongo
+port: 27017
+fields:
+  - key: MONGO_USER
+    label: Root user
+    type: text
+    default: 'root'
+  - key: MONGO_PASSWORD
+    label: Root password
+    type: secret
+volumes:
+  - data

@@ -1,0 +1,19 @@
+name: MinIO
+slug: minio
+category: storage
+description: S3-compatible object storage for uploads and backups.
+website: https://min.io
+service: minio
+port: 9001
+fields:
+  - key: MINIO_ROOT_USER
+    label: Root user
+    type: text
+    default: 'admin'
+  - key: MINIO_ROOT_PASSWORD
+    label: Root password
+    type: secret
+volumes:
+  - data
+notes: |
+  The console is on port 9001; the S3 API on 9000. Route a second domain to port 9000 for API access.
