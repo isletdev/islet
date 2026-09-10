@@ -26,10 +26,12 @@ import (
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
+	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/version"
+	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
 )
 
@@ -101,6 +103,21 @@ func run() error {
 	fl := files.New(*dataDir)
 	px := proxy.New(runner, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
 	cat := catalog.New(dk, px, filepath.Join(*dataDir, "stacks"))
+	bus := notify.New(st, keys, log)
+	go bus.Run(ctx)
+	go watch.Docker(ctx, runner, bus, log)
+	go watch.Resources(ctx, sampler, bus)
+	go watch.Daily(ctx, px, bus, log)
+	go func() {
+		for {
+			bus.Purge(ctx, 30*24*time.Hour)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(12 * time.Hour):
+			}
+		}
+	}()
 	go func() {
 		for {
 			fl.PurgeOlderThan(7 * 24 * time.Hour)
@@ -119,7 +136,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -149,6 +166,8 @@ func run() error {
 	} else {
 		log.Warn("tls is off: cookies and passwords travel in clear text; use only on localhost")
 	}
+	bus.SetPanelURL(scheme + "://" + displayAddr(ln.Addr().String()))
+	bus.Emit(ctx, notify.Event{Category: "system", Severity: notify.Info, Title: "Islet started", Message: "isletd " + version.Version + " is up.", Link: "/"})
 	log.Info("isletd started", "version", version.Version, "listen", scheme+"://"+ln.Addr().String(), "data", *dataDir, "server", st.ServerID)
 	if needs, _ := as.NeedsSetup(ctx); needs {
 		if tok, err := as.SetupToken(); err == nil {

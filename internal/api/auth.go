@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -187,11 +188,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, auth.ErrRateLimited) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(s.auth.RetryAfter(req.Username, clientIP(r)).Seconds())+1))
+			if s.notify != nil {
+				s.notify.Emit(r.Context(), notify.Event{Category: "security", Severity: notify.Warning, Title: "Repeated failed logins", Message: "Too many failed panel logins for " + req.Username + " from " + clientIP(r) + ". The client is rate limited.", Link: "/settings"})
+			}
 		}
 		authError(w, err)
 		return
 	}
 	setSessionCookie(w, r, token, sess.ExpiresAt)
+	if s.notify != nil && !sess.MFAPending {
+		s.notify.Emit(r.Context(), notify.Event{Category: "security", Severity: notify.Info, Title: "Panel login: " + req.Username, Message: "Signed in from " + clientIP(r) + ".", Link: "/settings"})
+	}
 	if sess.MFAPending {
 		writeJSON(w, http.StatusOK, api.LoginResponse{MFARequired: true})
 		return

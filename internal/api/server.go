@@ -18,6 +18,7 @@ import (
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
+	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
@@ -35,6 +36,7 @@ type Deps struct {
 	Runner  *cmdrun.Runner
 	Proxy   *proxy.Manager
 	Catalog *catalog.Service
+	Notify  *notify.Bus
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -50,6 +52,7 @@ type Server struct {
 	runner  *cmdrun.Runner
 	proxy   *proxy.Manager
 	catalog *catalog.Service
+	notify  *notify.Bus
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -57,7 +60,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -122,6 +125,17 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
 	mux.HandleFunc("GET /api/v1/catalog/{slug}", s.requireAuth(s.handleCatalogApp))
 	mux.HandleFunc("POST /api/v1/catalog/{slug}/install", requireJSON(s.requireAuth(s.handleCatalogInstall)))
+
+	// Notifications
+	mux.HandleFunc("GET /api/v1/notify/channels", s.requireAuth(s.handleChannels))
+	mux.HandleFunc("POST /api/v1/notify/channels", requireJSON(s.requireAuth(s.handleChannelSave)))
+	mux.HandleFunc("PUT /api/v1/notify/channels/{id}", requireJSON(s.requireAuth(s.handleChannelSave)))
+	mux.HandleFunc("DELETE /api/v1/notify/channels/{id}", requireJSON(s.requireAuth(s.handleChannelDelete)))
+	mux.HandleFunc("POST /api/v1/notify/channels/{id}/test", requireJSON(s.requireAuth(s.handleChannelTest)))
+	mux.HandleFunc("POST /api/v1/notify/telegram/detect", requireJSON(s.requireAuth(s.handleTelegramDetect)))
+	mux.HandleFunc("GET /api/v1/notify/events", s.requireAuth(s.handleEvents))
+	mux.HandleFunc("GET /api/v1/notify/events/{id}/deliveries", s.requireAuth(s.handleEventDeliveries))
+	mux.HandleFunc("POST /api/v1/notify/emit", requireJSON(s.requireAuth(s.handleEmit)))
 
 	mux.HandleFunc("GET /api/v1/docker/status", s.requireAuth(s.handleDockerStatus))
 	mux.HandleFunc("GET /api/v1/docker/containers", s.requireAuth(s.handleContainers))

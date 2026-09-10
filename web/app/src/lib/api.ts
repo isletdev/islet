@@ -87,6 +87,9 @@ export interface DNSCheck { host: string; expected: string; resolved: string[]; 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
 
+export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; enabled: boolean; createdAt: string }
+export interface IsletEvent { id: number; category: string; severity: "info" | "warning" | "critical"; title: string; message: string; link: string; createdAt: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -166,6 +169,12 @@ export const api = {
   catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
+  channels: () => request<Channel[]>("/api/v1/notify/channels"),
+  channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
+  channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),
+  channelTest: (id: string) => post<void>(`/api/v1/notify/channels/${id}/test`),
+  telegramDetect: (token: string) => post<{ chatId: string; name: string; type: string }[]>("/api/v1/notify/telegram/detect", { token }),
+  events: (limit = 50, before?: number) => request<IsletEvent[]>(`/api/v1/notify/events?limit=${limit}${before ? `&before=${before}` : ""}`),
   commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
   dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
   containers: () => request<Container[]>("/api/v1/docker/containers"),

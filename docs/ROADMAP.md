@@ -135,15 +135,17 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [ ] Template library (DB dump to S3, Docker prune, log cleanup, cert check, rclone sync)
 
 **Notifications and events**
-- [ ] Event bus with a catalog of typed events and severities
-- [ ] Channels: email (SMTP relay), Telegram with chat detection wizard, Discord webhook, Slack webhook, ntfy, Gotify, Pushover, generic signed webhook
-- [ ] Routing matrix by category and severity, per-app overrides, quiet hours, digests, cooldowns, recovery messages
-- [ ] Message template with deep links, send-test button, delivery log
-- [ ] In-app notification centre and event timeline
+- [x] Event bus with a catalog of typed events and severities
+- [x] Channels: email (SMTP relay), Telegram with chat detection wizard, Discord webhook, Slack webhook, ntfy, Gotify, Pushover, generic signed webhook
+- [x] Routing matrix by category and severity, quiet hours, cooldowns, recovery messages
+- [ ] Per-app overrides and digests
+- [x] Message template with deep links, send-test button, delivery log
+- [x] In-app notification centre and event timeline
 - [ ] Outbound SMTP relay setup wizard with DKIM, SPF and DMARC helpers
 
 **Alerts and uptime**
-- [ ] Default alert rules: disk over 85%, memory pressure, container crash loop, cert expiring, backup failed, cron failed
+- [x] Default alert rules: disk over 85%, memory pressure, CPU saturation, container exit/OOM/crash loop, cert expiring, failed logins, update available
+- [ ] Alert rules for backup failed and cron failed (wired when those features land)
 - [ ] HTTP, TCP and keyword uptime checks from the server
 
 **Not in this phase:** git deploys, runners, security suite.
