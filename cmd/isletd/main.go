@@ -25,6 +25,7 @@ import (
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
+	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/version"
@@ -97,6 +98,7 @@ func run() error {
 	runner := cmdrun.New(st, log)
 	dk := docker.New(runner, filepath.Join(*dataDir, "stacks"))
 	fl := files.New(*dataDir)
+	px := proxy.New(runner, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
 	go func() {
 		for {
 			fl.PurgeOlderThan(7 * 24 * time.Hour)
@@ -115,7 +117,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -127,6 +129,12 @@ func run() error {
 		return fmt.Errorf("listen %s: %w", *listen, err)
 	}
 	scheme := "http"
+	if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+		px.SetPanelURL(map[bool]string{true: "https", false: "http"}[*tlsMode != "off"], port)
+	}
+	if err := px.Reconcile(ctx); err != nil {
+		log.Warn("proxy reconcile failed", "err", err)
+	}
 	if *tlsMode != "off" {
 		cert, names, err := tlsutil.LoadOrCreate(*dataDir, st.Hostname)
 		if err != nil {

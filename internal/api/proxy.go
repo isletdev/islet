@@ -1,0 +1,153 @@
+package api
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/isletdev/islet/internal/proxy"
+	"github.com/isletdev/islet/pkg/api"
+)
+
+func (s *Server) handleMaintenancePage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Retry-After", "120")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_, _ = w.Write([]byte(proxy.MaintenancePage))
+}
+
+func (s *Server) handleProxyStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
+}
+
+func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can install the proxy"})
+		return
+	}
+	var req struct {
+		AcmeEmail string `json:"acmeEmail"`
+	}
+	if r.ContentLength > 0 {
+		if err := decode(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			return
+		}
+	}
+	if err := s.proxy.Install(r.Context(), u.Username, strings.TrimSpace(req.AcmeEmail)); err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "proxy", Message: err.Error()})
+		return
+	}
+	if err := s.proxy.Reconcile(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
+}
+
+func (s *Server) handleProxyRemove(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can remove the proxy"})
+		return
+	}
+	if err := s.proxy.Remove(r.Context(), u.Username); err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "proxy", Message: err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProxyCerts(w http.ResponseWriter, r *http.Request) {
+	certs, err := s.proxy.Certificates()
+	if err != nil {
+		writeJSON(w, http.StatusOK, []proxy.Cert{})
+		return
+	}
+	writeJSON(w, http.StatusOK, certs)
+}
+
+func (s *Server) handlePreviewHost(w http.ResponseWriter, r *http.Request) {
+	name := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("name")))
+	if name == "" {
+		name = "app"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"host": proxy.PreviewHost(r.Context(), name), "publicIp": proxy.PublicIP(r.Context())})
+}
+
+func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
+	list, err := s.proxy.Domains(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	if userFrom(r.Context()).Role != "admin" {
+		for i := range list {
+			list[i].BasicAuth = ""
+		}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleDomainSave(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role == "viewer" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot change domains"})
+		return
+	}
+	var d proxy.Domain
+	if err := decode(r, &d); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	if id := r.PathValue("id"); id != "" {
+		d.ID = id
+		if _, err := s.proxy.Domain(r.Context(), id); err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such domain"})
+			return
+		}
+	} else {
+		d.ID = ""
+	}
+	if d.TargetType == "panel" && u.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can route the panel"})
+		return
+	}
+	saved, err := s.proxy.Save(r.Context(), u.Username, &d)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
+func (s *Server) handleDomainDelete(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role == "viewer" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot change domains"})
+		return
+	}
+	if err := s.proxy.Delete(r.Context(), u.Username, r.PathValue("id")); err != nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such domain"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDomainDNS(w http.ResponseWriter, r *http.Request) {
+	d, err := s.proxy.Domain(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such domain"})
+		return
+	}
+	writeJSON(w, http.StatusOK, proxy.CheckDNS(r.Context(), d.Host))
+}
+
+func (s *Server) handleDNSCheck(w http.ResponseWriter, r *http.Request) {
+	host := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("host")))
+	if host == "" {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "host is required"})
+		return
+	}
+	writeJSON(w, http.StatusOK, proxy.CheckDNS(r.Context(), host))
+}

@@ -80,6 +80,10 @@ export interface CommandEntry { id: number; actor: string; command: string; exit
 export interface FileEntry { name: string; path: string; isDir: boolean; size: number; mode: string; perms: string; owner: string; group: string; modTime: string; isSymlink: boolean; target?: string; protected: boolean }
 export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
 
+export interface ProxyStatus { installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string }
+export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; enabled: boolean; createdAt: string; updatedAt: string }
+export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -146,6 +150,16 @@ export const api = {
   trashOp: (body: { op: "restore" | "purge"; id: string }) => post<unknown>("/api/v1/files/trash", body),
   diskReport: () => request<{ key: string; label: string; bytes: number; reclaimable: number; hint: string; cleanable: boolean }[]>("/api/v1/system/disk"),
   diskClean: (keys: string[]) => post<Record<string, string>>("/api/v1/system/disk/clean", { keys }),
+  proxyStatus: () => request<ProxyStatus>("/api/v1/proxy"),
+  proxyInstall: (acmeEmail: string) => post<ProxyStatus>("/api/v1/proxy/install", { acmeEmail }),
+  proxyRemove: () => post<void>("/api/v1/proxy/remove"),
+  proxyCerts: () => request<{ domain: string; sans: string[]; notAfter: string; issuer: string }[]>("/api/v1/proxy/certs"),
+  previewHost: (name: string) => request<{ host: string; publicIp: string }>(`/api/v1/proxy/preview-host?name=${encodeURIComponent(name)}`),
+  domains: () => request<Domain[]>("/api/v1/domains"),
+  domainSave: (d: Domain) => d.id ? post<Domain>(`/api/v1/domains/${d.id}`, d, "PUT") : post<Domain>("/api/v1/domains", d),
+  domainDelete: (id: string) => post<void>(`/api/v1/domains/${id}`, undefined, "DELETE"),
+  domainDns: (id: string) => request<DNSCheck>(`/api/v1/domains/${id}/dns`),
+  dnsCheck: (host: string) => request<DNSCheck>(`/api/v1/dns-check?host=${encodeURIComponent(host)}`),
   commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
   dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
   containers: () => request<Container[]>("/api/v1/docker/containers"),

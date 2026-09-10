@@ -16,6 +16,9 @@ Things only the maintainer can do. Everything else keeps moving without them. Ti
 
 ## A test server
 
+The proxy is built and tested locally with self-signed certificates. Let's Encrypt issuance can only be verified on a server with a public IP and a real domain pointing at it, so that stays unticked until the VPS exists.
+
+
 - [ ] **One Ubuntu 24.04 VPS** (a Hetzner CX22 is enough, about 4 EUR/month). Give me root SSH access or run the installer yourself and paste the output. Unblocks: verifying the installer, Docker install, systemd unit, TLS on a public IP, and later the Traefik and certificate work. Without it, those roadmap items stay unticked no matter how much code exists.
 - [ ] **Hetzner API token** (read/write, project-scoped) if you want the e2e job in CI to create and destroy throwaway servers automatically.
 

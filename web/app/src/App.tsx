@@ -9,6 +9,7 @@ import Settings from "./pages/Settings";
 const Terminal = lazy(() => import("./pages/Terminal"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));
+const Domains = lazy(() => import("./pages/Domains"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/containers/*" element={<ContainersRoot />} />
         <Route path="/files" element={<Files />} />
+        <Route path="/domains" element={<Domains />} />
         {NAV.filter((n) => !n.ready).map((n) => (
           <Route key={n.path} path={n.path} element={<Placeholder item={n} />} />
         ))}

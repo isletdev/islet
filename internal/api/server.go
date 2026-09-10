@@ -17,6 +17,7 @@ import (
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
+	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
@@ -31,6 +32,7 @@ type Deps struct {
 	Docker  *docker.Service
 	Files   *files.Service
 	Runner  *cmdrun.Runner
+	Proxy   *proxy.Manager
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -44,6 +46,7 @@ type Server struct {
 	docker  *docker.Service
 	files   *files.Service
 	runner  *cmdrun.Runner
+	proxy   *proxy.Manager
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -51,11 +54,12 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
 	mux.HandleFunc("GET /api/v1/setup", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/v1/setup", requireJSON(s.handleSetup))
 	mux.HandleFunc("POST /api/v1/auth/login", requireJSON(s.handleLogin))
@@ -96,6 +100,19 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/files/search", s.requireAuth(s.handleFilesSearch))
 	mux.HandleFunc("GET /api/v1/files/usage", s.requireAuth(s.handleFilesUsage))
 	mux.HandleFunc("GET /api/v1/files/checksum", s.requireAuth(s.handleFilesChecksum))
+
+	// Proxy and domains
+	mux.HandleFunc("GET /api/v1/proxy", s.requireAuth(s.handleProxyStatus))
+	mux.HandleFunc("POST /api/v1/proxy/install", requireJSON(s.requireAuth(s.handleProxyInstall)))
+	mux.HandleFunc("POST /api/v1/proxy/remove", requireJSON(s.requireAuth(s.handleProxyRemove)))
+	mux.HandleFunc("GET /api/v1/proxy/certs", s.requireAuth(s.handleProxyCerts))
+	mux.HandleFunc("GET /api/v1/proxy/preview-host", s.requireAuth(s.handlePreviewHost))
+	mux.HandleFunc("GET /api/v1/domains", s.requireAuth(s.handleDomains))
+	mux.HandleFunc("POST /api/v1/domains", requireJSON(s.requireAuth(s.handleDomainSave)))
+	mux.HandleFunc("PUT /api/v1/domains/{id}", requireJSON(s.requireAuth(s.handleDomainSave)))
+	mux.HandleFunc("DELETE /api/v1/domains/{id}", requireJSON(s.requireAuth(s.handleDomainDelete)))
+	mux.HandleFunc("GET /api/v1/domains/{id}/dns", s.requireAuth(s.handleDomainDNS))
+	mux.HandleFunc("GET /api/v1/dns-check", s.requireAuth(s.handleDNSCheck))
 
 	mux.HandleFunc("GET /api/v1/docker/status", s.requireAuth(s.handleDockerStatus))
 	mux.HandleFunc("GET /api/v1/docker/containers", s.requireAuth(s.handleContainers))

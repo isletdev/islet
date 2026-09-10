@@ -12,7 +12,7 @@ export const NAV: NavItem[] = [
   { path: "/containers", label: "Containers", phase: "v0.2", ready: true, blurb: "Every container, image, volume and Compose stack on this server." },
   { path: "/files", label: "Files", phase: "v0.2", ready: true, blurb: "Browse, edit and move files without SSH." },
   { path: "/terminal", label: "Terminal", phase: "v0.1", ready: true, blurb: "A shell on this server, in the browser." },
-  { path: "/domains", label: "Domains", phase: "v0.3", blurb: "Point a domain at a container and get HTTPS." },
+  { path: "/domains", label: "Domains", phase: "v0.3", ready: true, blurb: "Point a domain at a container and get HTTPS." },
   { path: "/apps", label: "Apps", phase: "v0.3", blurb: "One-click apps from the catalog and deploys from Git." },
   { path: "/databases", label: "Databases", phase: "v0.4", blurb: "Postgres, MySQL, Redis and friends with backups." },
   { path: "/cron", label: "Cron", phase: "v0.4", blurb: "Scheduled commands and scripts with run history." },
