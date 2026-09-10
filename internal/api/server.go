@@ -60,6 +60,7 @@ func New(st *store.Store, as *auth.Service, mc *metrics.Collector, ms *metrics.S
 	mux.HandleFunc("GET /api/v1/metrics/history", s.requireAuth(s.handleMetricsHistory))
 	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
 	mux.HandleFunc("GET /api/v1/terminal/ws", s.requireAuth(s.handleTerminal))
+	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleAudit))
 	mux.HandleFunc("GET /api/v1/system/update", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/v1/system/update", requireJSON(s.requireAuth(s.handleUpdateApply)))
 

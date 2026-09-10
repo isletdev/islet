@@ -4,6 +4,8 @@ import { api, type Health } from "@/lib/api";
 import { getTheme, setTheme, cycleTheme, type Theme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { NAV } from "@/nav";
+import CommandPalette from "@/components/CommandPalette";
+import { Link } from "react-router-dom";
 
 function Mark({ className = "" }: { className?: string }) {
   return (
@@ -22,6 +24,7 @@ export default function Shell() {
   const [open, setOpen] = useState(false);
   const { state, signOut } = useAuth();
   const username = state.status === "authed" ? state.me.user.username : "";
+  const needsTwoFactor = state.status === "authed" && state.me.user.role === "admin" && !state.me.user.totpEnabled;
 
   useEffect(() => {
     let alive = true;
@@ -94,9 +97,19 @@ export default function Shell() {
             </button>
           </div>
         </header>
+        {needsTwoFactor && (
+          <div className="border-b border-warning/40 bg-warning-soft px-4 py-2 text-sm text-warning">
+            Two-factor authentication is off for this admin account. Anyone with the password controls the server.{" "}
+            <Link to="/settings" className="font-medium underline underline-offset-2">Set it up now</Link>
+          </div>
+        )}
         <main className="flex-1 p-6">
           <Outlet context={{ health }} />
         </main>
+        <CommandPalette extra={[
+          { id: "theme", label: "Switch theme", hint: theme, run: toggleTheme },
+          { id: "signout", label: "Sign out", run: () => void signOut() },
+        ]} />
       </div>
     </div>
   );

@@ -65,6 +65,9 @@ export interface HostInfo {
 export interface Process { pid: number; name: string; user: string; cpuPct: number; memRss: number; started: number }
 export interface Port { proto: string; address: string; port: number; pid: number; process: string }
 
+export interface AuditEntry { id: number; actor: string; action: string; target: string; detail: string; createdAt: string }
+export interface UpdateStatus { current: string; channel: string; latest: string; prerelease: boolean; publishedAt: string; updateAvailable: boolean; notes?: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -117,5 +120,8 @@ export const api = {
   processes: (limit = 15) => request<Process[]>(`/api/v1/system/processes?limit=${limit}`),
   ports: () => request<Port[]>("/api/v1/system/ports"),
   metricsLatest: () => request<{ latest: Sample | null; recent: Sample[] }>("/api/v1/metrics/latest"),
+  audit: (limit = 50, before?: number) => request<AuditEntry[]>(`/api/v1/audit?limit=${limit}${before ? `&before=${before}` : ""}`),
+  updateCheck: (channel: "stable" | "beta" = "stable") => request<UpdateStatus>(`/api/v1/system/update?channel=${channel}`),
+  updateApply: (channel: "stable" | "beta" = "stable") => post<{ from: string; to: string }>(`/api/v1/system/update?channel=${channel}`),
   metricsHistory: (range: "1h" | "6h" | "24h" | "7d") => request<{ stepSeconds: number; points: Point[] }>(`/api/v1/metrics/history?range=${range}`),
 };

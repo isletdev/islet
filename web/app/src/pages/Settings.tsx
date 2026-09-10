@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { api, RequestError, type Session } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import AuditLog from "@/components/AuditLog";
 
 export default function Settings() {
   const { state, refresh } = useAuth();
@@ -18,6 +19,8 @@ export default function Settings() {
       <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
       <ChangePassword />
       <Sessions currentId={me.sessionId} />
+      <Updates />
+      <AuditLog />
     </div>
   );
 }
@@ -158,6 +161,42 @@ function Sessions({ currentId }: { currentId: string }) {
         ))}
         {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No sessions.</li>}
       </ul>
+    </Card>
+  );
+}
+
+function Updates() {
+  const [status, setStatus] = useState<{ current: string; latest: string; updateAvailable: boolean; publishedAt: string } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function check() {
+    setBusy(true); setMsg(null);
+    try { setStatus(await api.updateCheck()); }
+    catch (err) { setMsg(err instanceof RequestError ? err.message : "Could not check."); }
+    finally { setBusy(false); }
+  }
+  async function apply() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await api.updateApply();
+      setMsg(`Installed ${r.to}. The daemon is restarting; reload in a few seconds.`);
+    } catch (err) { setMsg(err instanceof RequestError ? err.message : "Update failed."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Card title="Updates" description="Releases are signed. Islet refuses anything it cannot verify.">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" onClick={() => void check()} disabled={busy}>Check for updates</Button>
+        {status && (
+          <span className="text-sm text-ink-muted">
+            {status.updateAvailable ? `Update available: ${status.current} → ${status.latest}` : `Up to date (${status.current}, latest ${status.latest})`}
+          </span>
+        )}
+        {status?.updateAvailable && <Button onClick={() => void apply()} disabled={busy}>Install {status.latest}</Button>}
+      </div>
+      {msg && <p className="mt-3 text-sm text-ink-muted">{msg}</p>}
     </Card>
   );
 }

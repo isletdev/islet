@@ -32,3 +32,13 @@ type UpdateStatus struct {
 	UpdateAvailable bool      `json:"updateAvailable"`
 	Notes           string    `json:"notes,omitempty"`
 }
+
+// AuditEntry is one row of the audit log.
+type AuditEntry struct {
+	ID        int64  `json:"id"`
+	Actor     string `json:"actor"`
+	Action    string `json:"action"`
+	Target    string `json:"target"`
+	Detail    string `json:"detail"`
+	CreatedAt string `json:"createdAt"`
+}

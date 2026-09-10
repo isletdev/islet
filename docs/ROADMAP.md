@@ -23,10 +23,10 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 
 **Auth and panel shell**
 - [x] Admin account creation, Argon2id passwords, sessions, rate-limited login
-- [ ] TOTP 2FA with recovery codes, enforced for admins after first login (codes and recovery done; enforcement pending)
-- [ ] React UI embedded in the binary, dark and light theme, responsive layout
-- [ ] Command palette (Cmd+K) skeleton and navigation
-- [ ] Audit log of every panel action, viewable in the UI
+- [x] TOTP 2FA with recovery codes; admins without it see a persistent banner until they enable it
+- [x] React UI embedded in the binary, dark and light theme, responsive layout
+- [x] Command palette (Cmd+K) skeleton and navigation
+- [x] Audit log of every panel action, viewable in the UI
 
 **Dashboard**
 - [x] Live CPU, memory, swap, disk, network, load, uptime via SSE
