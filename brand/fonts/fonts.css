@@ -1,0 +1,21 @@
+/* Self-hosted fonts. Islet runs on the user's own server and never loads fonts
+   from a third party. Both families are SIL Open Font License 1.1; see OFL.txt
+   next to each file. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("./geist/Geist[wght].ttf") format("truetype-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./geist-mono/GeistMono[wght].ttf") format("truetype-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Web app build step: convert to woff2 and subset to Latin + Latin Extended
+   (fonttools with the brotli extra) to stay under the 1 MB gzipped budget. */

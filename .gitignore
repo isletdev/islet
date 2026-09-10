@@ -1,0 +1,26 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Web
+node_modules/
+web/app/dist/
+web/packages/*/dist/
+.pnpm-store/
+
+# Local state
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
