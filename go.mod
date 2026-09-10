@@ -3,6 +3,9 @@ module github.com/isletdev/islet
 go 1.27
 
 require (
+	github.com/UserExistsError/conpty v0.1.4
+	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/shirou/gopsutil/v4 v4.26.8
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.58.0

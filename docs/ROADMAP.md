@@ -35,7 +35,7 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 - [x] Server info card (OS, kernel, hostname, timezone; Docker version and public IP once those features exist)
 
 **Terminal**
-- [ ] Web terminal (xterm.js) with tabs, reconnect, copy and paste
+- [x] Web terminal (xterm.js) with reconnect, copy and paste (tabs pending)
 
 **Not in this phase:** Docker management UI, domains, anything that writes to the system beyond install.
 

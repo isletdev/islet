@@ -3,8 +3,11 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -56,6 +59,7 @@ func New(st *store.Store, as *auth.Service, mc *metrics.Collector, ms *metrics.S
 	mux.HandleFunc("GET /api/v1/metrics/latest", s.requireAuth(s.handleMetricsLatest))
 	mux.HandleFunc("GET /api/v1/metrics/history", s.requireAuth(s.handleMetricsHistory))
 	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
+	mux.HandleFunc("GET /api/v1/terminal/ws", s.requireAuth(s.handleTerminal))
 
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", ui)
@@ -114,6 +118,18 @@ func (w *statusWriter) Flush() {
 		f.Flush()
 	}
 }
+
+// Hijack lets WebSocket upgrades take over the connection.
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		w.status = http.StatusSwitchingProtocols
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("response writer cannot be hijacked")
+}
+
+// Unwrap supports http.ResponseController.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

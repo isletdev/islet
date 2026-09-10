@@ -3,6 +3,7 @@ import Shell from "./components/Shell";
 import Overview from "./pages/Overview";
 import Placeholder from "./pages/Placeholder";
 import Settings from "./pages/Settings";
+import Terminal from "./pages/Terminal";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -23,7 +24,8 @@ export default function App() {
       <Route element={<Shell />}>
         <Route index element={<Overview />} />
         <Route path="/settings" element={<Settings />} />
-        {NAV.filter((n) => n.path !== "/" && n.path !== "/settings").map((n) => (
+        <Route path="/terminal" element={<Terminal />} />
+        {NAV.filter((n) => !["/", "/settings", "/terminal"].includes(n.path)).map((n) => (
           <Route key={n.path} path={n.path} element={<Placeholder item={n} />} />
         ))}
         <Route path="*" element={<Navigate to="/" replace />} />
