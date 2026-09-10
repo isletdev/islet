@@ -107,9 +107,16 @@ say "isletd is running"
 
 step "5/5  Done"
 IP="$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
+TOKEN="$(cat "$DATA_DIR/setup-token" 2>/dev/null || true)"
 say ""
-say "  Panel:  http://${IP:-<server-ip>}:9443"
+if [ -n "$TOKEN" ]; then
+  say "  Create your admin account (this link works once):"
+  say "  http://${IP:-<server-ip>}:9443/setup?token=$TOKEN"
+else
+  say "  Panel:  http://${IP:-<server-ip>}:9443"
+fi
+say ""
 say "  Logs:   journalctl -u isletd -f"
 say "  CLI:    islet status"
 say ""
-say "HTTPS bootstrap and the one-time login link arrive in a later v0.1 build."
+say "HTTPS bootstrap arrives in a later v0.1 build; until then use the panel over a VPN or SSH tunnel."

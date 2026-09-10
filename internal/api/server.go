@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
@@ -17,19 +18,37 @@ import (
 // Server holds the dependencies handlers need.
 type Server struct {
 	store   *store.Store
+	auth    *auth.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
 }
 
 // New builds the HTTP handler for the daemon.
-func New(st *store.Store, ui http.Handler, log *slog.Logger) http.Handler {
-	s := &Server{store: st, ui: ui, log: log, started: time.Now()}
+func New(st *store.Store, as *auth.Service, ui http.Handler, log *slog.Logger) http.Handler {
+	s := &Server{store: st, auth: as, ui: ui, log: log, started: time.Now()}
 	mux := http.NewServeMux()
+
+	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/setup", s.handleSetupStatus)
+	mux.HandleFunc("POST /api/v1/setup", requireJSON(s.handleSetup))
+	mux.HandleFunc("POST /api/v1/auth/login", requireJSON(s.handleLogin))
+	mux.HandleFunc("POST /api/v1/auth/mfa", requireJSON(s.handleMFAVerify))
+	mux.HandleFunc("POST /api/v1/auth/logout", requireJSON(s.handleLogout))
+
+	// Signed in
+	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.handleMe))
+	mux.HandleFunc("POST /api/v1/auth/password", requireJSON(s.requireAuth(s.handlePasswordChange)))
+	mux.HandleFunc("POST /api/v1/auth/totp/setup", requireJSON(s.requireAuth(s.handleTOTPSetup)))
+	mux.HandleFunc("POST /api/v1/auth/totp/enable", requireJSON(s.requireAuth(s.handleTOTPEnable)))
+	mux.HandleFunc("POST /api/v1/auth/totp/disable", requireJSON(s.requireAuth(s.handleTOTPDisable)))
+	mux.HandleFunc("GET /api/v1/auth/sessions", s.requireAuth(s.handleSessions))
+	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", requireJSON(s.requireAuth(s.handleSessionRevoke)))
+
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", ui)
-	return s.recover(s.logRequests(s.securityHeaders(mux)))
+	return s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +69,7 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

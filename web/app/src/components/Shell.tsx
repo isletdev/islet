@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { api, type Health } from "@/lib/api";
 import { getTheme, setTheme, cycleTheme, type Theme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import { NAV } from "@/nav";
 
 function Mark({ className = "" }: { className?: string }) {
@@ -19,6 +20,8 @@ export default function Shell() {
   const [health, setHealth] = useState<Health | null>(null);
   const [theme, setThemeState] = useState<Theme>(getTheme());
   const [open, setOpen] = useState(false);
+  const { state, signOut } = useAuth();
+  const username = state.status === "authed" ? state.me.user.username : "";
 
   useEffect(() => {
     let alive = true;
@@ -76,14 +79,20 @@ export default function Shell() {
             <span className="font-medium">{health?.hostname ?? "isletd unreachable"}</span>
             {health && <code className="text-xs text-ink-muted">{health.version}</code>}
           </div>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium hover:bg-surface-2"
-            title="Theme: system, light, dark"
-          >
-            {theme === "system" ? "System" : theme === "light" ? "Light" : "Dark"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium hover:bg-surface-2"
+              title="Theme: system, light, dark"
+            >
+              {theme === "system" ? "System" : theme === "light" ? "Light" : "Dark"}
+            </button>
+            <span className="hidden text-xs text-ink-muted sm:inline">{username}</span>
+            <button type="button" onClick={() => void signOut()} className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium hover:bg-surface-2">
+              Sign out
+            </button>
+          </div>
         </header>
         <main className="flex-1 p-6">
           <Outlet context={{ health }} />

@@ -17,13 +17,13 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 - [x] First migration: a `servers` table with the local server's row, and a `server_id` column on every machine-bound table (schema convention only, see `DECISIONS.md`)
 - [ ] Installs Docker Engine if missing, verifies it works
 - [ ] Self-signed HTTPS on first boot, then Let's Encrypt on a `*.sslip.io` hostname automatically
-- [ ] One-time login link printed by the installer
+- [x] One-time login link printed by the installer
 - [ ] Self-update command with signature verification, stable and beta channels
 - [ ] Uninstall script that leaves Docker and apps running
 
 **Auth and panel shell**
-- [ ] Admin account creation, Argon2id passwords, sessions, rate-limited login
-- [ ] TOTP 2FA with recovery codes, enforced for admins after first login
+- [x] Admin account creation, Argon2id passwords, sessions, rate-limited login
+- [ ] TOTP 2FA with recovery codes, enforced for admins after first login (codes and recovery done; enforcement pending)
 - [ ] React UI embedded in the binary, dark and light theme, responsive layout
 - [ ] Command palette (Cmd+K) skeleton and navigation
 - [ ] Audit log of every panel action, viewable in the UI

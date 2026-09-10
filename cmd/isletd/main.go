@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/api"
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/web"
@@ -58,9 +59,30 @@ func run() error {
 	defer st.Close()
 	_ = st.Audit(ctx, "system", "daemon.start", "", "version="+version.Version)
 
+	keys, err := auth.LoadOrCreateKeys(*dataDir)
+	if err != nil {
+		return err
+	}
+	as, err := auth.New(st, keys, *dataDir)
+	if err != nil {
+		return err
+	}
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				as.PurgeExpired(ctx)
+			}
+		}
+	}()
+
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(st, web.Handler(), log),
+		Handler:           api.New(st, as, web.Handler(), log),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -72,6 +94,11 @@ func run() error {
 		return fmt.Errorf("listen %s: %w", *listen, err)
 	}
 	log.Info("isletd started", "version", version.Version, "listen", ln.Addr().String(), "data", *dataDir, "server", st.ServerID)
+	if needs, _ := as.NeedsSetup(ctx); needs {
+		if tok, err := as.SetupToken(); err == nil {
+			log.Info("no admin yet: open the setup link to create one", "url", "http://"+displayAddr(ln.Addr().String())+"/setup?token="+tok)
+		}
+	}
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -88,6 +115,18 @@ func run() error {
 	defer cancel()
 	_ = st.Audit(shutdownCtx, "system", "daemon.stop", "", "")
 	return srv.Shutdown(shutdownCtx)
+}
+
+// displayAddr turns a listen address into something a person can open.
+func displayAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "<server-ip>"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 func envOr(key, def string) string {
