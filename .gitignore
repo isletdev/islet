@@ -24,3 +24,7 @@ web/packages/*/dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local dev state and builds
+.data/
+*.exe

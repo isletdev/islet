@@ -1,0 +1,23 @@
+[Unit]
+Description=Islet server panel
+Documentation=https://islet.dev
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/isletd
+Environment=ISLET_DATA_DIR=/var/lib/islet
+Environment=ISLET_LISTEN=0.0.0.0:9443
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+# isletd manages the host, so it runs as root and drops privileges per
+# operation. These keep the blast radius small without breaking that.
+NoNewPrivileges=no
+ProtectKernelTunables=no
+PrivateTmp=yes
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
