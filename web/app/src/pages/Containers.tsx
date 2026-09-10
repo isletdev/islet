@@ -75,12 +75,12 @@ function List() {
     finally { setBusy(null); }
   };
   return (
-    <div className="rounded-lg border border-border bg-surface">
+    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[900px] text-sm">
         <thead className="text-left text-xs text-ink-muted"><tr>
           <th className="px-4 py-2.5 font-medium">Name</th><th className="py-2.5 font-medium">Image</th><th className="py-2.5 font-medium">Stack</th>
-          <th className="py-2.5 text-right font-medium">CPU</th><th className="py-2.5 text-right font-medium">Memory</th><th className="py-2.5 font-medium">Ports</th><th className="py-2.5 pr-4 text-right font-medium"></th>
+          <th className="py-2.5 pl-3 text-right font-medium">CPU</th><th className="py-2.5 pl-3 text-right font-medium">Memory</th><th className="py-2.5 pl-3 font-medium">Ports</th><th className="py-2.5 pr-4 text-right font-medium"></th>
         </tr></thead>
         <tbody className="divide-y divide-border">
           {rows.map((c) => (
@@ -88,9 +88,9 @@ function List() {
               <td className="px-4 py-2"><Link to={`/containers/${c.id}`} className="flex items-center gap-2 font-medium text-ink hover:underline"><StateDot state={c.state} />{c.name}</Link><div className="pl-4 text-xs text-ink-muted">{c.status}</div></td>
               <td className="py-2 font-mono text-xs text-ink-muted">{c.image}</td>
               <td className="py-2 text-ink-muted">{c.stack ? <Link to="/containers/stacks" className="hover:underline">{c.stack}</Link> : ""}</td>
-              <td className="py-2 text-right font-mono tabular-nums">{c.state === "running" ? `${c.cpuPct.toFixed(1)}%` : ""}</td>
-              <td className="py-2 text-right font-mono tabular-nums text-xs">{c.state === "running" ? c.memUsage : ""}</td>
-              <td className="max-w-[22ch] truncate py-2 font-mono text-xs text-ink-muted" title={c.ports}>{c.ports}</td>
+              <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums">{c.state === "running" ? `${c.cpuPct.toFixed(1)}%` : ""}</td>
+              <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums text-xs">{c.state === "running" ? c.memUsage.split(" / ")[0] : ""}</td>
+              <td className="max-w-[22ch] truncate py-2 pl-3 font-mono text-xs text-ink-muted" title={c.ports}>{c.ports}</td>
               <td className="py-2 pr-4 text-right whitespace-nowrap">
                 {c.state === "running"
                   ? <><Act onClick={() => act(c.id, "restart")} busy={busy === c.id + "restart"}>Restart</Act><Act onClick={() => act(c.id, "stop")} busy={busy === c.id + "stop"}>Stop</Act></>

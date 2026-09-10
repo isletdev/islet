@@ -14,6 +14,7 @@ import (
 
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/docker"
+	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
@@ -27,6 +28,7 @@ type Deps struct {
 	Metrics *metrics.Collector
 	Sampler *metrics.Sampler
 	Docker  *docker.Service
+	Files   *files.Service
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -38,6 +40,7 @@ type Server struct {
 	metrics *metrics.Collector
 	sampler *metrics.Sampler
 	docker  *docker.Service
+	files   *files.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -45,7 +48,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -77,6 +80,20 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/commands", s.requireAuth(s.handleCommands))
 
 	// Docker
+	// Files
+	mux.HandleFunc("GET /api/v1/files", s.requireAuth(s.handleFilesList))
+	mux.HandleFunc("GET /api/v1/files/read", s.requireAuth(s.handleFilesRead))
+	mux.HandleFunc("GET /api/v1/files/tail", s.requireAuth(s.handleFilesTail))
+	mux.HandleFunc("PUT /api/v1/files/write", requireJSON(s.requireAuth(s.handleFilesWrite)))
+	mux.HandleFunc("POST /api/v1/files/op", requireJSON(s.requireAuth(s.handleFilesOp)))
+	mux.HandleFunc("GET /api/v1/files/trash", s.requireAuth(s.handleTrashList))
+	mux.HandleFunc("POST /api/v1/files/trash", requireJSON(s.requireAuth(s.handleTrashOp)))
+	mux.HandleFunc("GET /api/v1/files/download", s.requireAuth(s.handleFilesDownload))
+	mux.HandleFunc("POST /api/v1/files/upload", s.requireAuth(s.handleFilesUpload))
+	mux.HandleFunc("GET /api/v1/files/search", s.requireAuth(s.handleFilesSearch))
+	mux.HandleFunc("GET /api/v1/files/usage", s.requireAuth(s.handleFilesUsage))
+	mux.HandleFunc("GET /api/v1/files/checksum", s.requireAuth(s.handleFilesChecksum))
+
 	mux.HandleFunc("GET /api/v1/docker/status", s.requireAuth(s.handleDockerStatus))
 	mux.HandleFunc("GET /api/v1/docker/containers", s.requireAuth(s.handleContainers))
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}", s.requireAuth(s.handleContainer))

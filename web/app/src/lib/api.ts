@@ -77,6 +77,9 @@ export interface DockerNetwork { id: string; name: string; driver: string; scope
 export interface Stack { name: string; path: string; managed: boolean; status: string; services: number; updatedAt?: string }
 export interface CommandEntry { id: number; actor: string; command: string; exitCode: number; durationMs: number; stderr?: string; createdAt: string }
 
+export interface FileEntry { name: string; path: string; isDir: boolean; size: number; mode: string; perms: string; owner: string; group: string; modTime: string; isSymlink: boolean; target?: string; protected: boolean }
+export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -132,6 +135,15 @@ export const api = {
   audit: (limit = 50, before?: number) => request<AuditEntry[]>(`/api/v1/audit?limit=${limit}${before ? `&before=${before}` : ""}`),
   updateCheck: (channel: "stable" | "beta" = "stable") => request<UpdateStatus>(`/api/v1/system/update?channel=${channel}`),
   updateApply: (channel: "stable" | "beta" = "stable") => post<{ from: string; to: string }>(`/api/v1/system/update?channel=${channel}`),
+  filesList: (path: string) => request<{ path: string; entries: FileEntry[]; protected: boolean }>(`/api/v1/files?path=${encodeURIComponent(path)}`),
+  filesRead: (path: string) => request<{ path: string; content: string; size: number }>(`/api/v1/files/read?path=${encodeURIComponent(path)}`),
+  filesTail: (path: string, n = 65536) => request<{ path: string; content: string; size: number }>(`/api/v1/files/tail?path=${encodeURIComponent(path)}&bytes=${n}`),
+  filesWrite: (path: string, content: string) => post<void>("/api/v1/files/write", { path, content }, "PUT"),
+  filesOp: (body: Record<string, unknown>) => post<unknown>("/api/v1/files/op", body),
+  filesSearch: (root: string, q: string, content: boolean) => request<{ path: string; isDir: boolean; line?: number; text?: string }[]>(`/api/v1/files/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&content=${content ? 1 : 0}`),
+  filesUsage: (path: string) => request<{ path: string; total: number; truncated: boolean; children: { name: string; size: number; isDir: boolean }[] }>(`/api/v1/files/usage?path=${encodeURIComponent(path)}`),
+  trash: () => request<TrashItem[]>("/api/v1/files/trash"),
+  trashOp: (body: { op: "restore" | "purge"; id: string }) => post<unknown>("/api/v1/files/trash", body),
   commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
   dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
   containers: () => request<Container[]>("/api/v1/docker/containers"),

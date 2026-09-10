@@ -59,16 +59,16 @@ After this phase a user can: manage every container, paste a Compose file and ru
 - [x] Prune with a disk-usage preview of what is reclaimable
 
 **File explorer**
-- [ ] Tree and breadcrumb navigation, bookmarks, hidden files, sort and filter
-- [ ] Create, rename, copy, move, delete to trash, restore from trash
-- [ ] Permissions dialog (checkbox grid and octal), owner and group, recursive apply, make executable
-- [ ] Upload with drag-and-drop and resumable large files, download files and folders as zip
-- [ ] Compress and extract archives, checksums
-- [ ] Monaco editor with syntax highlighting, diff on save, and validation for known configs
-- [ ] Previews for images, PDF, Markdown, CSV, and streaming view for large logs
-- [ ] Search by name and by content
+- [x] Breadcrumb navigation, hidden files toggle, filter (tree and bookmarks pending)
+- [x] Create, rename, copy, move, delete to trash, restore from trash
+- [x] Permissions by octal mode with recursive apply; owner and group shown (chown API exists, dialog pending)
+- [x] Multi-file upload, download files and folders as zip (drag-and-drop and resumable pending)
+- [x] Compress and extract archives, checksums
+- [x] CodeMirror editor with syntax highlighting and Ctrl+S (diff on save and config validation pending); chosen over Monaco for bundle size
+- [x] Image preview and tail view for large files (PDF, Markdown and CSV previews pending)
+- [x] Search by name and by content
 - [ ] Docker volumes shown as browsable folders
-- [ ] Protected paths need typed confirmation, every write audited
+- [x] Protected paths need typed confirmation, every write audited
 
 **Disk Doctor**
 - [ ] Disk usage breakdown (images, volumes, logs, journal, apt cache) with safe one-click cleanup and preview

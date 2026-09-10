@@ -23,6 +23,7 @@ import (
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/docker"
+	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
@@ -52,6 +53,9 @@ func run() error {
 	}
 
 	log := newLogger(*logLvl)
+	if abs, err := filepath.Abs(*dataDir); err == nil {
+		*dataDir = abs
+	}
 	if err := os.MkdirAll(*dataDir, 0o750); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
@@ -92,6 +96,17 @@ func run() error {
 	go sampler.Run(ctx)
 	runner := cmdrun.New(st, log)
 	dk := docker.New(runner, filepath.Join(*dataDir, "stacks"))
+	fl := files.New(*dataDir)
+	go func() {
+		for {
+			fl.PurgeOlderThan(7 * 24 * time.Hour)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(6 * time.Hour):
+			}
+		}
+	}()
 	if dst := dk.Status(ctx); dst.Available {
 		log.Info("docker available", "version", dst.Version, "compose", dst.ComposeVersion)
 	} else {
@@ -100,7 +115,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

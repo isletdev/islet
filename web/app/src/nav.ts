@@ -10,7 +10,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { path: "/", label: "Overview", phase: "v0.1", ready: true, blurb: "Live CPU, memory, disk and network, plus what needs attention." },
   { path: "/containers", label: "Containers", phase: "v0.2", ready: true, blurb: "Every container, image, volume and Compose stack on this server." },
-  { path: "/files", label: "Files", phase: "v0.2", blurb: "Browse, edit and move files without SSH." },
+  { path: "/files", label: "Files", phase: "v0.2", ready: true, blurb: "Browse, edit and move files without SSH." },
   { path: "/terminal", label: "Terminal", phase: "v0.1", ready: true, blurb: "A shell on this server, in the browser." },
   { path: "/domains", label: "Domains", phase: "v0.3", blurb: "Point a domain at a container and get HTTPS." },
   { path: "/apps", label: "Apps", phase: "v0.3", blurb: "One-click apps from the catalog and deploys from Git." },
