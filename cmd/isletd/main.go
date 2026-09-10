@@ -23,6 +23,7 @@ import (
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
+	"github.com/isletdev/islet/internal/cron"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
@@ -105,12 +106,17 @@ func run() error {
 	cat := catalog.New(dk, px, filepath.Join(*dataDir, "stacks"))
 	bus := notify.New(st, keys, log)
 	go bus.Run(ctx)
+	cr := cron.New(st, bus, *dataDir, log)
+	if err := cr.Start(ctx); err != nil {
+		return fmt.Errorf("cron: %w", err)
+	}
 	go watch.Docker(ctx, runner, bus, log)
 	go watch.Resources(ctx, sampler, bus)
 	go watch.Daily(ctx, px, bus, log)
 	go func() {
 		for {
 			bus.Purge(ctx, 30*24*time.Hour)
+			cr.Purge(ctx, 30*24*time.Hour)
 			select {
 			case <-ctx.Done():
 				return
@@ -136,7 +142,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

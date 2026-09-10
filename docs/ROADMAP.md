@@ -125,14 +125,16 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [ ] Connection count, size and slow query views
 
 **Cron and task runner**
-- [ ] Job types: command, inline script, existing file, container exec, one-off container, HTTP request, chain
-- [ ] Schedule builder with presets, visual picker, raw cron field, English translation, next five runs, timezone, jitter
-- [ ] Script editor with ShellCheck, shebang selector, snippets, version history and revert
-- [ ] Managed script storage with correct ownership and executable bit
-- [ ] Run-as user, working directory, timeout, overlap policy, retries, nice level
-- [ ] Run now with live output, per-run history, duration charts, dead man's switch
-- [ ] Import existing crontabs and systemd timers, export any job as a crontab line
-- [ ] Template library (DB dump to S3, Docker prune, log cleanup, cert check, rclone sync)
+- [x] Job types: command, inline script, existing file, container exec, one-off container, HTTP request, chain, heartbeat
+- [x] Schedule builder with presets, raw cron field, English translation, next five runs, timezone, jitter
+- [ ] Visual schedule picker
+- [x] Script editor with ShellCheck (when installed), shebang selector, templates, version history and revert
+- [x] Managed script storage with correct ownership and executable bit
+- [x] Run-as user, working directory, timeout, overlap policy, retries, nice level
+- [x] Run now with live output, per-run history, duration chart, dead man's switch (heartbeat jobs with a ping URL)
+- [x] Import existing crontabs (root crontab and /etc/cron.d), export any job as a crontab line
+- [ ] Import systemd timers
+- [x] Template library (DB dump to S3, MySQL dump, Docker prune, log cleanup, cert check, rclone sync, security updates)
 
 **Notifications and events**
 - [x] Event bus with a catalog of typed events and severities
@@ -145,7 +147,8 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 
 **Alerts and uptime**
 - [x] Default alert rules: disk over 85%, memory pressure, CPU saturation, container exit/OOM/crash loop, cert expiring, failed logins, update available
-- [ ] Alert rules for backup failed and cron failed (wired when those features land)
+- [x] Alert rules for cron failed and heartbeat missed, with recovery
+- [ ] Alert rule for backup failed (wired when backups land)
 - [ ] HTTP, TCP and keyword uptime checks from the server
 
 **Not in this phase:** git deploys, runners, security suite.

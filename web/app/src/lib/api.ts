@@ -90,6 +90,14 @@ export interface InstalledApp { slug: string; name: string; domain?: string; ins
 export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; enabled: boolean; createdAt: string }
 export interface IsletEvent { id: number; category: string; severity: "info" | "warning" | "critical"; title: string; message: string; link: string; createdAt: string }
 
+export interface JobRun { id: number; jobId: string; trigger: string; attempt: number; status: string; exitCode: number; output?: string; startedAt: string; finishedAt: string; durationMs: number }
+export interface Job {
+  id: string; name: string; type: string; schedule: string; timezone: string; command: string; script: string; container: string; httpMethod: string;
+  workDir: string; runAs: string; timeoutSec: number; overlap: string; retries: number; nice: number; jitterSec: number; graceSec: number; notifyOn: string; enabled: boolean;
+  lastPingAt: string; overdue: boolean; createdAt: string; updatedAt: string; nextRun: string; lastRun?: JobRun; running: boolean; described: string;
+}
+export interface JobTemplate { id: string; name: string; description: string; schedule: string; script: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -169,6 +177,20 @@ export const api = {
   catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
+  jobs: () => request<Job[]>("/api/v1/cron/jobs"),
+  job: (id: string) => request<Job>(`/api/v1/cron/jobs/${id}`),
+  jobSave: (j: Partial<Job>) => j.id ? post<Job>(`/api/v1/cron/jobs/${j.id}`, j, "PUT") : post<Job>("/api/v1/cron/jobs", j),
+  jobDelete: (id: string) => post<void>(`/api/v1/cron/jobs/${id}`, undefined, "DELETE"),
+  jobKill: (id: string) => post<void>(`/api/v1/cron/jobs/${id}/kill`),
+  jobRuns: (id: string) => request<JobRun[]>(`/api/v1/cron/jobs/${id}/runs`),
+  jobRun: (id: string, run: number) => request<JobRun>(`/api/v1/cron/jobs/${id}/runs/${run}`),
+  jobVersions: (id: string) => request<{ id: number; actor: string; createdAt: string }[]>(`/api/v1/cron/jobs/${id}/versions`),
+  jobVersion: (id: string, v: number) => request<{ id: number; content: string }>(`/api/v1/cron/jobs/${id}/versions/${v}`),
+  jobExport: (id: string) => request<{ crontab: string; scriptPath: string }>(`/api/v1/cron/jobs/${id}/export`),
+  cronPreview: (schedule: string, timezone: string) => post<{ described: string; next: string[] }>("/api/v1/cron/preview", { schedule, timezone }),
+  cronTemplates: () => request<JobTemplate[]>("/api/v1/cron/templates"),
+  cronLint: (script: string) => post<{ available: boolean; output: string }>("/api/v1/cron/lint", { script }),
+  cronImport: (text: string, save: boolean) => post<Job[]>("/api/v1/cron/import", { text, save }),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),

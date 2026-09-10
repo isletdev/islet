@@ -15,6 +15,7 @@ import (
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
+	"github.com/isletdev/islet/internal/cron"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
@@ -37,6 +38,7 @@ type Deps struct {
 	Proxy   *proxy.Manager
 	Catalog *catalog.Service
 	Notify  *notify.Bus
+	Cron    *cron.Service
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -53,6 +55,7 @@ type Server struct {
 	proxy   *proxy.Manager
 	catalog *catalog.Service
 	notify  *notify.Bus
+	cron    *cron.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -60,12 +63,14 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
+	mux.HandleFunc("GET /api/v1/ping/{token}", s.handlePing)
+	mux.HandleFunc("POST /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("GET /api/v1/setup", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/v1/setup", requireJSON(s.handleSetup))
 	mux.HandleFunc("POST /api/v1/auth/login", requireJSON(s.handleLogin))
@@ -125,6 +130,24 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
 	mux.HandleFunc("GET /api/v1/catalog/{slug}", s.requireAuth(s.handleCatalogApp))
 	mux.HandleFunc("POST /api/v1/catalog/{slug}/install", requireJSON(s.requireAuth(s.handleCatalogInstall)))
+
+	// Cron
+	mux.HandleFunc("GET /api/v1/cron/jobs", s.requireAuth(s.handleJobs))
+	mux.HandleFunc("POST /api/v1/cron/jobs", requireJSON(s.requireAuth(s.handleJobSave)))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}", s.requireAuth(s.handleJob))
+	mux.HandleFunc("PUT /api/v1/cron/jobs/{id}", requireJSON(s.requireAuth(s.handleJobSave)))
+	mux.HandleFunc("DELETE /api/v1/cron/jobs/{id}", requireJSON(s.requireAuth(s.handleJobDelete)))
+	mux.HandleFunc("POST /api/v1/cron/jobs/{id}/run", requireJSON(s.requireAuth(s.handleJobRun)))
+	mux.HandleFunc("POST /api/v1/cron/jobs/{id}/kill", requireJSON(s.requireAuth(s.handleJobKill)))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}/runs", s.requireAuth(s.handleJobRuns))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}/runs/{run}", s.requireAuth(s.handleJobRunDetail))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}/versions", s.requireAuth(s.handleJobVersions))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}/versions/{version}", s.requireAuth(s.handleJobVersion))
+	mux.HandleFunc("GET /api/v1/cron/jobs/{id}/export", s.requireAuth(s.handleJobExport))
+	mux.HandleFunc("POST /api/v1/cron/preview", requireJSON(s.requireAuth(s.handleCronPreview)))
+	mux.HandleFunc("GET /api/v1/cron/templates", s.requireAuth(s.handleCronTemplates))
+	mux.HandleFunc("POST /api/v1/cron/lint", requireJSON(s.requireAuth(s.handleCronLint)))
+	mux.HandleFunc("POST /api/v1/cron/import", requireJSON(s.requireAuth(s.handleCronImport)))
 
 	// Notifications
 	mux.HandleFunc("GET /api/v1/notify/channels", s.requireAuth(s.handleChannels))
