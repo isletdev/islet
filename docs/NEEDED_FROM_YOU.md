@@ -31,3 +31,4 @@ The proxy is built and tested locally with self-signed certificates. Let's Encry
 ## Decisions I made while you were away
 
 Logged in `docs/DECISIONS.md` as they happen. Anything you disagree with can be reversed; nothing has been pushed anywhere.
+- [ ] **Try the runners page with a real token.** Create a GitHub personal access token (classic, `repo` scope) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`, and tell me what happened. Same for GitLab (runner authentication token) or Gitea if you use them. I could only verify the pool logic, webhooks and the workflow generator without credentials.

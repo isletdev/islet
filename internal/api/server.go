@@ -23,6 +23,7 @@ import (
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
+	"github.com/isletdev/islet/internal/runner"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
@@ -45,6 +46,7 @@ type Deps struct {
 	DB      *db.Service
 	Uptime  *uptime.Service
 	Deploy  *deploy.Service
+	Runners *runner.Service
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -65,6 +67,7 @@ type Server struct {
 	db      *db.Service
 	uptime  *uptime.Service
 	deploy  *deploy.Service
+	runners *runner.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -72,7 +75,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -80,6 +83,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
 	mux.HandleFunc("GET /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("POST /api/v1/hooks/deploy/{id}", s.handleDeployHook)
+	mux.HandleFunc("POST /api/v1/hooks/runner/{id}", s.handleRunnerHook)
 	mux.HandleFunc("POST /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("GET /api/v1/setup", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/v1/setup", requireJSON(s.handleSetup))
@@ -156,6 +160,14 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/apps/{id}/cancel", requireJSON(s.requireAuth(s.handleAppCancel)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases", s.requireAuth(s.handleAppReleases))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases/{release}", s.requireAuth(s.handleAppRelease))
+
+	// Runners
+	mux.HandleFunc("GET /api/v1/runners", s.requireAuth(s.handleRunnerPools))
+	mux.HandleFunc("POST /api/v1/runners", requireJSON(s.requireAuth(s.handleRunnerPoolSave)))
+	mux.HandleFunc("PUT /api/v1/runners/{id}", requireJSON(s.requireAuth(s.handleRunnerPoolSave)))
+	mux.HandleFunc("DELETE /api/v1/runners/{id}", requireJSON(s.requireAuth(s.handleRunnerPoolDelete)))
+	mux.HandleFunc("GET /api/v1/runners/{id}/jobs", s.requireAuth(s.handleRunnerJobs))
+	mux.HandleFunc("GET /api/v1/runners/{id}/workflow", s.requireAuth(s.handleRunnerWorkflow))
 
 	// Uptime
 	mux.HandleFunc("GET /api/v1/uptime/checks", s.requireAuth(s.handleChecks))

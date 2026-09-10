@@ -31,6 +31,7 @@ import (
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
+	"github.com/isletdev/islet/internal/runner"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/uptime"
@@ -102,18 +103,20 @@ func run() error {
 	collector := metrics.NewCollector()
 	sampler := metrics.NewSampler(collector, st, log)
 	go sampler.Run(ctx)
-	runner := cmdrun.New(st, log)
-	dk := docker.New(runner, filepath.Join(*dataDir, "stacks"))
+	cmds := cmdrun.New(st, log)
+	dk := docker.New(cmds, filepath.Join(*dataDir, "stacks"))
 	fl := files.New(*dataDir)
-	px := proxy.New(runner, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
+	px := proxy.New(cmds, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
 	cat := catalog.New(dk, px, filepath.Join(*dataDir, "stacks"))
-	dbs := db.New(runner, dk, cat, *dataDir)
+	dbs := db.New(cmds, dk, cat, *dataDir)
 	bus := notify.New(st, keys, log)
 	go bus.Run(ctx)
-	dep := deploy.New(st, keys, runner, dk, px, bus, *dataDir, log)
+	dep := deploy.New(st, keys, cmds, dk, px, bus, *dataDir, log)
 	if err := dep.Start(ctx); err != nil {
 		return fmt.Errorf("deploy: %w", err)
 	}
+	rn := runner.New(st, keys, cmds, bus, log)
+	rn.Start(ctx)
 	up := uptime.New(st, bus)
 	if err := up.Start(ctx); err != nil {
 		return fmt.Errorf("uptime: %w", err)
@@ -122,7 +125,7 @@ func run() error {
 	if err := cr.Start(ctx); err != nil {
 		return fmt.Errorf("cron: %w", err)
 	}
-	go watch.Docker(ctx, runner, bus, log)
+	go watch.Docker(ctx, cmds, bus, log)
 	go watch.Resources(ctx, sampler, bus)
 	go watch.Daily(ctx, px, bus, log)
 	go func() {
@@ -154,7 +157,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

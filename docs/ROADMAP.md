@@ -194,11 +194,12 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [ ] Sample repos for each recipe so users can try a deploy before connecting their own code
 
 **Runners**
-- [ ] Ephemeral GitHub Actions runners in Docker, registered per repo or org through the GitHub App
-- [ ] Autoscale from webhook queue events, label-based routing, cache volumes, cleanup
-- [ ] Workflow generator that writes a `deploy.yml` calling the local daemon over a Unix socket
-- [ ] GitLab Runner and Gitea act_runner registration
-- [ ] Runner dashboard: queue, job history, per-job logs
+- [x] Ephemeral GitHub Actions runners in Docker, registered per repo or org with a personal access token (unverified against GitHub until a token is available; GitHub App later)
+- [x] Autoscale from workflow_job webhook events with an idle floor and a maximum, labels, a work cache volume, exited-container sweep
+- [x] Workflow generator that writes a `deploy.yml` calling the daemon API with a scoped token
+- [ ] Unix socket auth for runners on the same box
+- [x] GitLab Runner and Gitea act_runner registration (long-lived, one container per pool; unverified)
+- [x] Runner dashboard: pools, idle/busy runners, job history from webhooks, container logs
 
 **CLI and API**
 - [x] `islet` CLI: login, whoami, apps, deploy (with rollback), logs, restart, cron list/run, notify, db list/shell

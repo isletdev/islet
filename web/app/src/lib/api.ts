@@ -120,6 +120,9 @@ export interface Detection { strategy: string; framework: string; summary: strin
 
 export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
 
+export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
+export interface RunnerJob { id: number; poolId: string; externalId: string; name: string; repo: string; runner: string; status: string; conclusion: string; url: string; queuedAt: string; startedAt: string; finishedAt: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -210,6 +213,11 @@ export const api = {
   deployCancel: (id: string) => post<void>(`/api/v1/apps/${id}/cancel`),
   releases: (id: string) => request<Release[]>(`/api/v1/apps/${id}/releases`),
   release: (id: string, rel: number) => request<Release>(`/api/v1/apps/${id}/releases/${rel}`),
+  runnerPools: () => request<RunnerPool[]>("/api/v1/runners"),
+  runnerPoolSave: (p: Partial<RunnerPool>) => p.id ? post<RunnerPool>(`/api/v1/runners/${p.id}`, p, "PUT") : post<RunnerPool>("/api/v1/runners", p),
+  runnerPoolDelete: (id: string) => post<void>(`/api/v1/runners/${id}`, undefined, "DELETE"),
+  runnerJobs: (id: string) => request<RunnerJob[]>(`/api/v1/runners/${id}/jobs`),
+  runnerWorkflow: async (id: string, app: string) => { const r = await fetch(`/api/v1/runners/${id}/workflow?app=${encodeURIComponent(app)}`, { credentials: "same-origin" }); return r.text(); },
   checks: () => request<Check[]>("/api/v1/uptime/checks"),
   checkSave: (c: Partial<Check>) => c.id ? post<Check>(`/api/v1/uptime/checks/${c.id}`, c, "PUT") : post<Check>("/api/v1/uptime/checks", c),
   checkDelete: (id: string) => post<void>(`/api/v1/uptime/checks/${id}`, undefined, "DELETE"),
