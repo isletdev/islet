@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
@@ -19,14 +20,16 @@ import (
 type Server struct {
 	store   *store.Store
 	auth    *auth.Service
+	metrics *metrics.Collector
+	sampler *metrics.Sampler
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
 }
 
 // New builds the HTTP handler for the daemon.
-func New(st *store.Store, as *auth.Service, ui http.Handler, log *slog.Logger) http.Handler {
-	s := &Server{store: st, auth: as, ui: ui, log: log, started: time.Now()}
+func New(st *store.Store, as *auth.Service, mc *metrics.Collector, ms *metrics.Sampler, ui http.Handler, log *slog.Logger) http.Handler {
+	s := &Server{store: st, auth: as, metrics: mc, sampler: ms, ui: ui, log: log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -45,6 +48,14 @@ func New(st *store.Store, as *auth.Service, ui http.Handler, log *slog.Logger) h
 	mux.HandleFunc("POST /api/v1/auth/totp/disable", requireJSON(s.requireAuth(s.handleTOTPDisable)))
 	mux.HandleFunc("GET /api/v1/auth/sessions", s.requireAuth(s.handleSessions))
 	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", requireJSON(s.requireAuth(s.handleSessionRevoke)))
+
+	// System and metrics
+	mux.HandleFunc("GET /api/v1/system", s.requireAuth(s.handleSystem))
+	mux.HandleFunc("GET /api/v1/system/processes", s.requireAuth(s.handleProcesses))
+	mux.HandleFunc("GET /api/v1/system/ports", s.requireAuth(s.handlePorts))
+	mux.HandleFunc("GET /api/v1/metrics/latest", s.requireAuth(s.handleMetricsLatest))
+	mux.HandleFunc("GET /api/v1/metrics/history", s.requireAuth(s.handleMetricsHistory))
+	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
 
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", ui)
@@ -95,6 +106,13 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Flush lets streaming handlers (SSE, logs) push through the wrapper.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (s *Server) logRequests(next http.Handler) http.Handler {

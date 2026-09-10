@@ -46,6 +46,25 @@ export interface Session {
   expiresAt: string;
 }
 
+export interface Sample {
+  ts: string; cpuPct: number; load1: number; load5: number; load15: number;
+  memUsed: number; memTotal: number; swapUsed: number; swapTotal: number;
+  diskUsed: number; diskTotal: number; netRx: number; netTx: number;
+}
+
+export interface Point {
+  ts: number; cpuPct: number; load1: number; memUsed: number; memTotal: number;
+  diskUsed: number; diskTotal: number; netRx: number; netTx: number;
+}
+
+export interface HostInfo {
+  hostname: string; os: string; platform: string; platformVersion: string; kernel: string; arch: string;
+  cpuCount: number; cpuModel: string; memTotal: number; diskTotal: number; bootTime: number; uptimeSeconds: number; timezone: string;
+}
+
+export interface Process { pid: number; name: string; user: string; cpuPct: number; memRss: number; started: number }
+export interface Port { proto: string; address: string; port: number; pid: number; process: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -94,4 +113,9 @@ export const api = {
   totpDisable: (code: string) => post<void>("/api/v1/auth/totp/disable", { code }),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),
   revokeSession: (id: string) => post<void>(`/api/v1/auth/sessions/${id}`, undefined, "DELETE"),
+  system: () => request<HostInfo>("/api/v1/system"),
+  processes: (limit = 15) => request<Process[]>(`/api/v1/system/processes?limit=${limit}`),
+  ports: () => request<Port[]>("/api/v1/system/ports"),
+  metricsLatest: () => request<{ latest: Sample | null; recent: Sample[] }>("/api/v1/metrics/latest"),
+  metricsHistory: (range: "1h" | "6h" | "24h" | "7d") => request<{ stepSeconds: number; points: Point[] }>(`/api/v1/metrics/history?range=${range}`),
 };

@@ -1,0 +1,130 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/isletdev/islet/internal/metrics"
+	"github.com/isletdev/islet/pkg/api"
+)
+
+type (
+	metricsPortAlias  = metrics.Port
+	metricsPointAlias = metrics.Point
+)
+
+func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.metrics.Host(r.Context()))
+}
+
+func (s *Server) handleProcesses(w http.ResponseWriter, r *http.Request) {
+	limit := 15
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v <= 200 {
+		limit = v
+	}
+	procs, err := s.metrics.TopProcesses(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, procs)
+}
+
+func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
+	ports, err := s.metrics.ListeningPorts(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	if ports == nil {
+		ports = []metricsPortAlias{}
+	}
+	writeJSON(w, http.StatusOK, ports)
+}
+
+// handleMetricsLatest returns the newest sample plus the last five minutes.
+func (s *Server) handleMetricsLatest(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"latest": s.sampler.Latest(),
+		"recent": s.sampler.Recent(),
+	})
+}
+
+// handleMetricsHistory aggregates stored samples. range: 1h, 6h, 24h, 7d.
+func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
+	var since, step time.Duration
+	switch r.URL.Query().Get("range") {
+	case "", "1h":
+		since, step = time.Hour, 30*time.Second
+	case "6h":
+		since, step = 6*time.Hour, 2*time.Minute
+	case "24h":
+		since, step = 24*time.Hour, 5*time.Minute
+	case "7d":
+		since, step = 7*24*time.Hour, 30*time.Minute
+	default:
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "range must be 1h, 6h, 24h or 7d"})
+		return
+	}
+	points, err := s.sampler.History(r.Context(), time.Now().Add(-since), step)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	if points == nil {
+		points = []metricsPointAlias{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"stepSeconds": int(step.Seconds()), "points": points})
+}
+
+// handleMetricsLive streams samples as server-sent events every two seconds.
+func (s *Server) handleMetricsLive(w http.ResponseWriter, r *http.Request) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "streaming unsupported"})
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	send := func(m any) bool {
+		b, err := json.Marshal(m)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: sample\ndata: %s\n\n", b); err != nil {
+			return false
+		}
+		fl.Flush()
+		return true
+	}
+	if latest := s.sampler.Latest(); latest != nil && !send(latest) {
+		return
+	}
+	ch, cancel := s.sampler.Subscribe()
+	defer cancel()
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case m := <-ch:
+			if !send(m) {
+				return
+			}
+		case <-keepalive.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			fl.Flush()
+		}
+	}
+}

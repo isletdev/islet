@@ -19,6 +19,7 @@ import (
 
 	"github.com/isletdev/islet/internal/api"
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/web"
@@ -80,9 +81,13 @@ func run() error {
 		}
 	}()
 
+	collector := metrics.NewCollector()
+	sampler := metrics.NewSampler(collector, st, log)
+	go sampler.Run(ctx)
+
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(st, as, web.Handler(), log),
+		Handler:           api.New(st, as, collector, sampler, web.Handler(), log),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
