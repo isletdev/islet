@@ -64,8 +64,8 @@ Copyright and trademark: Torsten Labs DOO, North Macedonia, https://torstenlabs.
 Requirements: Go 1.27+, Node 22+, pnpm 11+, Docker (for the features that need it).
 
 ```sh
-# API and daemon with the placeholder page
-go run ./cmd/isletd -data-dir .data/state
+# API and daemon with the placeholder page (plain HTTP for local development)
+go run ./cmd/isletd -data-dir .data/state -tls off
 
 # Web app with hot reload, proxied to the daemon on :9443
 cd web/app && pnpm install && pnpm dev

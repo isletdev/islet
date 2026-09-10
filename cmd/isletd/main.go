@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
+	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/web"
 )
@@ -37,6 +40,7 @@ func run() error {
 		listen  = flag.String("listen", envOr("ISLET_LISTEN", "127.0.0.1:9443"), "address to listen on")
 		dataDir = flag.String("data-dir", envOr("ISLET_DATA_DIR", defaultDataDir()), "directory for state")
 		logLvl  = flag.String("log-level", envOr("ISLET_LOG_LEVEL", "info"), "debug, info, warn, error")
+		tlsMode = flag.String("tls", envOr("ISLET_TLS", "on"), "on: self-signed HTTPS from the data dir; off: plain HTTP (development only)")
 		showVer = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -98,15 +102,34 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", *listen, err)
 	}
-	log.Info("isletd started", "version", version.Version, "listen", ln.Addr().String(), "data", *dataDir, "server", st.ServerID)
+	scheme := "http"
+	if *tlsMode != "off" {
+		cert, names, err := tlsutil.LoadOrCreate(*dataDir, st.Hostname)
+		if err != nil {
+			return fmt.Errorf("tls: %w", err)
+		}
+		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		scheme = "https"
+		fp, _ := tlsutil.Fingerprint(cert)
+		log.Info("tls: self-signed certificate", "names", strings.Join(names, ","), "sha256", fp)
+	} else {
+		log.Warn("tls is off: cookies and passwords travel in clear text; use only on localhost")
+	}
+	log.Info("isletd started", "version", version.Version, "listen", scheme+"://"+ln.Addr().String(), "data", *dataDir, "server", st.ServerID)
 	if needs, _ := as.NeedsSetup(ctx); needs {
 		if tok, err := as.SetupToken(); err == nil {
-			log.Info("no admin yet: open the setup link to create one", "url", "http://"+displayAddr(ln.Addr().String())+"/setup?token="+tok)
+			log.Info("no admin yet: open the setup link to create one", "url", scheme+"://"+displayAddr(ln.Addr().String())+"/setup?token="+tok)
 		}
 	}
 
 	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
+	go func() {
+		if srv.TLSConfig != nil {
+			errc <- srv.ServeTLS(ln, "", "")
+		} else {
+			errc <- srv.Serve(ln)
+		}
+	}()
 
 	select {
 	case <-ctx.Done():

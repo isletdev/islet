@@ -108,15 +108,22 @@ say "isletd is running"
 step "5/5  Done"
 IP="$(curl -fsS4 --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
 TOKEN="$(cat "$DATA_DIR/setup-token" 2>/dev/null || true)"
+HOST="${IP:-<server-ip>}"
+case "$IP" in
+  *.*.*.*) HOST="$(printf '%s' "$IP" | tr . -).sslip.io" ;;
+esac
+FP="$(openssl x509 -in "$DATA_DIR/tls/cert.pem" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 || true)"
 say ""
 if [ -n "$TOKEN" ]; then
   say "  Create your admin account (this link works once):"
-  say "  http://${IP:-<server-ip>}:9443/setup?token=$TOKEN"
+  say "  https://$HOST:9443/setup?token=$TOKEN"
 else
-  say "  Panel:  http://${IP:-<server-ip>}:9443"
+  say "  Panel:  https://$HOST:9443"
 fi
+say ""
+say "  The panel uses a certificate it issued itself. Your browser will warn once;"
+say "  compare the fingerprint before accepting:"
+say "  SHA-256 ${FP:-see: journalctl -u isletd | grep tls}"
 say ""
 say "  Logs:   journalctl -u isletd -f"
 say "  CLI:    islet status"
-say ""
-say "HTTPS bootstrap arrives in a later v0.1 build; until then use the panel over a VPN or SSH tunnel."

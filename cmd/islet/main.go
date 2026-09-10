@@ -2,10 +2,14 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/isletdev/islet/internal/version"
@@ -42,7 +46,8 @@ Usage:
   islet version     print the CLI version
 
 Environment:
-  ISLET_URL         daemon address (default http://127.0.0.1:9443)
+  ISLET_URL         daemon address (default https://127.0.0.1:9443)
+  ISLET_DATA_DIR    where the daemon keeps its certificate (default /var/lib/islet)
 `)
 }
 
@@ -50,11 +55,36 @@ func daemonURL() string {
 	if v := os.Getenv("ISLET_URL"); v != "" {
 		return v
 	}
-	return "http://127.0.0.1:9443"
+	return "https://127.0.0.1:9443"
+}
+
+func dataDir() string {
+	if v := os.Getenv("ISLET_DATA_DIR"); v != "" {
+		return v
+	}
+	if runtime.GOOS == "linux" {
+		return "/var/lib/islet"
+	}
+	return ".data"
+}
+
+// httpClient trusts the daemon's self-signed certificate when it can read
+// it from the data directory, and the system roots otherwise.
+func httpClient() *http.Client {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if pemBytes, err := os.ReadFile(filepath.Join(dataDir(), "tls", "cert.pem")); err == nil {
+		pool, _ := x509.SystemCertPool()
+		if pool == nil {
+			pool = x509.NewCertPool()
+		}
+		pool.AppendCertsFromPEM(pemBytes)
+		tlsCfg.RootCAs = pool
+	}
+	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg}}
 }
 
 func status() error {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := httpClient()
 	resp, err := client.Get(daemonURL() + "/api/v1/health")
 	if err != nil {
 		return fmt.Errorf("isletd not reachable at %s: %w", daemonURL(), err)
