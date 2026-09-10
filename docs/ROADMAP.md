@@ -98,7 +98,7 @@ After this phase a user can: point a domain at any container, get a certificate 
 - [x] Catalog format (Compose plus metadata, form fields, post-install notes) and an in-repo `catalog/` folder, embedded in the binary
 - [x] Launch set of 21 templates: Postgres, MySQL, MariaDB, Redis, MongoDB, MinIO, Uptime Kuma, n8n, Plausible, Umami, Gitea, Vaultwarden, Nginx Proxy Manager, Grafana, Metabase, WordPress, Ghost, code-server, Adminer, Nextcloud, whoami
 - [x] Install form with generated secrets and domain picker (volume paths and resource limits pending)
-- [ ] Update checks for installed catalog apps with digest diff
+- [x] Update checks for installed catalog apps with digest diff and a one-click update
 
 **Recipes**
 - [ ] Recipe engine: multi-step wizards with progress and rollback
@@ -287,13 +287,14 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 After this phase a user can: adopt a server that already runs things, extend the panel, use it from a phone, and let an AI agent operate it through MCP.
 
 **Adoption and import**
-- [ ] Import existing containers, Compose files, Nginx sites, crontabs and systemd units into managed objects
+- [x] Adopt existing Compose projects into managed stacks; crontab import
+- [ ] Import Nginx sites and systemd units
 - [ ] Import from Coolify, Dokploy and Portainer stacks
 
 **Platform**
 - [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)
 - [ ] Roles scoped to projects
-- [ ] MCP server with scoped tokens, off by default
+- [x] MCP server (Streamable HTTP) with scoped tokens, off by default, 16 tools
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
 - [ ] "Add to sidebar" embedding of any app UI behind Islet login
 - [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide

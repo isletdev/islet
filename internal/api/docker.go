@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -106,6 +108,50 @@ func (s *Server) handleContainerLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	streamLines(w, r, rc, wait)
+}
+
+// handleStackImport adopts a Compose project Docker already knows by
+// copying its file into the managed directory.
+func (s *Server) handleStackImport(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins import stacks"})
+		return
+	}
+	var req struct{ Name string }
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	stacks, err := s.docker.Stacks(r.Context(), u.Username)
+	if err != nil {
+		s.dockerErr(w, err)
+		return
+	}
+	for _, st := range stacks {
+		if st.Name != req.Name {
+			continue
+		}
+		if st.Managed {
+			writeJSON(w, http.StatusConflict, api.Error{Error: "managed", Message: "this stack is already managed"})
+			return
+		}
+		path := strings.Split(st.Path, ",")[0]
+		compose, err := os.ReadFile(path)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "read", Message: "cannot read " + path + ": " + err.Error()})
+			return
+		}
+		env, _ := os.ReadFile(filepath.Join(filepath.Dir(path), ".env"))
+		if err := s.docker.WriteStack(r.Context(), u.Username, st.Name, string(compose), string(env)); err != nil {
+			s.dockerErr(w, err)
+			return
+		}
+		_ = s.store.Audit(r.Context(), u.Username, "stack.import", st.Name, path)
+		writeJSON(w, http.StatusOK, map[string]string{"name": st.Name, "from": path, "note": "Imported. The running containers keep working; the next up/down from Islet uses the managed copy, so remove the old file from your own automation."})
+		return
+	}
+	writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no Compose project with that name"})
 }
 
 // streamLines copies a line reader to the client as SSE "line" events.

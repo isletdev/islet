@@ -278,7 +278,7 @@ function Stacks() {
         <ul className="divide-y divide-border">
           {rows.map((s) => (
             <li key={s.name} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
-              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}</div>
+              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!confirm(`Adopt ${s.name}? Its Compose file is copied into Islet so you can edit and update it here.`)) return; try { const r = await api.stackImport(s.name); alert(r.note); await refresh(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } }} className="ml-2 text-[11px] text-accent hover:underline">Adopt</button>}</div>
               {s.managed && (
                 <div className="flex gap-1">
                   <Act onClick={() => open(s.name)}>Edit</Act>

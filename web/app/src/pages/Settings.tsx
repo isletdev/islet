@@ -23,6 +23,7 @@ export default function Settings() {
       <Tokens />
       {me.user.role === "admin" && <Users meId={me.user.id} />}
       <Updates />
+      {me.user.role === "admin" && <MCP />}
       <CommandLog />
       <AuditLog />
     </div>
@@ -238,6 +239,19 @@ function Users({ meId }: { meId: string }) {
         <Button type="submit" className="h-9">Add user</Button>
         {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
       </form>
+    </Card>
+  );
+}
+
+function MCP() {
+  const [st, setSt] = useState<{ enabled: boolean; url: string } | null>(null);
+  useEffect(() => { void api.mcp().then(setSt).catch(() => {}); }, []);
+  if (!st) return null;
+  return (
+    <Card title="MCP server" description="Lets an AI agent (Claude, Cursor, any MCP client) read this server and, with the right token scopes, deploy, run jobs and notify. Off by default.">
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={st.enabled} onChange={async (e) => { const r = await api.mcpSet(e.target.checked); setSt({ enabled: r.enabled, url: "/mcp" }); }} />Enable the MCP endpoint</label>
+      {st.enabled && <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{`{ "mcpServers": { "islet": { "url": "${location.origin}/mcp", "headers": { "Authorization": "Bearer islet_…" } } } }`}</pre>}
+      {st.enabled && <p className="mt-2 text-xs text-ink-muted">Use an API token with only the scopes the agent needs; read-only is a good start. Every call is audited.</p>}
     </Card>
   );
 }

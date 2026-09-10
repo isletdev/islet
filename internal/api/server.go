@@ -21,6 +21,7 @@ import (
 	"github.com/isletdev/islet/internal/deploy"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
+	"github.com/isletdev/islet/internal/mcp"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
@@ -74,6 +75,7 @@ type Server struct {
 	runners  *runner.Service
 	security *security.Service
 	backup   *backup.Service
+	mcp      *mcp.Server
 	ui       http.Handler
 	log      *slog.Logger
 	started  time.Time
@@ -82,6 +84,7 @@ type Server struct {
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, ui: d.UI, log: d.Log, started: time.Now()}
+	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
 	mux := http.NewServeMux()
 
 	// Public
@@ -110,6 +113,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/users/{id}", requireJSON(s.requireAuth(s.handleUserUpdate)))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", requireJSON(s.requireAuth(s.handleUserDelete)))
 	mux.HandleFunc("GET /api/v1/attention", s.requireAuth(s.handleAttention))
+	mux.HandleFunc("GET /api/v1/mcp", s.requireAuth(s.handleMCPSetting))
+	mux.HandleFunc("POST /api/v1/mcp", requireJSON(s.requireAuth(s.handleMCPSetting)))
+	mux.HandleFunc("/mcp", s.requireAuth(s.handleMCP))
 	mux.HandleFunc("GET /api/v1/diagnostics", s.requireAuth(s.handleDiagnostics))
 	mux.HandleFunc("POST /api/v1/auth/tokens", requireJSON(s.requireAuth(s.handleTokenCreate)))
 	mux.HandleFunc("DELETE /api/v1/auth/tokens/{id}", requireJSON(s.requireAuth(s.handleTokenRevoke)))
@@ -157,6 +163,8 @@ func New(d Deps) http.Handler {
 	// Catalog
 	mux.HandleFunc("GET /api/v1/catalog", s.requireAuth(s.handleCatalog))
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
+	mux.HandleFunc("GET /api/v1/catalog/installed/updates", s.requireAuth(s.handleInstalledUpdates))
+	mux.HandleFunc("POST /api/v1/catalog/installed/{name}/update", requireJSON(s.requireAuth(s.handleInstalledUpdate)))
 	mux.HandleFunc("GET /api/v1/catalog/{slug}", s.requireAuth(s.handleCatalogApp))
 	mux.HandleFunc("POST /api/v1/catalog/{slug}/install", requireJSON(s.requireAuth(s.handleCatalogInstall)))
 
@@ -282,6 +290,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/docker/df", s.requireAuth(s.handleDockerDF))
 	mux.HandleFunc("POST /api/v1/docker/prune", requireJSON(s.requireAuth(s.handleDockerPrune)))
 	mux.HandleFunc("GET /api/v1/docker/stacks", s.requireAuth(s.handleStacks))
+	mux.HandleFunc("POST /api/v1/docker/stacks/import", requireJSON(s.requireAuth(s.handleStackImport)))
 	mux.HandleFunc("POST /api/v1/docker/stacks", requireJSON(s.requireAuth(s.handleStackWrite)))
 	mux.HandleFunc("GET /api/v1/docker/stacks/{name}", s.requireAuth(s.handleStack))
 	mux.HandleFunc("PUT /api/v1/docker/stacks/{name}", requireJSON(s.requireAuth(s.handleStackWrite)))

@@ -16,11 +16,13 @@ export default function Apps() {
   const [cat, setCat] = useState("all");
   const [sel, setSel] = useState<CatalogApp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [updates, setUpdates] = useState<Record<string, string[]>>({});
+  const [updating, setUpdating] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") === "catalog" ? "catalog" : "deploys";
 
   const load = () => Promise.all([api.catalog(), api.installedApps()]).then(([a, i]) => { setApps(a); setInstalled(i); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e)));
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); void api.installedUpdates().then(setUpdates).catch(() => {}); }, []);
 
   const cats = useMemo(() => ["all", ...Array.from(new Set(apps.map((a) => a.category))).sort()], [apps]);
   const shown = apps.filter((a) => (cat === "all" || a.category === cat) && (!q || `${a.name} ${a.description}`.toLowerCase().includes(q.toLowerCase())));
@@ -47,6 +49,7 @@ export default function Apps() {
                 <div className="flex items-center gap-3 text-xs">
                   {i.domain && <a href={`https://${i.domain}`} target="_blank" rel="noreferrer" className="text-accent hover:underline">{i.domain}</a>}
                   {i.values && Object.keys(i.values).length > 0 && <details className="relative"><summary className="cursor-pointer text-ink-muted hover:text-ink">Credentials</summary><pre className="absolute right-0 z-10 mt-1 max-w-md rounded-md border border-border bg-surface p-2 font-mono text-[11px] shadow-float">{Object.entries(i.values).filter(([k]) => k !== "ISLET_DOMAIN").map(([k, v]) => `${k}=${v}`).join("\n")}</pre></details>}
+                  {updates[i.name] && (canInstall ? <button type="button" disabled={updating !== null} onClick={async () => { setUpdating(i.name); try { await postStream(`/api/v1/catalog/installed/${i.name}/update`, () => {}); setUpdates((u) => { const c = { ...u }; delete c[i.name]; return c; }); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setUpdating(null); } }} className="text-warning hover:underline">{updating === i.name ? "Updating…" : "Update available"}</button> : <span className="text-warning">Update available</span>)}
                   <Link to="/containers/stacks" className="text-ink-muted hover:text-ink">Manage stack</Link>
                 </div>
               </li>

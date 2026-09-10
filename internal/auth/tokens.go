@@ -152,6 +152,8 @@ func ScopeAllows(scopes, method, path string) bool {
 	}
 	read := method == "GET" || method == "HEAD"
 	switch {
+	case path == "/mcp":
+		return true
 	case strings.HasPrefix(path, "/api/v1/apps"):
 		return has("deploy") || (read && has("read"))
 	case strings.HasPrefix(path, "/api/v1/cron"):
