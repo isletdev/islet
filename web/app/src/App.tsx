@@ -4,6 +4,7 @@ import Overview from "./pages/Overview";
 import Placeholder from "./pages/Placeholder";
 import Settings from "./pages/Settings";
 import Terminal from "./pages/Terminal";
+import ContainersRoot from "./pages/Containers";
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -25,7 +26,8 @@ export default function App() {
         <Route index element={<Overview />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/terminal" element={<Terminal />} />
-        {NAV.filter((n) => !["/", "/settings", "/terminal"].includes(n.path)).map((n) => (
+        <Route path="/containers/*" element={<ContainersRoot />} />
+        {NAV.filter((n) => !n.ready).map((n) => (
           <Route key={n.path} path={n.path} element={<Placeholder item={n} />} />
         ))}
         <Route path="*" element={<Navigate to="/" replace />} />

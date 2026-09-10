@@ -15,7 +15,7 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 - [ ] `curl -fsSL https://get.islet.dev | sh` for Ubuntu 22.04+ and Debian 12+ on x86_64 and arm64
 - [ ] Single static Go binary `isletd`, systemd unit, `islet` system user, state in `/var/lib/islet`
 - [x] First migration: a `servers` table with the local server's row, and a `server_id` column on every machine-bound table (schema convention only, see `DECISIONS.md`)
-- [ ] Installs Docker Engine if missing, verifies it works
+- [x] Installs Docker Engine if missing; the daemon verifies it at startup and reports the version
 - [x] Self-signed HTTPS on first boot (Let's Encrypt for the panel's own domain arrives with the proxy in v0.3)
 - [x] One-time login link printed by the installer
 - [x] Self-update command with signature verification, stable and beta channels
@@ -49,14 +49,14 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 After this phase a user can: manage every container, paste a Compose file and run it, browse and edit any file, and fix a config without leaving the browser.
 
 **Docker**
-- [ ] Containers list with state, CPU, memory, ports, uptime; start, stop, restart, remove, recreate
-- [ ] Live logs with search, follow, and download
-- [ ] Exec terminal into any container
-- [ ] Images: list, pull, remove, dangling detection; volumes and networks: list, inspect, remove
-- [ ] Compose stacks: create from pasted YAML, validate, up, down, pull and redeploy, edit in place
+- [x] Containers list with state, CPU, memory, ports, uptime; start, stop, restart, remove (recreate via stack update)
+- [x] Live logs with search and follow (download pending)
+- [x] Exec terminal into any container
+- [x] Images: list, pull, remove, dangling detection; volumes and networks: list, inspect, remove
+- [x] Compose stacks: create from pasted YAML, validate, up, down, pull and redeploy, edit in place
 - [ ] Registry logins (Docker Hub, GHCR, GitLab, private)
-- [ ] Resource limits and restart policy editor
-- [ ] Prune with dry-run preview
+- [x] Resource limits and restart policy editor
+- [x] Prune with a disk-usage preview of what is reclaimable
 
 **File explorer**
 - [ ] Tree and breadcrumb navigation, bookmarks, hidden files, sort and filter

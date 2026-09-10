@@ -29,6 +29,9 @@ func Start(o Options) (Session, error) {
 		}
 	}
 	cmd := exec.Command(shell, "-l")
+	if len(o.Command) > 0 {
+		cmd = exec.Command(o.Command[0], o.Command[1:]...)
+	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "ISLET_TERMINAL=1")
 	if o.Dir != "" {
 		cmd.Dir = o.Dir

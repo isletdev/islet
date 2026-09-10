@@ -13,11 +13,23 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
 )
+
+// Deps are the services the API exposes.
+type Deps struct {
+	Store   *store.Store
+	Auth    *auth.Service
+	Metrics *metrics.Collector
+	Sampler *metrics.Sampler
+	Docker  *docker.Service
+	UI      http.Handler
+	Log     *slog.Logger
+}
 
 // Server holds the dependencies handlers need.
 type Server struct {
@@ -25,14 +37,15 @@ type Server struct {
 	auth    *auth.Service
 	metrics *metrics.Collector
 	sampler *metrics.Sampler
+	docker  *docker.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
 }
 
 // New builds the HTTP handler for the daemon.
-func New(st *store.Store, as *auth.Service, mc *metrics.Collector, ms *metrics.Sampler, ui http.Handler, log *slog.Logger) http.Handler {
-	s := &Server{store: st, auth: as, metrics: mc, sampler: ms, ui: ui, log: log, started: time.Now()}
+func New(d Deps) http.Handler {
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -61,11 +74,36 @@ func New(st *store.Store, as *auth.Service, mc *metrics.Collector, ms *metrics.S
 	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
 	mux.HandleFunc("GET /api/v1/terminal/ws", s.requireAuth(s.handleTerminal))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleAudit))
+	mux.HandleFunc("GET /api/v1/commands", s.requireAuth(s.handleCommands))
+
+	// Docker
+	mux.HandleFunc("GET /api/v1/docker/status", s.requireAuth(s.handleDockerStatus))
+	mux.HandleFunc("GET /api/v1/docker/containers", s.requireAuth(s.handleContainers))
+	mux.HandleFunc("GET /api/v1/docker/containers/{id}", s.requireAuth(s.handleContainer))
+	mux.HandleFunc("GET /api/v1/docker/containers/{id}/logs", s.requireAuth(s.handleContainerLogs))
+	mux.HandleFunc("GET /api/v1/docker/containers/{id}/exec", s.requireAuth(s.handleContainerExec))
+	mux.HandleFunc("POST /api/v1/docker/containers/{id}/limits", requireJSON(s.requireAuth(s.handleContainerLimits)))
+	mux.HandleFunc("POST /api/v1/docker/containers/{id}/{action}", requireJSON(s.requireAuth(s.handleContainerAction)))
+	mux.HandleFunc("GET /api/v1/docker/images", s.requireAuth(s.handleImages))
+	mux.HandleFunc("POST /api/v1/docker/images/pull", requireJSON(s.requireAuth(s.handleImagePull)))
+	mux.HandleFunc("DELETE /api/v1/docker/images/{id}", requireJSON(s.requireAuth(s.handleImageRemove)))
+	mux.HandleFunc("GET /api/v1/docker/volumes", s.requireAuth(s.handleVolumes))
+	mux.HandleFunc("DELETE /api/v1/docker/volumes/{name}", requireJSON(s.requireAuth(s.handleVolumeRemove)))
+	mux.HandleFunc("GET /api/v1/docker/networks", s.requireAuth(s.handleNetworks))
+	mux.HandleFunc("DELETE /api/v1/docker/networks/{name}", requireJSON(s.requireAuth(s.handleNetworkRemove)))
+	mux.HandleFunc("GET /api/v1/docker/df", s.requireAuth(s.handleDockerDF))
+	mux.HandleFunc("POST /api/v1/docker/prune", requireJSON(s.requireAuth(s.handleDockerPrune)))
+	mux.HandleFunc("GET /api/v1/docker/stacks", s.requireAuth(s.handleStacks))
+	mux.HandleFunc("POST /api/v1/docker/stacks", requireJSON(s.requireAuth(s.handleStackWrite)))
+	mux.HandleFunc("GET /api/v1/docker/stacks/{name}", s.requireAuth(s.handleStack))
+	mux.HandleFunc("PUT /api/v1/docker/stacks/{name}", requireJSON(s.requireAuth(s.handleStackWrite)))
+	mux.HandleFunc("DELETE /api/v1/docker/stacks/{name}", requireJSON(s.requireAuth(s.handleStackRemove)))
+	mux.HandleFunc("POST /api/v1/docker/stacks/{name}/{action}", requireJSON(s.requireAuth(s.handleStackAction)))
 	mux.HandleFunc("GET /api/v1/system/update", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/v1/system/update", requireJSON(s.requireAuth(s.handleUpdateApply)))
 
 	mux.HandleFunc("/api/", s.notFound)
-	mux.Handle("/", ui)
+	mux.Handle("/", s.ui)
 	return s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
 }
 

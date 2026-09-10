@@ -17,6 +17,8 @@ type Options struct {
 	Cols, Rows int
 	// Shell overrides the default shell for the platform.
 	Shell string
+	// Command, when set, is run instead of a shell (argv form).
+	Command []string
 	// Dir is the working directory; empty means the platform default.
 	Dir string
 }

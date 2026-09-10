@@ -61,7 +61,7 @@ export default function Shell() {
               }
             >
               <span>{n.label}</span>
-              {n.phase !== "v0.1" && <span className="font-mono text-[11px] text-ink-faint">{n.phase}</span>}
+              {!n.ready && <span className="font-mono text-[11px] text-ink-faint">{n.phase}</span>}
             </NavLink>
           ))}
         </nav>

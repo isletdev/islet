@@ -42,3 +42,14 @@ type AuditEntry struct {
 	Detail    string `json:"detail"`
 	CreatedAt string `json:"createdAt"`
 }
+
+// CommandEntry is one executed command, for the transparency drawer.
+type CommandEntry struct {
+	ID         int64  `json:"id"`
+	Actor      string `json:"actor"`
+	Command    string `json:"command"`
+	ExitCode   int    `json:"exitCode"`
+	DurationMs int64  `json:"durationMs"`
+	Stderr     string `json:"stderr,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+}

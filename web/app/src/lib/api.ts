@@ -68,6 +68,15 @@ export interface Port { proto: string; address: string; port: number; pid: numbe
 export interface AuditEntry { id: number; actor: string; action: string; target: string; detail: string; createdAt: string }
 export interface UpdateStatus { current: string; channel: string; latest: string; prerelease: boolean; publishedAt: string; updateAvailable: boolean; notes?: string }
 
+export interface DockerStatus { available: boolean; version: string; composeVersion: string; error?: string }
+export interface Container { id: string; name: string; image: string; state: string; status: string; ports: string; createdAt: string; stack?: string; service?: string; cpuPct: number; memUsage: string; memPct: number; netIO: string }
+export interface ContainerDetail { id: string; name: string; image: string; state: string; startedAt: string; restartCount: number; restartPolicy: string; cmd: string[]; env: string[]; mounts: { type: string; source: string; destination: string; rw: boolean }[]; ports: Record<string, string>; labels: Record<string, string>; memoryLimit: number; cpuLimit: number; networks: string[]; stack?: string; service?: string }
+export interface DockerImage { id: string; repository: string; tag: string; size: string; createdAt: string; dangling: boolean; inUse: boolean }
+export interface DockerVolume { name: string; driver: string; mountpoint: string; size: string; inUse: boolean; stack?: string }
+export interface DockerNetwork { id: string; name: string; driver: string; scope: string }
+export interface Stack { name: string; path: string; managed: boolean; status: string; services: number; updatedAt?: string }
+export interface CommandEntry { id: number; actor: string; command: string; exitCode: number; durationMs: number; stderr?: string; createdAt: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -123,5 +132,23 @@ export const api = {
   audit: (limit = 50, before?: number) => request<AuditEntry[]>(`/api/v1/audit?limit=${limit}${before ? `&before=${before}` : ""}`),
   updateCheck: (channel: "stable" | "beta" = "stable") => request<UpdateStatus>(`/api/v1/system/update?channel=${channel}`),
   updateApply: (channel: "stable" | "beta" = "stable") => post<{ from: string; to: string }>(`/api/v1/system/update?channel=${channel}`),
+  commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
+  dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
+  containers: () => request<Container[]>("/api/v1/docker/containers"),
+  container: (id: string) => request<ContainerDetail>(`/api/v1/docker/containers/${id}`),
+  containerAction: (id: string, action: string) => post<void>(`/api/v1/docker/containers/${id}/${action}`),
+  containerLimits: (id: string, body: { memoryBytes: number; cpus: number; restart: string }) => post<void>(`/api/v1/docker/containers/${id}/limits`, body),
+  images: () => request<DockerImage[]>("/api/v1/docker/images"),
+  imageRemove: (id: string) => post<void>(`/api/v1/docker/images/${id}`, undefined, "DELETE"),
+  volumes: () => request<DockerVolume[]>("/api/v1/docker/volumes"),
+  volumeRemove: (name: string) => post<void>(`/api/v1/docker/volumes/${name}`, undefined, "DELETE"),
+  networks: () => request<DockerNetwork[]>("/api/v1/docker/networks"),
+  networkRemove: (name: string) => post<void>(`/api/v1/docker/networks/${name}`, undefined, "DELETE"),
+  dockerDF: () => request<{ type: string; total: number; active: number; size: string; reclaimable: string }[]>("/api/v1/docker/df"),
+  dockerPrune: (o: { containers: boolean; images: boolean; allImages: boolean; volumes: boolean; networks: boolean; builder: boolean }) => post<Record<string, string>>("/api/v1/docker/prune", o),
+  stacks: () => request<Stack[]>("/api/v1/docker/stacks"),
+  stack: (name: string) => request<{ name: string; compose: string; env: string }>(`/api/v1/docker/stacks/${name}`),
+  stackWrite: (name: string, compose: string, env: string, isNew: boolean) => isNew ? post<{ name: string }>("/api/v1/docker/stacks", { name, compose, env }) : post<{ name: string }>(`/api/v1/docker/stacks/${name}`, { name, compose, env }, "PUT"),
+  stackRemove: (name: string, volumes: boolean) => post<void>(`/api/v1/docker/stacks/${name}?volumes=${volumes ? 1 : 0}`, undefined, "DELETE"),
   metricsHistory: (range: "1h" | "6h" | "24h" | "7d") => request<{ stepSeconds: number; points: Point[] }>(`/api/v1/metrics/history?range=${range}`),
 };

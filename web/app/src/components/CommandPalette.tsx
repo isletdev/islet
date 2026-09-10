@@ -18,7 +18,7 @@ export default function CommandPalette({ extra = [] }: { extra?: Command[] }) {
   const input = useRef<HTMLInputElement>(null);
 
   const commands = useMemo<Command[]>(() => [
-    ...NAV.map((n) => ({ id: `go:${n.path}`, label: `Go to ${n.label}`, hint: n.phase !== "v0.1" ? `planned ${n.phase}` : undefined, run: () => nav(n.path) })),
+    ...NAV.map((n) => ({ id: `go:${n.path}`, label: `Go to ${n.label}`, hint: n.ready ? undefined : `planned ${n.phase}`, run: () => nav(n.path) })),
     ...extra,
   ], [nav, extra]);
 

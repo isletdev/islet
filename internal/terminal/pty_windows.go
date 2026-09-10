@@ -4,6 +4,7 @@ package terminal
 
 import (
 	"os"
+	"strings"
 
 	"github.com/UserExistsError/conpty"
 )
@@ -19,6 +20,9 @@ func Start(o Options) (Session, error) {
 	shell := o.Shell
 	if shell == "" {
 		shell = "powershell.exe -NoLogo"
+	}
+	if len(o.Command) > 0 {
+		shell = strings.Join(o.Command, " ")
 	}
 	dir := o.Dir
 	if dir == "" {
