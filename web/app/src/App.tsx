@@ -17,6 +17,7 @@ const Databases = lazy(() => import("./pages/Databases"));
 const Uptime = lazy(() => import("./pages/Uptime"));
 const Logs = lazy(() => import("./pages/Logs"));
 const Runners = lazy(() => import("./pages/Runners"));
+const Security = lazy(() => import("./pages/Security"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/uptime" element={<Uptime />} />
         <Route path="/logs" element={<Logs />} />
         <Route path="/runners" element={<Runners />} />
+        <Route path="/security" element={<Security />} />
         {NAV.filter((n) => !n.ready).map((n) => (
           <Route key={n.path} path={n.path} element={<Placeholder item={n} />} />
         ))}

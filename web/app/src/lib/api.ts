@@ -123,6 +123,13 @@ export interface ApiToken { id: string; userId: string; name: string; scopes: st
 export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
 export interface RunnerJob { id: number; poolId: string; externalId: string; name: string; repo: string; runner: string; status: string; conclusion: string; url: string; queuedAt: string; startedAt: string; finishedAt: string }
 
+export interface SecCheck { id: string; title: string; detail: string; weight: number; status: "pass" | "fail" | "warn" | "unknown"; fix?: string; fixNote?: string }
+export interface SecReport { score: number; max: number; checks: SecCheck[]; linux: boolean; computedAt: string }
+export interface FirewallRule { port: string; proto: string; from: string; comment: string }
+export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
+export interface Scan { target: string; at: string; critical: number; high: number; medium: number; low: number; findings: { id: string; package: string; version: string; fixed: string; severity: string; title: string }[]; error?: string; truncated?: boolean }
+export interface SecurityState { report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -213,6 +220,15 @@ export const api = {
   deployCancel: (id: string) => post<void>(`/api/v1/apps/${id}/cancel`),
   releases: (id: string) => request<Release[]>(`/api/v1/apps/${id}/releases`),
   release: (id: string, rel: number) => request<Release>(`/api/v1/apps/${id}/releases/${rel}`),
+  security: () => request<SecurityState>("/api/v1/security"),
+  securityFix: (id: string) => post<{ output: string }>(`/api/v1/security/fix/${id}`),
+  firewallAllow: (b: { port: string; proto: string; from: string; comment: string }) => post<void>("/api/v1/security/firewall/rules", b),
+  firewallDelete: (b: { port: string; proto: string; from: string }) => post<void>("/api/v1/security/firewall/rules", b, "DELETE"),
+  unban: (ip: string) => post<void>("/api/v1/security/unban", { ip }),
+  sshApply: (cfg: SSHSettings) => post<{ message: string }>("/api/v1/security/ssh", cfg),
+  sshConfirm: () => post<void>("/api/v1/security/ssh/confirm"),
+  scanImage: (image: string) => post<Scan>("/api/v1/security/scan", { image }),
+  panic: () => post<{ output: string; message: string }>("/api/v1/security/panic"),
   runnerPools: () => request<RunnerPool[]>("/api/v1/runners"),
   runnerPoolSave: (p: Partial<RunnerPool>) => p.id ? post<RunnerPool>(`/api/v1/runners/${p.id}`, p, "PUT") : post<RunnerPool>("/api/v1/runners", p),
   runnerPoolDelete: (id: string) => post<void>(`/api/v1/runners/${id}`, undefined, "DELETE"),

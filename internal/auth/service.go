@@ -322,6 +322,24 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return err
 }
 
+// RevokeOthers deletes every session except keep and every API token.
+func (s *Service) RevokeOthers(ctx context.Context, keep string) error {
+	if _, err := s.st.DB.ExecContext(ctx, `DELETE FROM sessions WHERE id <> ?`, keep); err != nil {
+		return err
+	}
+	_, err := s.st.DB.ExecContext(ctx, `DELETE FROM api_tokens`)
+	return err
+}
+
+// AllAdminsHave2FA reports whether every admin has TOTP enabled.
+func (s *Service) AllAdminsHave2FA(ctx context.Context) bool {
+	var n int
+	if err := s.st.DB.QueryRowContext(ctx, `SELECT count(*) FROM users u WHERE u.role = 'admin' AND (u.totp_secret_enc IS NULL OR length(u.totp_secret_enc) = 0)`).Scan(&n); err != nil {
+		return false
+	}
+	return n == 0
+}
+
 // Sessions lists a user's live sessions.
 func (s *Service) Sessions(ctx context.Context, userID string) ([]Session, error) {
 	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, user_id, mfa_pending, ip, user_agent, created_at, last_seen_at, expires_at

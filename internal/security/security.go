@@ -1,0 +1,801 @@
+// Package security computes the Security Score, applies one-click fixes
+// (firewall, fail2ban, unattended upgrades, SSH hardening with a rollback
+// timer), scans images with Trivy and offers the panic button.
+package security
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/isletdev/islet/internal/cmdrun"
+	"github.com/isletdev/islet/internal/notify"
+	"github.com/isletdev/islet/internal/store"
+)
+
+// Check is one line of the Security Score.
+type Check struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail"`
+	Weight  int    `json:"weight"`
+	Status  string `json:"status"` // pass | fail | warn | unknown
+	Fix     string `json:"fix,omitempty"`
+	FixNote string `json:"fixNote,omitempty"`
+}
+
+// Report is the score with its checks.
+type Report struct {
+	Score      int     `json:"score"`
+	Max        int     `json:"max"`
+	Checks     []Check `json:"checks"`
+	Linux      bool    `json:"linux"`
+	ComputedAt string  `json:"computedAt"`
+}
+
+// FirewallRule is one allowed port.
+type FirewallRule struct {
+	Port    string `json:"port"`
+	Proto   string `json:"proto"`
+	From    string `json:"from"`
+	Comment string `json:"comment"`
+}
+
+// Firewall is the ufw state.
+type Firewall struct {
+	Installed bool           `json:"installed"`
+	Active    bool           `json:"active"`
+	Rules     []FirewallRule `json:"rules"`
+	DockerOK  bool           `json:"dockerAware"`
+}
+
+// Finding is a Trivy vulnerability.
+type Finding struct {
+	ID       string `json:"id"`
+	Package  string `json:"package"`
+	Version  string `json:"version"`
+	Fixed    string `json:"fixed"`
+	Severity string `json:"severity"`
+	Title    string `json:"title"`
+}
+
+// Scan is the stored result of a Trivy run.
+type Scan struct {
+	Target    string    `json:"target"`
+	At        string    `json:"at"`
+	Critical  int       `json:"critical"`
+	High      int       `json:"high"`
+	Medium    int       `json:"medium"`
+	Low       int       `json:"low"`
+	Findings  []Finding `json:"findings"`
+	Error     string    `json:"error,omitempty"`
+	Truncated bool      `json:"truncated,omitempty"`
+}
+
+// Service is the security facade.
+type Service struct {
+	st      *store.Store
+	run     *cmdrun.Runner
+	bus     *notify.Bus
+	log     *slog.Logger
+	dataDir string
+
+	mu        sync.Mutex
+	rollback  *time.Timer
+	prevSSHD  []byte
+	sshdPath  string
+	scans     map[string]Scan
+	hasPlan   func(context.Context) bool
+	has2FA    func(context.Context) bool
+	panelCert func() bool
+}
+
+// Hooks lets other packages answer questions the score needs.
+type Hooks struct {
+	HasBackupPlan func(context.Context) bool
+	Admin2FA      func(context.Context) bool
+	PanelHasCert  func() bool
+}
+
+// New builds the service.
+func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, h Hooks, log *slog.Logger) *Service {
+	abs, _ := filepath.Abs(dataDir)
+	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert}
+	if b, err := os.ReadFile(filepath.Join(abs, "scans.json")); err == nil {
+		_ = json.Unmarshal(b, &s.scans)
+	}
+	return s
+}
+
+func (s *Service) sh(ctx context.Context, actor string, name string, args ...string) (string, error) {
+	res, err := s.run.Run(ctx, actor, name, args...)
+	if err != nil {
+		var ce *cmdrun.Error
+		if errors.As(err, &ce) {
+			return res.Stdout, errors.New(strings.TrimSpace(ce.Result.Stderr + " " + ce.Result.Stdout))
+		}
+		return "", err
+	}
+	return res.Stdout, nil
+}
+
+func has(bin string) bool { _, err := exec.LookPath(bin); return err == nil }
+
+func unitActive(ctx context.Context, s *Service, unit string) bool {
+	out, _ := s.sh(ctx, "system", "systemctl", "is-active", unit)
+	return strings.TrimSpace(out) == "active"
+}
+
+// ---- score ----
+
+// Report computes the checks. Non-Linux hosts get the panel-only checks.
+func (s *Service) Report(ctx context.Context) Report {
+	linux := runtime.GOOS == "linux"
+	var checks []Check
+	add := func(c Check) { checks = append(checks, c) }
+
+	// Panel checks work everywhere.
+	if s.has2FA != nil {
+		st := "fail"
+		if s.has2FA(ctx) {
+			st = "pass"
+		}
+		add(Check{ID: "panel-2fa", Title: "Two-factor on every admin account", Detail: "A stolen password alone should not hand over the server.", Weight: 10, Status: st, FixNote: "Settings → Two-factor authentication"})
+	}
+	if s.panelCert != nil {
+		st := "warn"
+		if s.panelCert() {
+			st = "pass"
+		}
+		add(Check{ID: "panel-cert", Title: "Panel served with a trusted certificate", Detail: "Route a domain to the panel with Let's Encrypt instead of the self-signed certificate.", Weight: 4, Status: st, FixNote: "Domains → add a domain with target Panel"})
+	}
+	if s.hasPlan != nil {
+		st := "fail"
+		if s.hasPlan(ctx) {
+			st = "pass"
+		}
+		add(Check{ID: "backups", Title: "A backup plan exists", Detail: "Security includes getting the data back.", Weight: 8, Status: st, FixNote: "Backups → New plan"})
+	}
+	// Publicly exposed databases (Docker port bindings on all interfaces).
+	if out, err := s.sh(ctx, "system", "docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"); err == nil {
+		var exposed []string
+		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+			name, ports, _ := strings.Cut(l, "\t")
+			for _, p := range []string{"5432", "3306", "6379", "27017", "9200", "5984", "8086"} {
+				if strings.Contains(ports, "0.0.0.0:"+p+"->") || strings.Contains(ports, ":::"+p+"->") || strings.Contains(ports, "0.0.0.0:") && strings.Contains(ports, "->"+p+"/") {
+					exposed = append(exposed, name+":"+p)
+				}
+			}
+		}
+		st, detail := "pass", "No database ports are published on public interfaces."
+		if len(exposed) > 0 {
+			st, detail = "fail", "Published on every interface: "+strings.Join(exposed, ", ")+". Prefer an SSH tunnel or an IP allowlist."
+		}
+		add(Check{ID: "db-exposed", Title: "No databases reachable from the internet", Detail: detail, Weight: 10, Status: st})
+	}
+	if out, err := s.sh(ctx, "system", "docker", "ps", "--format", "{{.Names}}\t{{.Mounts}}"); err == nil {
+		var sock []string
+		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+			name, mounts, _ := strings.Cut(l, "\t")
+			if strings.Contains(mounts, "docker.sock") && name != "islet-proxy" && !strings.HasPrefix(name, "islet-runner-") {
+				sock = append(sock, name)
+			}
+		}
+		st, detail := "pass", "Only Islet's proxy and runners you allowed can talk to Docker."
+		if len(sock) > 0 {
+			st, detail = "warn", "Containers with the Docker socket mounted (root on the host): "+strings.Join(sock, ", ")
+		}
+		add(Check{ID: "docker-sock", Title: "Docker socket not handed to random containers", Detail: detail, Weight: 5, Status: st})
+	}
+
+	if linux {
+		// SSH
+		cfg := s.readSSHD(ctx)
+		st := "fail"
+		if !cfg.PermitRoot {
+			st = "pass"
+		}
+		add(Check{ID: "ssh-root", Title: "Root cannot log in over SSH with a password", Detail: "Attackers try root first. Log in as a sudo user, or root with a key only.", Weight: 10, Status: st, Fix: "ssh-harden", FixNote: "Turns off root password login and password authentication (keeps keys)"})
+		st = "fail"
+		if !cfg.PasswordAuth {
+			st = "pass"
+		}
+		add(Check{ID: "ssh-password", Title: "SSH password authentication off", Detail: "Keys only. Brute force becomes pointless.", Weight: 10, Status: st, Fix: "ssh-harden"})
+		st = "warn"
+		if cfg.Port != 22 {
+			st = "pass"
+		}
+		add(Check{ID: "ssh-port", Title: "SSH on a non-default port", Detail: "Not security by itself, but it cuts log noise by 95%. Optional.", Weight: 2, Status: st, FixNote: "Security → SSH settings"})
+		// Firewall
+		fw := s.FirewallStatus(ctx)
+		st = "fail"
+		if fw.Active {
+			st = "pass"
+		}
+		add(Check{ID: "firewall", Title: "Firewall enabled with only the needed ports", Detail: "ufw with SSH, HTTP, HTTPS and the panel port allowed, everything else denied. Published Docker ports honour it.", Weight: 12, Status: st, Fix: "firewall", FixNote: "Enables ufw with SSH, 80, 443 and the panel port"})
+		if fw.Active {
+			st = "warn"
+			if fw.DockerOK {
+				st = "pass"
+			}
+			add(Check{ID: "firewall-docker", Title: "Docker cannot bypass the firewall", Detail: "Without the DOCKER-USER rules, any published port is open regardless of ufw.", Weight: 5, Status: st, Fix: "firewall"})
+		}
+		// fail2ban
+		st = "fail"
+		if unitActive(ctx, s, "fail2ban") {
+			st = "pass"
+		}
+		add(Check{ID: "fail2ban", Title: "Brute-force protection (fail2ban)", Detail: "Bans IPs after repeated failed SSH logins.", Weight: 8, Status: st, Fix: "fail2ban", FixNote: "Installs fail2ban with an sshd jail"})
+		// Unattended upgrades
+		st = "fail"
+		if _, err := os.Stat("/etc/apt/apt.conf.d/20auto-upgrades"); err == nil && unitActive(ctx, s, "unattended-upgrades") {
+			st = "pass"
+		} else if !has("apt-get") {
+			st = "unknown"
+		}
+		add(Check{ID: "auto-updates", Title: "Security updates install automatically", Detail: "unattended-upgrades applies security patches nightly.", Weight: 8, Status: st, Fix: "auto-updates"})
+		// Pending updates
+		if has("apt-get") {
+			out, _ := s.sh(ctx, "system", "sh", "-c", "apt-get -s upgrade 2>/dev/null | grep -c '^Inst.*security' || true")
+			n, _ := strconv.Atoi(strings.TrimSpace(out))
+			st, detail := "pass", "No pending security updates."
+			if n > 0 {
+				st, detail = "warn", fmt.Sprintf("%d security updates are pending.", n)
+			}
+			add(Check{ID: "pending-updates", Title: "No pending security updates", Detail: detail, Weight: 4, Status: st, Fix: "apt-upgrade", FixNote: "Runs apt-get upgrade for security packages"})
+		}
+		st, detail := "pass", "No reboot pending."
+		if _, err := os.Stat("/var/run/reboot-required"); err == nil {
+			st, detail = "warn", "A kernel or core library update is waiting for a reboot."
+		}
+		add(Check{ID: "reboot", Title: "No reboot pending", Detail: detail, Weight: 2, Status: st})
+		// Sudo user
+		st = "fail"
+		if out, err := os.ReadFile("/etc/group"); err == nil {
+			for _, l := range strings.Split(string(out), "\n") {
+				if (strings.HasPrefix(l, "sudo:") || strings.HasPrefix(l, "wheel:")) && strings.TrimSpace(l[strings.LastIndex(l, ":")+1:]) != "" {
+					st = "pass"
+				}
+			}
+		}
+		add(Check{ID: "sudo-user", Title: "A non-root sudo user exists", Detail: "Day-to-day logins should not be root.", Weight: 4, Status: st, FixNote: "Terminal: adduser NAME && usermod -aG sudo NAME, then copy your key"})
+		// Swap and time
+		st = "warn"
+		if out, err := os.ReadFile("/proc/swaps"); err == nil && len(strings.Split(strings.TrimSpace(string(out)), "\n")) > 1 {
+			st = "pass"
+		}
+		add(Check{ID: "swap", Title: "Swap configured", Detail: "A small swap file keeps the OOM killer from taking out the database during a spike.", Weight: 2, Status: st, Fix: "swap", FixNote: "Creates a 2 GB swap file"})
+		st = "warn"
+		if out, _ := s.sh(ctx, "system", "timedatectl", "show", "-p", "NTPSynchronized", "--value"); strings.TrimSpace(out) == "yes" {
+			st = "pass"
+		}
+		add(Check{ID: "ntp", Title: "Clock synchronised", Detail: "TOTP codes and certificates depend on correct time.", Weight: 2, Status: st, Fix: "ntp", FixNote: "Enables systemd-timesyncd"})
+	}
+
+	score, max := 0, 0
+	for _, c := range checks {
+		if c.Status == "unknown" {
+			continue
+		}
+		max += c.Weight
+		if c.Status == "pass" {
+			score += c.Weight
+		}
+	}
+	pct := 0
+	if max > 0 {
+		pct = score * 100 / max
+	}
+	return Report{Score: pct, Max: 100, Checks: checks, Linux: linux, ComputedAt: time.Now().UTC().Format(time.RFC3339)}
+}
+
+// ---- fixes ----
+
+// Fix applies a one-click fix by id.
+func (s *Service) Fix(ctx context.Context, actor, id, clientIP string) (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", errors.New("fixes run on Linux servers only")
+	}
+	var out string
+	var err error
+	switch id {
+	case "firewall":
+		out, err = s.EnableFirewall(ctx, actor, clientIP)
+	case "fail2ban":
+		out, err = s.aptInstall(ctx, actor, "fail2ban")
+		if err == nil {
+			jail := "[sshd]\nenabled = true\nmaxretry = 5\nfindtime = 10m\nbantime = 1h\n[recidive]\nenabled = true\nbantime = 1w\nfindtime = 1d\nmaxretry = 3\n"
+			_ = os.WriteFile("/etc/fail2ban/jail.d/islet.conf", []byte(jail), 0o644)
+			_, err = s.sh(ctx, actor, "systemctl", "enable", "--now", "fail2ban")
+			if err == nil {
+				_, _ = s.sh(ctx, actor, "systemctl", "restart", "fail2ban")
+			}
+		}
+	case "auto-updates":
+		out, err = s.aptInstall(ctx, actor, "unattended-upgrades")
+		if err == nil {
+			_ = os.WriteFile("/etc/apt/apt.conf.d/20auto-upgrades", []byte("APT::Periodic::Update-Package-Lists \"1\";\nAPT::Periodic::Unattended-Upgrade \"1\";\nAPT::Periodic::AutocleanInterval \"7\";\n"), 0o644)
+			_, err = s.sh(ctx, actor, "systemctl", "enable", "--now", "unattended-upgrades")
+		}
+	case "apt-upgrade":
+		out, err = s.sh(ctx, actor, "sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade")
+	case "swap":
+		if _, statErr := os.Stat("/swapfile"); statErr == nil {
+			return "", errors.New("/swapfile already exists")
+		}
+		out, err = s.sh(ctx, actor, "sh", "-c", "fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab && sysctl -w vm.swappiness=10 && grep -q vm.swappiness /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf")
+	case "ntp":
+		out, err = s.sh(ctx, actor, "sh", "-c", "timedatectl set-ntp true && systemctl enable --now systemd-timesyncd 2>/dev/null; timedatectl")
+	case "ssh-harden":
+		cfg := s.readSSHD(ctx)
+		cfg.PermitRoot, cfg.PasswordAuth, cfg.PubkeyAuth = false, false, true
+		out, err = s.ApplySSH(ctx, actor, cfg, true)
+	default:
+		return "", errors.New("unknown fix")
+	}
+	if err != nil {
+		return out, err
+	}
+	_ = s.st.Audit(ctx, actor, "security.fix", id, "")
+	return out, nil
+}
+
+func (s *Service) aptInstall(ctx context.Context, actor, pkg string) (string, error) {
+	if !has("apt-get") {
+		return "", errors.New("only Debian and Ubuntu are supported for automatic installs; install " + pkg + " with your package manager")
+	}
+	return s.sh(ctx, actor, "sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "+pkg)
+}
+
+// ---- firewall ----
+
+var ufwRuleRe = regexp.MustCompile(`^(\S+)(?:/(tcp|udp))?\s+ALLOW IN\s+(\S+)(?:\s+#\s*(.*))?$`)
+
+// FirewallStatus reads ufw.
+func (s *Service) FirewallStatus(ctx context.Context) Firewall {
+	fw := Firewall{Rules: []FirewallRule{}}
+	if runtime.GOOS != "linux" || !has("ufw") {
+		return fw
+	}
+	fw.Installed = true
+	out, err := s.sh(ctx, "system", "ufw", "status")
+	if err != nil {
+		return fw
+	}
+	fw.Active = strings.Contains(out, "Status: active")
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "Status") || strings.HasPrefix(l, "To ") || strings.HasPrefix(l, "--") || strings.Contains(l, "(v6)") {
+			continue
+		}
+		f := strings.Fields(l)
+		if len(f) < 4 || f[1] != "ALLOW" {
+			continue
+		}
+		port, proto, _ := strings.Cut(f[0], "/")
+		r := FirewallRule{Port: port, Proto: proto, From: f[3]}
+		if i := strings.Index(l, "#"); i >= 0 {
+			r.Comment = strings.TrimSpace(l[i+1:])
+		}
+		fw.Rules = append(fw.Rules, r)
+	}
+	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
+		fw.DockerOK = true
+	}
+	return fw
+}
+
+// dockerRules is the widely used ufw-docker snippet: published container
+// ports only accept traffic that ufw allowed.
+const dockerRules = `
+# BEGIN UFW AND DOCKER
+*filter
+:ufw-user-forward - [0:0]
+:ufw-docker-logging-deny - [0:0]
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j ufw-user-forward
+-A DOCKER-USER -j RETURN -s 10.0.0.0/8
+-A DOCKER-USER -j RETURN -s 172.16.0.0/12
+-A DOCKER-USER -j RETURN -s 192.168.0.0/16
+-A DOCKER-USER -p udp -m udp --sport 53 --dport 1024:65535 -j RETURN
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 192.168.0.0/16
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 10.0.0.0/8
+-A DOCKER-USER -j ufw-docker-logging-deny -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -d 172.16.0.0/12
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 192.168.0.0/16
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 10.0.0.0/8
+-A DOCKER-USER -j ufw-docker-logging-deny -p udp -m udp --dport 0:32767 -d 172.16.0.0/12
+-A DOCKER-USER -j RETURN
+-A ufw-docker-logging-deny -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW DOCKER BLOCK] "
+-A ufw-docker-logging-deny -j DROP
+COMMIT
+# END UFW AND DOCKER
+`
+
+// EnableFirewall installs ufw, allows SSH, HTTP, HTTPS and the panel port,
+// makes Docker honour it and turns it on. The caller's IP is allowed
+// first so the panel session survives.
+func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string) (string, error) {
+	if !has("ufw") {
+		if _, err := s.aptInstall(ctx, actor, "ufw"); err != nil {
+			return "", err
+		}
+	}
+	var log strings.Builder
+	sshPort := s.readSSHD(ctx).Port
+	cmds := [][]string{
+		{"ufw", "--force", "reset"},
+		{"ufw", "default", "deny", "incoming"},
+		{"ufw", "default", "allow", "outgoing"},
+		{"ufw", "default", "deny", "routed"},
+		{"ufw", "limit", strconv.Itoa(sshPort) + "/tcp", "comment", "SSH"},
+		{"ufw", "allow", "80/tcp", "comment", "HTTP"},
+		{"ufw", "allow", "443/tcp", "comment", "HTTPS"},
+		{"ufw", "allow", "443/udp", "comment", "HTTP/3"},
+		{"ufw", "allow", "9443/tcp", "comment", "Islet panel"},
+	}
+	if clientIP != "" && clientIP != "127.0.0.1" && clientIP != "::1" {
+		cmds = append(cmds, []string{"ufw", "allow", "from", clientIP, "comment", "current admin"})
+	}
+	for _, c := range cmds {
+		out, err := s.sh(ctx, actor, c[0], c[1:]...)
+		log.WriteString(out)
+		if err != nil {
+			return log.String(), fmt.Errorf("%s: %w", strings.Join(c, " "), err)
+		}
+	}
+	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && !strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
+		_ = os.WriteFile("/etc/ufw/after.rules", append(b, []byte(dockerRules)...), 0o640)
+	}
+	out, err := s.sh(ctx, actor, "ufw", "--force", "enable")
+	log.WriteString(out)
+	if err != nil {
+		return log.String(), err
+	}
+	_, _ = s.sh(ctx, actor, "ufw", "reload")
+	return log.String(), nil
+}
+
+// AllowPort adds a rule; from may be "any" or a CIDR.
+func (s *Service) AllowPort(ctx context.Context, actor, port, proto, from, comment string) error {
+	if !regexp.MustCompile(`^\d{1,5}(:\d{1,5})?$`).MatchString(port) || (proto != "tcp" && proto != "udp" && proto != "") {
+		return errors.New("port must be a number or range and proto tcp or udp")
+	}
+	args := []string{"allow"}
+	if from != "" && from != "any" {
+		if !regexp.MustCompile(`^[0-9a-fA-F.:/]+$`).MatchString(from) {
+			return errors.New("from must be an IP or CIDR")
+		}
+		args = append(args, "from", from, "to", "any", "port", port)
+		if proto != "" {
+			args = append(args, "proto", proto)
+		}
+	} else {
+		spec := port
+		if proto != "" {
+			spec += "/" + proto
+		}
+		args = append(args, spec)
+	}
+	if comment != "" {
+		args = append(args, "comment", regexp.MustCompile(`[^A-Za-z0-9 ._-]`).ReplaceAllString(comment, ""))
+	}
+	_, err := s.sh(ctx, actor, "ufw", args...)
+	if err == nil {
+		_ = s.st.Audit(ctx, actor, "firewall.allow", port+"/"+proto, from)
+	}
+	return err
+}
+
+// DenyPort removes an allow rule.
+func (s *Service) DenyPort(ctx context.Context, actor, port, proto, from string) error {
+	args := []string{"delete", "allow"}
+	if from != "" && from != "any" && from != "Anywhere" {
+		args = append(args, "from", from, "to", "any", "port", port)
+		if proto != "" {
+			args = append(args, "proto", proto)
+		}
+	} else {
+		spec := port
+		if proto != "" {
+			spec += "/" + proto
+		}
+		args = append(args, spec)
+	}
+	_, err := s.sh(ctx, actor, "ufw", args...)
+	if err == nil {
+		_ = s.st.Audit(ctx, actor, "firewall.delete", port+"/"+proto, from)
+	}
+	return err
+}
+
+// BannedIPs lists fail2ban's current bans.
+func (s *Service) BannedIPs(ctx context.Context) []string {
+	if runtime.GOOS != "linux" || !has("fail2ban-client") {
+		return []string{}
+	}
+	out, err := s.sh(ctx, "system", "fail2ban-client", "banned")
+	if err != nil {
+		return []string{}
+	}
+	var raw []map[string][]string
+	ips := []string{}
+	if json.Unmarshal([]byte(strings.ReplaceAll(out, "'", `"`)), &raw) == nil {
+		for _, jail := range raw {
+			for name, list := range jail {
+				for _, ip := range list {
+					ips = append(ips, ip+" ("+name+")")
+				}
+			}
+		}
+	}
+	sort.Strings(ips)
+	return ips
+}
+
+// Unban lifts a fail2ban ban.
+func (s *Service) Unban(ctx context.Context, actor, ip string) error {
+	if !regexp.MustCompile(`^[0-9a-fA-F.:]+$`).MatchString(ip) {
+		return errors.New("invalid IP")
+	}
+	_, err := s.sh(ctx, actor, "fail2ban-client", "unban", ip)
+	return err
+}
+
+// ---- SSH ----
+
+func (s *Service) readSSHD(ctx context.Context) SSHSettings {
+	if b, err := os.ReadFile(s.sshdPath); err == nil {
+		return ParseSSHD(string(b))
+	}
+	// Effective config as sshd sees it.
+	if out, err := s.sh(ctx, "system", "sshd", "-T"); err == nil {
+		// sshd -T prints lowercase keys; normalise the ones we manage.
+		var b strings.Builder
+		for _, l := range strings.Split(out, "\n") {
+			k, v, ok := strings.Cut(l, " ")
+			if !ok {
+				continue
+			}
+			for mk := range managedKeys {
+				if strings.EqualFold(mk, k) {
+					b.WriteString(mk + " " + v + "\n")
+				}
+			}
+		}
+		return ParseSSHD(b.String())
+	}
+	if b, err := os.ReadFile("/etc/ssh/sshd_config"); err == nil {
+		return ParseSSHD(string(b))
+	}
+	return SSHSettings{Port: 22, PermitRoot: true, PasswordAuth: true, PubkeyAuth: true, MaxAuthTries: 6, ClientAliveMax: 3}
+}
+
+// SSH returns the current settings and whether keys are present.
+func (s *Service) SSH(ctx context.Context) (SSHSettings, bool, bool) {
+	s.mu.Lock()
+	pending := s.rollback != nil
+	s.mu.Unlock()
+	return s.readSSHD(ctx), s.hasAuthorizedKeys(), pending
+}
+
+func (s *Service) hasAuthorizedKeys() bool {
+	globs := []string{"/root/.ssh/authorized_keys", "/home/*/.ssh/authorized_keys"}
+	for _, g := range globs {
+		matches, _ := filepath.Glob(g)
+		for _, m := range matches {
+			if b, err := os.ReadFile(m); err == nil && strings.Contains(string(b), "ssh-") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ApplySSH validates, writes the managed file, tests it with sshd -t and
+// reloads. Unless confirmed within five minutes the previous file is
+// restored, so a mistake cannot lock the admin out for good.
+func (s *Service) ApplySSH(ctx context.Context, actor string, cfg SSHSettings, withRollback bool) (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", errors.New("SSH settings apply on Linux servers only")
+	}
+	if err := cfg.Validate(s.hasAuthorizedKeys()); err != nil {
+		return "", err
+	}
+	prev, _ := os.ReadFile(s.sshdPath)
+	if err := os.MkdirAll(filepath.Dir(s.sshdPath), 0o755); err != nil {
+		return "", err
+	}
+	// The main config must include the drop-in directory (Ubuntu and Debian do by default).
+	if main, err := os.ReadFile("/etc/ssh/sshd_config"); err == nil && !strings.Contains(string(main), "sshd_config.d") {
+		_ = os.WriteFile("/etc/ssh/sshd_config", append([]byte("Include /etc/ssh/sshd_config.d/*.conf\n"), main...), 0o644)
+	}
+	if err := os.WriteFile(s.sshdPath, []byte(RenderSSHD(cfg)), 0o644); err != nil {
+		return "", err
+	}
+	if out, err := s.sh(ctx, actor, "sshd", "-t"); err != nil {
+		s.restoreSSHD(prev)
+		return out, fmt.Errorf("sshd rejected the configuration, nothing changed: %w", err)
+	}
+	if _, err := s.sh(ctx, actor, "systemctl", "reload", "ssh"); err != nil {
+		if _, err2 := s.sh(ctx, actor, "systemctl", "reload", "sshd"); err2 != nil {
+			s.restoreSSHD(prev)
+			return "", fmt.Errorf("could not reload sshd, restored the previous file: %w", err2)
+		}
+	}
+	if cfg.Port != 22 && has("ufw") {
+		_, _ = s.sh(ctx, actor, "ufw", "limit", strconv.Itoa(cfg.Port)+"/tcp", "comment", "SSH")
+	}
+	_ = s.st.Audit(ctx, actor, "ssh.apply", "", fmt.Sprintf("port=%d root=%v password=%v", cfg.Port, cfg.PermitRoot, cfg.PasswordAuth))
+	msg := "applied"
+	if withRollback {
+		s.mu.Lock()
+		if s.rollback != nil {
+			s.rollback.Stop()
+		}
+		s.prevSSHD = prev
+		s.rollback = time.AfterFunc(5*time.Minute, func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.rollback = nil
+			s.restoreSSHD(s.prevSSHD)
+			_, _ = s.sh(context.Background(), "system", "systemctl", "reload", "ssh")
+			if s.bus != nil {
+				s.bus.Emit(context.Background(), notify.Event{Category: "security", Severity: notify.Warning, Title: "SSH change rolled back", Message: "The new SSH settings were not confirmed within five minutes, so the previous configuration is back.", Link: "/security"})
+			}
+		})
+		s.mu.Unlock()
+		msg = "applied; open a new SSH session now and confirm within 5 minutes, or the change rolls back"
+	}
+	return msg, nil
+}
+
+// ConfirmSSH cancels the rollback timer.
+func (s *Service) ConfirmSSH() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rollback == nil {
+		return false
+	}
+	s.rollback.Stop()
+	s.rollback = nil
+	s.prevSSHD = nil
+	return true
+}
+
+func (s *Service) restoreSSHD(prev []byte) {
+	if len(prev) == 0 {
+		_ = os.Remove(s.sshdPath)
+		return
+	}
+	_ = os.WriteFile(s.sshdPath, prev, 0o644)
+}
+
+// ---- Trivy ----
+
+// ScanImage runs Trivy in a container against a local image and stores the result.
+func (s *Service) ScanImage(ctx context.Context, actor, image string) (*Scan, error) {
+	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$`).MatchString(image) {
+		return nil, errors.New("invalid image reference")
+	}
+	sock := "/var/run/docker.sock"
+	if runtime.GOOS == "windows" {
+		sock = "//var/run/docker.sock"
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	out, err := s.sh(cctx, actor, "docker", "run", "--rm", "-v", sock+":/var/run/docker.sock", "-v", "islet-trivy-cache:/root/.cache", "aquasec/trivy:0.65.0", "image", "--quiet", "--format", "json", "--scanners", "vuln", "--severity", "LOW,MEDIUM,HIGH,CRITICAL", image)
+	sc := Scan{Target: image, At: time.Now().UTC().Format(time.RFC3339), Findings: []Finding{}}
+	if err != nil {
+		sc.Error = err.Error()
+		s.saveScan(sc)
+		return &sc, errors.New("trivy failed: " + strings.TrimSpace(err.Error()))
+	}
+	var raw struct {
+		Results []struct {
+			Vulnerabilities []struct {
+				ID       string `json:"VulnerabilityID"`
+				Pkg      string `json:"PkgName"`
+				Version  string `json:"InstalledVersion"`
+				Fixed    string `json:"FixedVersion"`
+				Severity string `json:"Severity"`
+				Title    string `json:"Title"`
+			} `json:"Vulnerabilities"`
+		} `json:"Results"`
+	}
+	if i := strings.Index(out, "{"); i >= 0 {
+		out = out[i:]
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		sc.Error = "could not parse trivy output"
+		s.saveScan(sc)
+		return &sc, errors.New(sc.Error)
+	}
+	for _, r := range raw.Results {
+		for _, v := range r.Vulnerabilities {
+			switch v.Severity {
+			case "CRITICAL":
+				sc.Critical++
+			case "HIGH":
+				sc.High++
+			case "MEDIUM":
+				sc.Medium++
+			default:
+				sc.Low++
+			}
+			if len(sc.Findings) < 300 && (v.Severity == "CRITICAL" || v.Severity == "HIGH") {
+				sc.Findings = append(sc.Findings, Finding{ID: v.ID, Package: v.Pkg, Version: v.Version, Fixed: v.Fixed, Severity: v.Severity, Title: v.Title})
+			}
+		}
+	}
+	sc.Truncated = sc.Critical+sc.High > len(sc.Findings)
+	s.saveScan(sc)
+	_ = s.st.Audit(ctx, actor, "security.scan", image, fmt.Sprintf("critical=%d high=%d", sc.Critical, sc.High))
+	if sc.Critical > 0 && s.bus != nil {
+		s.bus.Emit(ctx, notify.Event{Category: "security", Severity: notify.Warning, Title: "Critical CVEs in " + image, Message: fmt.Sprintf("%d critical and %d high findings. Rebuild on a newer base image.", sc.Critical, sc.High), Link: "/security"})
+	}
+	return &sc, nil
+}
+
+func (s *Service) saveScan(sc Scan) {
+	s.mu.Lock()
+	s.scans[sc.Target] = sc
+	b, _ := json.Marshal(s.scans)
+	s.mu.Unlock()
+	_ = os.WriteFile(filepath.Join(s.dataDir, "scans.json"), b, 0o600)
+}
+
+// Scans returns stored scan results, newest first.
+func (s *Service) Scans() []Scan {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Scan, 0, len(s.scans))
+	for _, sc := range s.scans {
+		out = append(out, sc)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At > out[j].At })
+	return out
+}
+
+// ---- panic ----
+
+// Panic blocks all inbound traffic except from the caller and the panel
+// port from that IP, then returns what the caller must do next. Sessions and
+// tokens are rotated by the API layer.
+func (s *Service) Panic(ctx context.Context, actor, clientIP string) (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", errors.New("the panic button works on Linux servers only")
+	}
+	if clientIP == "" || clientIP == "127.0.0.1" || clientIP == "::1" {
+		return "", errors.New("cannot determine your public IP; the panic button would lock you out too")
+	}
+	if !has("ufw") {
+		if _, err := s.aptInstall(ctx, actor, "ufw"); err != nil {
+			return "", err
+		}
+	}
+	var log strings.Builder
+	for _, c := range [][]string{{"ufw", "--force", "reset"}, {"ufw", "default", "deny", "incoming"}, {"ufw", "default", "deny", "routed"}, {"ufw", "allow", "from", clientIP, "comment", "panic: admin"}, {"ufw", "--force", "enable"}} {
+		out, err := s.sh(ctx, actor, c[0], c[1:]...)
+		log.WriteString(out)
+		if err != nil {
+			return log.String(), err
+		}
+	}
+	_ = s.st.Audit(ctx, actor, "security.panic", clientIP, "")
+	if s.bus != nil {
+		s.bus.Emit(ctx, notify.Event{Category: "security", Severity: notify.Critical, Title: "Panic button pressed", Message: "All inbound traffic is blocked except from " + clientIP + ". Sessions and API tokens were revoked.", Link: "/security"})
+	}
+	return log.String(), nil
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/runner"
+	"github.com/isletdev/islet/internal/security"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
@@ -32,50 +33,52 @@ import (
 
 // Deps are the services the API exposes.
 type Deps struct {
-	Store   *store.Store
-	Auth    *auth.Service
-	Metrics *metrics.Collector
-	Sampler *metrics.Sampler
-	Docker  *docker.Service
-	Files   *files.Service
-	Runner  *cmdrun.Runner
-	Proxy   *proxy.Manager
-	Catalog *catalog.Service
-	Notify  *notify.Bus
-	Cron    *cron.Service
-	DB      *db.Service
-	Uptime  *uptime.Service
-	Deploy  *deploy.Service
-	Runners *runner.Service
-	UI      http.Handler
-	Log     *slog.Logger
+	Store    *store.Store
+	Auth     *auth.Service
+	Metrics  *metrics.Collector
+	Sampler  *metrics.Sampler
+	Docker   *docker.Service
+	Files    *files.Service
+	Runner   *cmdrun.Runner
+	Proxy    *proxy.Manager
+	Catalog  *catalog.Service
+	Notify   *notify.Bus
+	Cron     *cron.Service
+	DB       *db.Service
+	Uptime   *uptime.Service
+	Deploy   *deploy.Service
+	Runners  *runner.Service
+	Security *security.Service
+	UI       http.Handler
+	Log      *slog.Logger
 }
 
 // Server holds the dependencies handlers need.
 type Server struct {
-	store   *store.Store
-	auth    *auth.Service
-	metrics *metrics.Collector
-	sampler *metrics.Sampler
-	docker  *docker.Service
-	files   *files.Service
-	runner  *cmdrun.Runner
-	proxy   *proxy.Manager
-	catalog *catalog.Service
-	notify  *notify.Bus
-	cron    *cron.Service
-	db      *db.Service
-	uptime  *uptime.Service
-	deploy  *deploy.Service
-	runners *runner.Service
-	ui      http.Handler
-	log     *slog.Logger
-	started time.Time
+	store    *store.Store
+	auth     *auth.Service
+	metrics  *metrics.Collector
+	sampler  *metrics.Sampler
+	docker   *docker.Service
+	files    *files.Service
+	runner   *cmdrun.Runner
+	proxy    *proxy.Manager
+	catalog  *catalog.Service
+	notify   *notify.Bus
+	cron     *cron.Service
+	db       *db.Service
+	uptime   *uptime.Service
+	deploy   *deploy.Service
+	runners  *runner.Service
+	security *security.Service
+	ui       http.Handler
+	log      *slog.Logger
+	started  time.Time
 }
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -160,6 +163,17 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/apps/{id}/cancel", requireJSON(s.requireAuth(s.handleAppCancel)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases", s.requireAuth(s.handleAppReleases))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases/{release}", s.requireAuth(s.handleAppRelease))
+
+	// Security
+	mux.HandleFunc("GET /api/v1/security", s.requireAuth(s.handleSecurityReport))
+	mux.HandleFunc("POST /api/v1/security/fix/{id}", requireJSON(s.requireAuth(s.handleSecurityFix)))
+	mux.HandleFunc("POST /api/v1/security/firewall/rules", requireJSON(s.requireAuth(s.handleFirewallRule)))
+	mux.HandleFunc("DELETE /api/v1/security/firewall/rules", requireJSON(s.requireAuth(s.handleFirewallRule)))
+	mux.HandleFunc("POST /api/v1/security/unban", requireJSON(s.requireAuth(s.handleUnban)))
+	mux.HandleFunc("POST /api/v1/security/ssh", requireJSON(s.requireAuth(s.handleSSHApply)))
+	mux.HandleFunc("POST /api/v1/security/ssh/confirm", requireJSON(s.requireAuth(s.handleSSHConfirm)))
+	mux.HandleFunc("POST /api/v1/security/scan", requireJSON(s.requireAuth(s.handleScanImage)))
+	mux.HandleFunc("POST /api/v1/security/panic", requireJSON(s.requireAuth(s.handlePanic)))
 
 	// Runners
 	mux.HandleFunc("GET /api/v1/runners", s.requireAuth(s.handleRunnerPools))

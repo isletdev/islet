@@ -219,23 +219,29 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 After this phase a user can: harden SSH and the firewall with one click each, see who tried to log in, scan images for CVEs, and back up the whole server to S3 with tested restores.
 
 **Hardening wizard and Security Score**
-- [ ] First-run wizard: sudo user with SSH key, disable root and password login, optional SSH port, UFW rules, fail2ban, unattended-upgrades, swap, timezone, NTP
-- [ ] Security Score (0–100) with explanations and one-click fixes, shown on the dashboard
-- [ ] SSH settings UI with validation before applying and a rollback timer if you lock yourself out
+- [x] One-click fixes: disable root and password login, UFW rules, fail2ban, unattended-upgrades, security upgrades, swap, NTP
+- [ ] First-run wizard flow (sudo user with SSH key, SSH port, timezone) tying the fixes together
+- [x] Security Score (0–100) with explanations and one-click fixes
+- [ ] Security Score card on the dashboard
+- [x] SSH settings UI with validation (sshd -t, authorized_keys present) and a five-minute rollback timer
 
 **Firewall and intrusion prevention**
-- [ ] UFW/nftables UI with presets, Docker-aware rules so published ports cannot bypass the firewall
-- [ ] Per-app port awareness with warnings for publicly exposed databases
-- [ ] fail2ban or CrowdSec with community blocklists, live blocked-IP list, geo-blocking
+- [x] UFW UI with the standard preset, allow and remove rules, Docker-aware DOCKER-USER rules so published ports honour the firewall
+- [x] Published database ports and Docker socket mounts flagged in the score
+- [x] fail2ban with sshd and recidive jails, live blocked-IP list with unban
+- [ ] CrowdSec community blocklists, geo-blocking
 - [ ] Open ports and listening sockets correlated to containers
 
 **Audit and scanning**
 - [ ] Lynis audit on a schedule with score trend
-- [ ] Trivy scanning of images and the filesystem, severity filters, findings on the container page
+- [x] Trivy image scanning (in a container), stored results with critical and high findings, events on criticals
+- [ ] Filesystem scans, findings on the container page
 - [ ] rkhunter, file integrity monitoring on `/etc`, SUID and world-writable audits
-- [ ] Auth log and sudo log viewers, login-from-new-country alert
-- [ ] Pending updates, reboot-required tracking, kernel livepatch status
-- [ ] Panic button: block all inbound except the current IP, rotate panel sessions and tokens
+- [x] Auth log viewer (Logs → SSH logins)
+- [ ] Login-from-new-country alert
+- [x] Pending security updates and reboot-required in the score
+- [ ] Kernel livepatch status
+- [x] Panic button: block all inbound except the current IP, revoke every other session and all API tokens
 
 **Backups** (full spec in `VISION.md` section 3.16)
 - [ ] restic-based backup plans: sources (volumes, bind mounts, database dumps, `/etc`, Islet state), destinations, schedule, retention

@@ -32,6 +32,7 @@ import (
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/runner"
+	"github.com/isletdev/islet/internal/security"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/uptime"
@@ -117,6 +118,11 @@ func run() error {
 	}
 	rn := runner.New(st, keys, cmds, bus, log)
 	rn.Start(ctx)
+	sec := security.New(st, cmds, bus, *dataDir, security.Hooks{
+		Admin2FA:      as.AllAdminsHave2FA,
+		PanelHasCert:  func() bool { return *tlsMode == "off" || panelHasTrustedCert(ctx, px) },
+		HasBackupPlan: func(ctx context.Context) bool { return false },
+	}, log)
 	up := uptime.New(st, bus)
 	if err := up.Start(ctx); err != nil {
 		return fmt.Errorf("uptime: %w", err)
@@ -157,7 +163,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -220,6 +226,20 @@ func run() error {
 }
 
 // displayAddr turns a listen address into something a person can open.
+// panelHasTrustedCert is true when a domain routes to the panel with Let's Encrypt.
+func panelHasTrustedCert(ctx context.Context, px *proxy.Manager) bool {
+	doms, err := px.Domains(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range doms {
+		if d.TargetType == "panel" && d.TLS == "letsencrypt" && d.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 func displayAddr(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
