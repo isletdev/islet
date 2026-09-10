@@ -118,6 +118,8 @@ export interface DeployApp {
 }
 export interface Detection { strategy: string; framework: string; summary: string; installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; composeFile?: string; nodeVersion?: string; pythonVersion?: string }
 
+export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -164,6 +166,9 @@ export const api = {
   totpSetup: () => post<{ secret: string; otpauthUrl: string }>("/api/v1/auth/totp/setup"),
   totpEnable: (code: string) => post<{ codes: string[] }>("/api/v1/auth/totp/enable", { code }),
   totpDisable: (code: string) => post<void>("/api/v1/auth/totp/disable", { code }),
+  tokens: () => request<ApiToken[]>("/api/v1/auth/tokens"),
+  tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
+  tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),
   revokeSession: (id: string) => post<void>(`/api/v1/auth/sessions/${id}`, undefined, "DELETE"),
   system: () => request<HostInfo>("/api/v1/system"),

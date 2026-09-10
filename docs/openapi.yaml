@@ -1,0 +1,358 @@
+openapi: 3.1.0
+info:
+  title: Islet API
+  version: "0.5"
+  description: |
+    The HTTP API of the Islet daemon (isletd). Everything the panel does goes
+    through these endpoints, so anything you can click you can script.
+
+    Authentication: the browser uses a session cookie. Scripts, CI jobs and
+    the `islet` CLI send an API token created in Settings → API tokens:
+
+        Authorization: Bearer islet_…
+
+    A token acts with its owner's role, narrowed by scopes (`read`, `deploy`,
+    `cron`, `notify`, `logs`, `db`, `containers`, or `*`). Requests with a body
+    must use `Content-Type: application/json`.
+
+    Streaming endpoints (deploy, job runs, logs, Compose actions) answer with
+    `text/event-stream`: one `line` event per output line and a final `end`
+    event whose data is `"done"` or `"error: …"`.
+servers:
+  - url: https://{host}:9443
+    variables:
+      host:
+        default: your-server
+tags:
+  - name: Auth
+  - name: System
+  - name: Docker
+  - name: Files
+  - name: Domains
+  - name: Catalog
+  - name: Apps
+  - name: Databases
+  - name: Cron
+  - name: Notifications
+  - name: Uptime
+  - name: Logs
+security:
+  - bearer: []
+  - cookie: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: islet_…
+    cookie:
+      type: apiKey
+      in: cookie
+      name: islet_session
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, description: Machine-readable code }
+              message: { type: string }
+    Stream:
+      description: Server-sent events; `line` events then one `end` event
+      content:
+        text/event-stream:
+          schema: { type: string }
+  schemas:
+    Health:
+      type: object
+      properties: { status: { type: string }, version: { type: string }, hostname: { type: string }, serverId: { type: string }, uptimeSeconds: { type: integer } }
+    Token:
+      type: object
+      properties: { id: { type: string }, name: { type: string }, scopes: { type: string }, lastUsedAt: { type: string }, expiresAt: { type: string }, createdAt: { type: string } }
+    App:
+      type: object
+      description: A deployable application. Env is `KEY=VALUE` lines; secrets are masked for non-admins.
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string, description: Lowercase, becomes the container name }
+        source: { type: string, enum: [git, image] }
+        repoUrl: { type: string }
+        branch: { type: string, default: main }
+        rootDir: { type: string }
+        image: { type: string }
+        strategy: { type: string, enum: [auto, static, node, python, go, dockerfile, compose, image] }
+        framework: { type: string }
+        installCmd: { type: string }
+        buildCmd: { type: string }
+        startCmd: { type: string }
+        outputDir: { type: string }
+        port: { type: integer }
+        healthPath: { type: string, default: / }
+        predeployCmd: { type: string }
+        env: { type: string }
+        domain: { type: string, description: Empty on create picks a preview host on sslip.io }
+        tls: { type: string, enum: [letsencrypt, self, none] }
+        autoDeploy: { type: boolean }
+        memoryMb: { type: integer }
+        cpus: { type: number }
+        volumes: { type: string, description: Container paths to persist, one per line }
+        status: { type: string, readOnly: true }
+        url: { type: string, readOnly: true }
+        container: { type: string, readOnly: true }
+        webhookSecret: { type: string, readOnly: true }
+    Release:
+      type: object
+      properties: { id: { type: integer }, number: { type: integer }, trigger: { type: string }, actor: { type: string }, commit: { type: string }, message: { type: string }, author: { type: string }, status: { type: string, enum: [queued, building, deploying, live, superseded, failed, cancelled] }, image: { type: string }, container: { type: string }, log: { type: string }, error: { type: string }, startedAt: { type: string }, finishedAt: { type: string }, durationMs: { type: integer } }
+    Job:
+      type: object
+      properties:
+        id: { type: string, readOnly: true }
+        name: { type: string }
+        type: { type: string, enum: [command, script, file, container, image, http, chain, heartbeat] }
+        schedule: { type: string, description: Five cron fields or @daily etc.; empty means manual }
+        timezone: { type: string }
+        command: { type: string }
+        script: { type: string }
+        container: { type: string }
+        httpMethod: { type: string }
+        workDir: { type: string }
+        runAs: { type: string }
+        timeoutSec: { type: integer }
+        overlap: { type: string, enum: [skip, queue, kill] }
+        retries: { type: integer }
+        nice: { type: integer }
+        jitterSec: { type: integer }
+        graceSec: { type: integer }
+        notifyOn: { type: string, enum: [failure, always, never] }
+        enabled: { type: boolean }
+        nextRun: { type: string, readOnly: true }
+        described: { type: string, readOnly: true }
+    Channel:
+      type: object
+      properties: { id: { type: string }, type: { type: string, enum: [telegram, discord, slack, email, ntfy, gotify, pushover, webhook] }, name: { type: string }, config: { type: object, additionalProperties: { type: string } }, categories: { type: string, description: "* or comma list" }, minSeverity: { type: string, enum: [info, warning, critical] }, quietFrom: { type: string }, quietTo: { type: string }, enabled: { type: boolean } }
+    Event:
+      type: object
+      properties: { id: { type: integer }, category: { type: string }, severity: { type: string }, title: { type: string }, message: { type: string }, link: { type: string }, createdAt: { type: string } }
+    Check:
+      type: object
+      properties: { id: { type: string }, name: { type: string }, type: { type: string, enum: [http, tcp, keyword] }, target: { type: string }, keyword: { type: string }, intervalSec: { type: integer }, timeoutSec: { type: integer }, expectStatus: { type: integer }, enabled: { type: boolean }, status: { type: string }, uptime24h: { type: number }, uptime30d: { type: number } }
+    Domain:
+      type: object
+      properties: { id: { type: string }, host: { type: string }, targetType: { type: string, enum: [container, panel, url] }, target: { type: string }, port: { type: integer }, pathPrefix: { type: string }, tls: { type: string, enum: [letsencrypt, self, none] }, redirectWww: { type: boolean }, basicAuth: { type: string }, ipAllowlist: { type: string }, rateLimit: { type: integer }, headers: { type: string }, maintenance: { type: boolean }, enabled: { type: boolean } }
+    DBInstance:
+      type: object
+      properties: { name: { type: string }, engine: { type: string, enum: [postgres, mysql, redis, mongo] }, container: { type: string }, state: { type: string }, port: { type: integer }, internalUrl: { type: string }, publicUrl: { type: string }, public: { type: string } }
+paths:
+  /api/v1/health:
+    get:
+      tags: [System]
+      security: []
+      summary: Liveness and version
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Health" } } } }
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: The signed-in user
+      responses: { "200": { description: OK }, "401": { $ref: "#/components/responses/Error" } }
+  /api/v1/auth/tokens:
+    get:
+      tags: [Auth]
+      summary: List API tokens (`?all=1` for every user, admins only)
+      responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Token" } } } } } }
+    post:
+      tags: [Auth]
+      summary: Create an API token (browser session only; tokens cannot mint tokens)
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string }, scopes: { type: string, default: "*" }, ttlDays: { type: integer, default: 0 } }, required: [name] }
+      responses: { "201": { description: The plain token is returned once, with its info } }
+  /api/v1/auth/tokens/{id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke a token
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "204": { description: Revoked }, "404": { $ref: "#/components/responses/Error" } }
+  /api/v1/system:
+    get: { tags: [System], summary: Host facts, responses: { "200": { description: OK } } }
+  /api/v1/metrics/latest:
+    get: { tags: [System], summary: Latest CPU, memory, disk and network sample, responses: { "200": { description: OK } } }
+  /api/v1/metrics/history:
+    get: { tags: [System], summary: Persisted samples (`?range=1h|24h|7d`), responses: { "200": { description: OK } } }
+  /api/v1/metrics/live:
+    get: { tags: [System], summary: Live samples as server-sent events, responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/system/disk:
+    get: { tags: [System], summary: Disk Doctor report, responses: { "200": { description: OK } } }
+  /api/v1/system/disk/clean:
+    post: { tags: [System], summary: Reclaim space safely (never volumes), responses: { "200": { description: OK } } }
+  /api/v1/system/update:
+    get: { tags: [System], summary: Update check against GitHub releases, responses: { "200": { description: OK } } }
+    post: { tags: [System], summary: Install the latest signed release, responses: { "200": { description: OK } } }
+  /api/v1/audit:
+    get: { tags: [System], summary: Audit log (`?limit=`), responses: { "200": { description: OK } } }
+  /api/v1/commands:
+    get: { tags: [System], summary: Every command the daemon ran, newest first, responses: { "200": { description: OK } } }
+  /api/v1/docker/containers:
+    get: { tags: [Docker], summary: Containers with live stats, responses: { "200": { description: OK } } }
+  /api/v1/docker/containers/{id}:
+    get: { tags: [Docker], summary: Inspect a container, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/docker/containers/{id}/logs:
+    get:
+      tags: [Docker]
+      summary: Stream container logs (`?tail=200&follow=1`)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { $ref: "#/components/responses/Stream" } }
+  /api/v1/docker/containers/{id}/{action}:
+    post:
+      tags: [Docker]
+      summary: start, stop, restart, pause, unpause, kill or remove a container
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: action, in: path, required: true, schema: { type: string, enum: [start, stop, restart, pause, unpause, kill, remove] } }]
+      responses: { "204": { description: Done } }
+  /api/v1/docker/containers/{id}/limits:
+    post: { tags: [Docker], summary: Set memory, CPU and restart policy, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/docker/images:
+    get: { tags: [Docker], summary: Images, responses: { "200": { description: OK } } }
+  /api/v1/docker/images/pull:
+    post: { tags: [Docker], summary: Pull an image (streams progress), responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/docker/stacks:
+    get: { tags: [Docker], summary: Managed Compose stacks, responses: { "200": { description: OK } } }
+    post: { tags: [Docker], summary: Create a stack from a Compose file, responses: { "200": { description: OK } } }
+  /api/v1/docker/stacks/{name}/{action}:
+    post:
+      tags: [Docker]
+      summary: up, down, pull, restart or remove a stack (streams output)
+      parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: action, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { $ref: "#/components/responses/Stream" } }
+  /api/v1/docker/prune:
+    post: { tags: [Docker], summary: Prune containers, images, networks, build cache (volumes only when asked), responses: { "200": { description: OK } } }
+  /api/v1/files:
+    get: { tags: [Files], summary: List a directory (`?path=`), responses: { "200": { description: OK } } }
+  /api/v1/files/read:
+    get: { tags: [Files], summary: Read a text file (`?path=`), responses: { "200": { description: OK } } }
+  /api/v1/files/write:
+    put: { tags: [Files], summary: Write a text file, responses: { "204": { description: Done } } }
+  /api/v1/files/op:
+    post: { tags: [Files], summary: rename, move, copy, delete (to trash), mkdir, chmod, archive, extract, responses: { "200": { description: OK } } }
+  /api/v1/files/upload:
+    post: { tags: [Files], summary: Multipart upload into a directory, responses: { "200": { description: OK } } }
+  /api/v1/files/download:
+    get: { tags: [Files], summary: Download a file, or a folder as zip, responses: { "200": { description: OK } } }
+  /api/v1/domains:
+    get: { tags: [Domains], summary: Routed domains, responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Domain" } } } } } } }
+    post: { tags: [Domains], summary: Add a domain, requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Domain" } } } }, responses: { "200": { description: OK } } }
+  /api/v1/domains/{id}:
+    put: { tags: [Domains], summary: Update a domain, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    delete: { tags: [Domains], summary: Remove a domain, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/domains/{id}/dns:
+    get: { tags: [Domains], summary: Does the DNS point here?, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/proxy:
+    get: { tags: [Domains], summary: Proxy status, responses: { "200": { description: OK } } }
+  /api/v1/proxy/install:
+    post: { tags: [Domains], summary: Install or reconfigure the Traefik proxy (`acmeEmail` enables Let's Encrypt), responses: { "200": { description: OK } } }
+  /api/v1/proxy/certs:
+    get: { tags: [Domains], summary: Issued certificates and expiry, responses: { "200": { description: OK } } }
+  /api/v1/catalog:
+    get: { tags: [Catalog], summary: Catalog apps, responses: { "200": { description: OK } } }
+  /api/v1/catalog/{slug}/install:
+    post: { tags: [Catalog], summary: Install a catalog app (streams Compose output), parameters: [{ name: slug, in: path, required: true, schema: { type: string } }], responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/catalog/installed:
+    get: { tags: [Catalog], summary: Installed catalog apps with their generated values, responses: { "200": { description: OK } } }
+  /api/v1/apps:
+    get: { tags: [Apps], summary: Deployed apps, responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/App" } } } } } } }
+    post: { tags: [Apps], summary: Create an app, requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/App" } } } }, responses: { "200": { description: OK }, "400": { $ref: "#/components/responses/Error" } } }
+  /api/v1/apps/inspect:
+    post:
+      tags: [Apps]
+      summary: Clone a repository and report the detected framework and commands
+      requestBody: { content: { application/json: { schema: { type: object, properties: { repoUrl: { type: string }, branch: { type: string }, rootDir: { type: string } } } } } }
+      responses: { "200": { description: Detection }, "502": { $ref: "#/components/responses/Error" } }
+  /api/v1/apps/{id}:
+    get: { tags: [Apps], summary: One app, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    put: { tags: [Apps], summary: Update settings (apply on next deploy), parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    delete: { tags: [Apps], summary: Delete the app, its containers, images and route, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/apps/{id}/deploy:
+    post:
+      tags: [Apps]
+      summary: Deploy the branch head, redeploy (`?redeploy=1`) or roll back (`?release=<id>`); streams the log
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: redeploy, in: query, schema: { type: string } }, { name: release, in: query, schema: { type: integer } }]
+      responses: { "200": { $ref: "#/components/responses/Stream" }, "409": { description: A deploy is already running } }
+  /api/v1/apps/{id}/deploy/log:
+    get: { tags: [Apps], summary: Attach to the running deploy's log, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/apps/{id}/cancel:
+    post: { tags: [Apps], summary: Cancel the running deploy, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/apps/{id}/releases:
+    get: { tags: [Apps], summary: Releases, newest first, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Release" } } } } } } }
+  /api/v1/apps/{id}/releases/{release}:
+    get: { tags: [Apps], summary: One release with its log, parameters: [{ name: id, in: path, required: true, schema: { type: string } }, { name: release, in: path, required: true, schema: { type: integer } }], responses: { "200": { description: OK } } }
+  /api/v1/hooks/deploy/{id}:
+    post:
+      tags: [Apps]
+      security: []
+      summary: Push webhook (GitHub `X-Hub-Signature-256`, GitLab `X-Gitlab-Token`, Gitea `X-Gitea-Signature`), secret per app
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "202": { description: Deploy started or already running }, "401": { description: Bad signature } }
+  /api/v1/databases:
+    get: { tags: [Databases], summary: Database instances installed from the catalog, responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/DBInstance" } } } } } } }
+  /api/v1/databases/{name}:
+    get: { tags: [Databases], summary: Instance with databases, stats, extensions and dumps, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/databases/{name}/databases:
+    post: { tags: [Databases], summary: Create a database and its user; returns the connection URL, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/databases/{name}/databases/{db}:
+    delete: { tags: [Databases], summary: Drop a database and its user, parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: db, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/databases/{name}/dumps:
+    post: { tags: [Databases], summary: Dump a database now, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/databases/{name}/dumps/{file}:
+    get: { tags: [Databases], summary: Download a dump, parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: file, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    delete: { tags: [Databases], summary: Delete a dump, parameters: [{ name: name, in: path, required: true, schema: { type: string } }, { name: file, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/databases/{name}/restore:
+    post: { tags: [Databases], summary: Restore a dump into a database, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/databases/{name}/schedule:
+    post: { tags: [Databases], summary: Create or update the cron job that dumps the instance, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/databases/{name}/extensions:
+    post: { tags: [Databases], summary: Enable or disable a Postgres extension, parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/databases/{name}/public:
+    post: { tags: [Databases], summary: Publish or unpublish the port on the host (streams Compose output), parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/cron/jobs:
+    get: { tags: [Cron], summary: Jobs, responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Job" } } } } } } }
+    post: { tags: [Cron], summary: Create a job, requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Job" } } } }, responses: { "200": { description: OK } } }
+  /api/v1/cron/jobs/{id}:
+    get: { tags: [Cron], summary: One job, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    put: { tags: [Cron], summary: Update a job, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    delete: { tags: [Cron], summary: Delete a job and its history, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
+  /api/v1/cron/jobs/{id}/run:
+    post: { tags: [Cron], summary: Run now, streaming output, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/cron/jobs/{id}/runs:
+    get: { tags: [Cron], summary: Run history, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/cron/preview:
+    post: { tags: [Cron], summary: Describe a schedule and list the next five runs, responses: { "200": { description: OK } } }
+  /api/v1/cron/import:
+    post: { tags: [Cron], summary: Preview or import crontab text (`save` true to create paused jobs), responses: { "200": { description: OK } } }
+  /api/v1/ping/{token}:
+    get: { tags: [Cron], security: [], summary: Heartbeat ping for external jobs, parameters: [{ name: token, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK }, "404": { description: Unknown heartbeat } } }
+  /api/v1/notify/channels:
+    get: { tags: [Notifications], summary: Channels (config only for admins), responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Channel" } } } } } } }
+    post: { tags: [Notifications], summary: Add a channel, requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Channel" } } } }, responses: { "200": { description: OK } } }
+  /api/v1/notify/channels/{id}/test:
+    post: { tags: [Notifications], summary: Send a test message, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Sent } } }
+  /api/v1/notify/emit:
+    post:
+      tags: [Notifications]
+      summary: Raise a custom event (scripts, CI, `islet notify`)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { severity: { type: string, enum: [info, warning, critical] }, title: { type: string }, message: { type: string } }, required: [title] } } } }
+      responses: { "202": { description: Queued } }
+  /api/v1/notify/events:
+    get: { tags: [Notifications], summary: Event timeline (`?limit=&before=`), responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Event" } } } } } } }
+  /api/v1/uptime/checks:
+    get: { tags: [Uptime], summary: Checks with uptime percentages, responses: { "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Check" } } } } } } }
+    post: { tags: [Uptime], summary: Create a check, requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/Check" } } } }, responses: { "200": { description: OK } } }
+  /api/v1/uptime/checks/{id}/results:
+    get: { tags: [Uptime], summary: Recent probes, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/uptime/checks/{id}/probe:
+    post: { tags: [Uptime], summary: Probe now, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Result } } }
+  /api/v1/logs/sources:
+    get: { tags: [Logs], summary: Journals, files and containers that can be tailed, responses: { "200": { description: OK } } }
+  /api/v1/logs/stream:
+    get: { tags: [Logs], summary: Tail a source (`?source=&tail=&follow=`), responses: { "200": { $ref: "#/components/responses/Stream" } } }

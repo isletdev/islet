@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, RequestError, type Session } from "@/lib/api";
+import { api, RequestError, type Session, type ApiToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
@@ -19,6 +19,7 @@ export default function Settings() {
       <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
       <ChangePassword />
       <Sessions currentId={me.sessionId} />
+      <Tokens />
       <Updates />
       <AuditLog />
     </div>
@@ -161,6 +162,44 @@ function Sessions({ currentId }: { currentId: string }) {
         ))}
         {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No sessions.</li>}
       </ul>
+    </Card>
+  );
+}
+
+function Tokens() {
+  const [list, setList] = useState<ApiToken[]>([]);
+  const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [ttl, setTtl] = useState(0);
+  const [created, setCreated] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () => api.tokens().then(setList).catch(() => setList([]));
+  useEffect(() => { void load(); }, []);
+  const SCOPES = ["read", "deploy", "cron", "notify", "logs", "db", "containers"];
+  const create = async (e: FormEvent) => {
+    e.preventDefault(); setMsg(null);
+    try { const r = await api.tokenCreate({ name, scopes: scopes.length ? scopes.join(",") : "*", ttlDays: ttl }); setCreated(r.token); setName(""); setScopes([]); await load(); }
+    catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+  };
+  return (
+    <Card title="API tokens" description="For the islet CLI, CI jobs and scripts. Send as Authorization: Bearer. A token acts with your role, narrowed by its scopes.">
+      <ul className="divide-y divide-border">
+        {list.map((t) => (
+          <li key={t.id} className="flex items-center justify-between gap-4 py-2.5 text-sm">
+            <div className="min-w-0"><div className="font-medium">{t.name} <span className="ml-1 font-mono text-[11px] text-ink-muted">{t.scopes}</span></div><div className="text-xs text-ink-muted">created {new Date(t.createdAt).toLocaleDateString()}{t.lastUsedAt && ` · last used ${new Date(t.lastUsedAt).toLocaleString()}`}{t.expiresAt && ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`}</div></div>
+            <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={async () => { await api.tokenRevoke(t.id); await load(); }}>Revoke</Button>
+          </li>
+        ))}
+        {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No tokens yet.</li>}
+      </ul>
+      {created && <div className="mt-3 rounded-md border border-success/40 bg-success-soft p-3 text-sm"><div className="mb-1 text-success">Copy this token now. It is not shown again.</div><pre className="overflow-x-auto font-mono text-xs">{created}</pre><pre className="mt-2 overflow-x-auto font-mono text-xs text-ink-muted">islet login --url {location.origin} --token {created}</pre></div>}
+      <form onSubmit={create} className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-[1fr_auto_auto]">
+        <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="CI deploys" required /></Field>
+        <Field label="Expires"><select value={ttl} onChange={(e) => setTtl(+e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value={0}>Never</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></select></Field>
+        <div className="flex items-end"><Button type="submit" className="h-9">Create token</Button></div>
+        <div className="sm:col-span-3"><span className="mb-1 block text-sm font-medium">Scopes</span><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setScopes([])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.length === 0 ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>everything</button>{SCOPES.map((sc) => <button key={sc} type="button" onClick={() => setScopes(scopes.includes(sc) ? scopes.filter((x) => x !== sc) : [...scopes, sc])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.includes(sc) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{sc}</button>)}</div></div>
+        {msg && <p className="text-sm text-danger sm:col-span-3">{msg}</p>}
+      </form>
     </Card>
   );
 }

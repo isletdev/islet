@@ -83,6 +83,24 @@ func main() {
 			fmt.Fprintln(os.Stderr, "islet:", err)
 			os.Exit(1)
 		}
+	case "login":
+		run(cmdLogin(os.Args[2:]))
+	case "whoami":
+		run(cmdWhoami())
+	case "apps":
+		run(cmdApps())
+	case "deploy":
+		run(cmdDeploy(os.Args[2:]))
+	case "logs":
+		run(cmdLogs(os.Args[2:]))
+	case "restart":
+		run(cmdRestart(os.Args[2:]))
+	case "cron":
+		run(cmdCron(os.Args[2:]))
+	case "notify":
+		run(cmdNotify(os.Args[2:]))
+	case "db":
+		run(cmdDB(os.Args[2:]))
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -92,10 +110,28 @@ func main() {
 	}
 }
 
+func run(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "islet:", err)
+		os.Exit(1)
+	}
+}
+
 func usage() {
-	fmt.Print(`islet — manage the server this daemon runs on
+	fmt.Print(`islet — manage a server running isletd
 
 Usage:
+  islet login --url https://host:9443 --token islet_…
+                            save an API token (Settings → API tokens)
+  islet whoami              show who the saved token belongs to
+  islet apps                list deployed apps
+  islet deploy <app> [--redeploy] [--rollback <n>]
+                            deploy the latest commit, redeploy, or roll back; streams the log
+  islet logs <app|container> [-f] [-n 200]
+  islet restart <app|container>
+  islet cron [list | run <job>]
+  islet notify "title" [-m "message"] [--severity info|warning|critical]
+  islet db [list | shell <instance>]
   islet status              show whether isletd is running and its version
   islet update [--check] [--beta]
                             install the latest signed release and restart isletd
@@ -103,6 +139,8 @@ Usage:
 
 Environment:
   ISLET_URL         daemon address (default https://127.0.0.1:9443)
+  ISLET_TOKEN       API token, instead of the saved login
+  ISLET_CONFIG      config file (default ~/.config/islet/config.json)
   ISLET_DATA_DIR    where the daemon keeps its certificate (default /var/lib/islet)
 `)
 }

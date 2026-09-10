@@ -184,7 +184,8 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Pipeline: clone, layer-cached build, pre-deploy command, health check, zero-downtime switch, drain old
 - [x] Deploy history with commit, author, duration and log; instant rollback without rebuild
 - [x] Triggers: push webhook (GitHub, GitLab, Gitea signatures), manual deploy, redeploy, API; one deploy at a time per app, cancellable
-- [ ] Triggers: tag rules, CLI, runner job
+- [x] Trigger: CLI (`islet deploy`)
+- [ ] Triggers: tag rules, runner job
 - [ ] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
 - [ ] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
 - [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
@@ -200,8 +201,9 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [ ] Runner dashboard: queue, job history, per-job logs
 
 **CLI and API**
-- [ ] `islet` CLI: login, deploy, logs, restart, db shell, cron run, notify
-- [ ] REST API with OpenAPI docs and scoped API tokens
+- [x] `islet` CLI: login, whoami, apps, deploy (with rollback), logs, restart, cron list/run, notify, db list/shell
+- [x] Scoped API tokens (Settings → API tokens) with bearer auth
+- [x] REST API described in `docs/openapi.yaml`
 - [ ] Recipes: "Next.js + Postgres + domain", "Node API + Redis", "Django", "Rails", "Go", "Laravel"
 
 **Not in this phase:** security suite, backups beyond database dumps.

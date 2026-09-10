@@ -94,6 +94,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/totp/enable", requireJSON(s.requireAuth(s.handleTOTPEnable)))
 	mux.HandleFunc("POST /api/v1/auth/totp/disable", requireJSON(s.requireAuth(s.handleTOTPDisable)))
 	mux.HandleFunc("GET /api/v1/auth/sessions", s.requireAuth(s.handleSessions))
+	mux.HandleFunc("GET /api/v1/auth/tokens", s.requireAuth(s.handleTokens))
+	mux.HandleFunc("POST /api/v1/auth/tokens", requireJSON(s.requireAuth(s.handleTokenCreate)))
+	mux.HandleFunc("DELETE /api/v1/auth/tokens/{id}", requireJSON(s.requireAuth(s.handleTokenRevoke)))
 	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", requireJSON(s.requireAuth(s.handleSessionRevoke)))
 
 	// System and metrics

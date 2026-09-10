@@ -22,6 +22,7 @@ type ctxKey int
 const (
 	ctxSession ctxKey = iota
 	ctxUser
+	ctxToken
 )
 
 // sessionFrom returns the verified session of the request, if any.
@@ -39,6 +40,22 @@ func userFrom(ctx context.Context) *auth.User {
 // user in the context. It does not reject anything; requireAuth does.
 func (s *Server) withSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			u, t, err := s.auth.UserByToken(r.Context(), strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, api.Error{Error: "bad_token", Message: "invalid or expired API token"})
+				return
+			}
+			if !auth.ScopeAllows(t.Scopes, r.Method, r.URL.Path) {
+				writeJSON(w, http.StatusForbidden, api.Error{Error: "scope", Message: "this token's scopes do not cover " + r.Method + " " + r.URL.Path})
+				return
+			}
+			ctx := context.WithValue(r.Context(), ctxUser, u)
+			ctx = context.WithValue(ctx, ctxToken, t)
+			ctx = context.WithValue(ctx, ctxSession, &auth.Session{ID: "token:" + t.ID, UserID: u.ID})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {
 			next.ServeHTTP(w, r)
