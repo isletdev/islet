@@ -28,3 +28,9 @@ Thumbs.db
 # Local dev state and builds
 .data/
 *.exe
+
+# Built UI is embedded at build time by scripts/build.sh; only the placeholder index.html is tracked
+internal/web/dist/assets/
+internal/web/dist/*.png
+internal/web/dist/*.ico
+internal/web/dist/*.webmanifest

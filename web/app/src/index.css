@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "@brand/fonts/fonts.css";
+@import "@brand/tokens/tokens.css";
+
+/* Map brand tokens to Tailwind utilities. `inline` keeps the var() reference,
+   so utilities follow the theme at runtime. */
+@theme inline {
+  --color-bg: var(--islet-bg);
+  --color-surface: var(--islet-surface);
+  --color-surface-2: var(--islet-surface-2);
+  --color-border: var(--islet-border);
+  --color-border-strong: var(--islet-border-strong);
+  --color-ink: var(--islet-ink);
+  --color-ink-muted: var(--islet-ink-muted);
+  --color-ink-faint: var(--islet-ink-faint);
+  --color-accent: var(--islet-accent);
+  --color-accent-strong: var(--islet-accent-strong);
+  --color-accent-soft: var(--islet-accent-soft);
+  --color-success: var(--islet-success);
+  --color-success-soft: var(--islet-success-soft);
+  --color-warning: var(--islet-warning);
+  --color-warning-soft: var(--islet-warning-soft);
+  --color-danger: var(--islet-danger);
+  --color-danger-soft: var(--islet-danger-soft);
+  --color-on-ink: var(--islet-on-ink);
+  --color-code-bg: var(--islet-code-bg);
+  --color-code-fg: var(--islet-code-fg);
+  --color-code-muted: var(--islet-code-muted);
+  --color-code-accent: var(--islet-code-accent);
+
+  --font-sans: var(--islet-font-sans);
+  --font-mono: var(--islet-font-mono);
+
+  --radius-sm: var(--islet-radius-sm);
+  --radius-md: var(--islet-radius-md);
+  --radius-lg: var(--islet-radius-lg);
+
+  --shadow-float: var(--islet-shadow-float);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background: var(--islet-bg);
+    color: var(--islet-ink);
+    font-family: var(--islet-font-sans);
+    font-size: var(--islet-text-sm);
+    line-height: var(--islet-leading-normal);
+    margin: 0;
+  }
+  code, kbd, pre { font-family: var(--islet-font-mono); }
+  :focus-visible { outline: none; box-shadow: var(--islet-focus-ring); border-radius: var(--islet-radius-sm); }
+  ::selection { background: var(--islet-accent-soft); }
+}

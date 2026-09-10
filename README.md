@@ -58,3 +58,20 @@ Go daemon, SQLite, React + Vite + TypeScript UI embedded in the binary, Traefik,
 AGPL-3.0 for the core (to be added as `LICENSE`). Catalog templates will be MIT in their own repo.
 
 Copyright and trademark: Torsten Labs DOO, North Macedonia, https://torstenlabs.com
+
+## Development
+
+Requirements: Go 1.27+, Node 22+, pnpm 11+, Docker (for the features that need it).
+
+```sh
+# API and daemon with the placeholder page
+go run ./cmd/isletd -data-dir .data/state
+
+# Web app with hot reload, proxied to the daemon on :9443
+cd web/app && pnpm install && pnpm dev
+
+# Full build: web app embedded into bin/isletd and bin/islet
+sh scripts/build.sh
+```
+
+`internal/web/dist` holds a committed placeholder. The build script replaces it with the Vite output before compiling; do not commit the generated assets.
