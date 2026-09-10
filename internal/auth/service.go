@@ -172,6 +172,92 @@ func (s *Service) createUser(ctx context.Context, username, password, role strin
 
 // ---- users ----
 
+// Users lists every account.
+func (s *Service) Users(ctx context.Context) ([]User, error) {
+	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at FROM users ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []User{}
+	for rows.Next() {
+		var u User
+		var totp []byte
+		var last sql.NullString
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &last); err != nil {
+			return nil, err
+		}
+		u.TOTPEnabled = len(totp) > 0
+		u.LastLoginAt = last.String
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// CreateUser adds an account with a role.
+func (s *Service) CreateUser(ctx context.Context, username, password, role string) (*User, error) {
+	if role != "admin" && role != "deployer" && role != "viewer" {
+		return nil, errors.New("role must be admin, deployer or viewer")
+	}
+	return s.createUser(ctx, username, password, role)
+}
+
+// UpdateUser changes a role and/or password. The last admin cannot be
+// demoted, and an admin cannot demote themselves.
+func (s *Service) UpdateUser(ctx context.Context, id, role, password, actorID string) error {
+	if role != "" {
+		if role != "admin" && role != "deployer" && role != "viewer" {
+			return errors.New("role must be admin, deployer or viewer")
+		}
+		if id == actorID && role != "admin" {
+			return errors.New("you cannot remove your own admin role")
+		}
+		if role != "admin" {
+			var admins int
+			_ = s.st.DB.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role = 'admin' AND id <> ?`, id).Scan(&admins)
+			if admins == 0 {
+				return errors.New("at least one admin must remain")
+			}
+		}
+		if _, err := s.st.DB.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ?`, role, id); err != nil {
+			return err
+		}
+	}
+	if password != "" {
+		hash, err := HashPassword(password)
+		if err != nil {
+			return err
+		}
+		if _, err := s.st.DB.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, hash, id); err != nil {
+			return err
+		}
+		_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id)
+	}
+	return nil
+}
+
+// DeleteUser removes an account and its sessions and tokens.
+func (s *Service) DeleteUser(ctx context.Context, id, actorID string) error {
+	if id == actorID {
+		return errors.New("you cannot delete your own account")
+	}
+	var admins int
+	_ = s.st.DB.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE role = 'admin' AND id <> ?`, id).Scan(&admins)
+	if admins == 0 {
+		return errors.New("at least one admin must remain")
+	}
+	_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, id)
+	_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM api_tokens WHERE user_id = ?`, id)
+	res, err := s.st.DB.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("user not found")
+	}
+	return nil
+}
+
 // UserByID loads a user.
 func (s *Service) UserByID(ctx context.Context, id string) (*User, error) {
 	var u User

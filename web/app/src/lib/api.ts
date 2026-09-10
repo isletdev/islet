@@ -137,6 +137,8 @@ export interface BackupRun { id: number; planId: string; trigger: string; status
 export interface Snapshot { id: string; time: string; paths: string[]; tags: string[]; size: number }
 export interface BackupOverview { destinations: BackupDestination[]; plans: BackupPlan[]; health: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; volumes: string[]; databases?: string[] }
 
+export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -183,6 +185,12 @@ export const api = {
   totpSetup: () => post<{ secret: string; otpauthUrl: string }>("/api/v1/auth/totp/setup"),
   totpEnable: (code: string) => post<{ codes: string[] }>("/api/v1/auth/totp/enable", { code }),
   totpDisable: (code: string) => post<void>("/api/v1/auth/totp/disable", { code }),
+  users: () => request<User[]>("/api/v1/users"),
+  userCreate: (b: { username: string; password: string; role: string }) => post<User>("/api/v1/users", b),
+  userUpdate: (id: string, b: { role: string; password: string }) => post<void>(`/api/v1/users/${id}`, b, "PUT"),
+  userDelete: (id: string) => post<void>(`/api/v1/users/${id}`, undefined, "DELETE"),
+  attention: () => request<Attention>("/api/v1/attention"),
+  portCheck: (host: string, port: number) => request<{ open: boolean; message: string }>(`/api/v1/diagnostics?tool=port&host=${encodeURIComponent(host)}&port=${port}`),
   tokens: () => request<ApiToken[]>("/api/v1/auth/tokens"),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),

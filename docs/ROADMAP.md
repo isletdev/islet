@@ -222,7 +222,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] One-click fixes: disable root and password login, UFW rules, fail2ban, unattended-upgrades, security upgrades, swap, NTP
 - [ ] First-run wizard flow (sudo user with SSH key, SSH port, timezone) tying the fixes together
 - [x] Security Score (0–100) with explanations and one-click fixes
-- [ ] Security Score card on the dashboard
+- [x] Security Score card on the dashboard
 - [x] SSH settings UI with validation (sshd -t, authorized_keys present) and a five-minute rollback timer
 
 **Firewall and intrusion prevention**
@@ -257,7 +257,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Progress and dedup stats (bytes added vs processed), per-run logs, resumable uploads (restic)
 - [ ] Bandwidth and IO limits
 - [x] Backup health summary on the Backups page, stale-backup and failure events through notifications, backup plan counted in the Security Score
-- [ ] Health card on the dashboard
+- [x] Backup health in the dashboard's attention strip
 - [x] Restore browser: single file or folder to disk, volume into a new volume
 - [ ] Database into a new instance, whole app, dry run
 - [ ] Full server restore from a fresh install using the recovery kit, also the migration path between providers
@@ -268,9 +268,11 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] `islet backup list|run|snapshots|verify|restore` in the CLI
 
 **Networking and access**
-- [ ] WireGuard server with QR onboarding and a "panel only via VPN" toggle
-- [ ] Cloudflare Tunnel and Tailscale integrations
-- [ ] Diagnostics: ping, traceroute, dig, port check, bandwidth per interface and container
+- [x] WireGuard (wg-easy) in the catalog with QR onboarding; "panel only via VPN" via a firewall rule (documented in the app notes)
+- [ ] One-click "panel only via VPN" toggle
+- [x] Cloudflare Tunnel and Tailscale in the catalog
+- [x] Diagnostics: ping, traceroute, dig, port check (Security page)
+- [ ] Bandwidth per interface and container
 - [ ] "Protect this app with Islet login" forward-auth toggle on any route
 
 **Not in this phase:** nothing paid; everything here stays free forever.
@@ -289,14 +291,15 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [ ] Import from Coolify, Dokploy and Portainer stacks
 
 **Platform**
-- [ ] Multi-user with Admin, Deployer and Viewer roles scoped to projects
+- [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)
+- [ ] Roles scoped to projects
 - [ ] MCP server with scoped tokens, off by default
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
 - [ ] "Add to sidebar" embedding of any app UI behind Islet login
 - [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide
 - [ ] PWA install, mobile layouts for dashboard, logs, deploys, notifications and file explorer
 - [ ] i18n framework with English complete and two community languages
-- [ ] Command transparency drawer: every command Islet ran, copyable
+- [x] Command transparency: every command Islet ran, copyable (Settings)
 
 **Guides and content**
 - [ ] Inline "Why this matters" on every security and infra toggle
@@ -307,7 +310,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 **Quality**
 - [ ] e2e suite on real VPSes for Ubuntu 22.04, 24.04, Debian 12, arm64
 - [ ] Signed releases with cosign and SLSA provenance, reproducible builds
-- [ ] `SECURITY.md`, CLA bot, trademark policy, code of conduct, issue templates
+- [x] `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, issue templates
+- [ ] CLA bot, trademark policy
 - [ ] Load test: panel stays responsive on a 1 vCPU, 2 GB box with 30 containers
 
 **Done when:** three outside users install Islet on servers they already run, adopt what is there, and report nothing broke. Then launch.

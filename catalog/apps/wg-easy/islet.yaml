@@ -1,0 +1,21 @@
+name: WireGuard (wg-easy)
+slug: wg-easy
+category: network
+description: WireGuard VPN with a web UI and QR-code onboarding for phones and laptops.
+website: https://github.com/wg-easy/wg-easy
+service: wg-easy
+port: 51821
+fields:
+  - key: WG_HOST
+    label: Public hostname or IP
+    type: text
+    hint: What clients connect to, usually this server's public IP.
+  - key: PASSWORD_HASH
+    label: Admin password hash (bcrypt)
+    type: text
+    hint: Generate with "docker run --rm ghcr.io/wg-easy/wg-easy wgpw yourpassword"; write every $ as $$.
+volumes:
+  - data
+notes: |
+  Opens UDP 51820 for the tunnel. Route a domain to the web UI (port 51821) or reach it over the VPN itself.
+  "Panel only via VPN": once connected, add a firewall rule allowing 9443 from 10.8.0.0/24 and remove the public one.

@@ -1,0 +1,21 @@
+name: Tailscale
+slug: tailscale
+category: network
+description: Join this server to your tailnet. Reach the panel and databases privately, no ports open.
+website: https://tailscale.com
+service: tailscale
+port: 0
+fields:
+  - key: TS_AUTHKEY
+    label: Auth key
+    type: text
+    hint: Admin console, Settings, Keys, Generate auth key (reusable, tagged).
+  - key: TS_HOSTNAME
+    label: Hostname on the tailnet
+    type: text
+    default: 'islet'
+volumes:
+  - state
+notes: |
+  Runs with host networking so the tailnet IP belongs to the server itself.
+  Then allow 9443 from 100.64.0.0/10 in the firewall and drop the public rule to make the panel VPN-only.

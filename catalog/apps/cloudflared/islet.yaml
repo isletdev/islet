@@ -1,0 +1,15 @@
+name: Cloudflare Tunnel
+slug: cloudflared
+category: network
+description: Expose apps through Cloudflare without opening ports. Pairs with Cloudflare Access for login walls.
+website: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+service: cloudflared
+port: 0
+fields:
+  - key: TUNNEL_TOKEN
+    label: Tunnel token
+    type: text
+    hint: Zero Trust dashboard, Networks, Tunnels, Create, then copy the token from the docker command.
+notes: |
+  Configure public hostnames in the Cloudflare dashboard, pointing at http://<container>:<port> of any container.
+  The tunnel joins the islet-proxy network, so containers routed by Islet are reachable by name.

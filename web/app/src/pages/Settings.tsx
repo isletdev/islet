@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, RequestError, type Session, type ApiToken } from "@/lib/api";
+import { api, RequestError, type Session, type ApiToken, type User } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
+import CommandLog from "@/components/CommandLog";
 
 export default function Settings() {
   const { state, refresh } = useAuth();
@@ -20,7 +21,9 @@ export default function Settings() {
       <ChangePassword />
       <Sessions currentId={me.sessionId} />
       <Tokens />
+      {me.user.role === "admin" && <Users meId={me.user.id} />}
       <Updates />
+      <CommandLog />
       <AuditLog />
     </div>
   );
@@ -199,6 +202,41 @@ function Tokens() {
         <div className="flex items-end"><Button type="submit" className="h-9">Create token</Button></div>
         <div className="sm:col-span-3"><span className="mb-1 block text-sm font-medium">Scopes</span><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setScopes([])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.length === 0 ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>everything</button>{SCOPES.map((sc) => <button key={sc} type="button" onClick={() => setScopes(scopes.includes(sc) ? scopes.filter((x) => x !== sc) : [...scopes, sc])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.includes(sc) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{sc}</button>)}</div></div>
         {msg && <p className="text-sm text-danger sm:col-span-3">{msg}</p>}
+      </form>
+    </Card>
+  );
+}
+
+function Users({ meId }: { meId: string }) {
+  const [list, setList] = useState<User[]>([]);
+  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [role, setRole] = useState("deployer");
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () => api.users().then(setList).catch(() => setList([]));
+  useEffect(() => { void load(); }, []);
+  const create = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.userCreate({ username, password, role }); setUsername(""); setPassword(""); setMsg(`Created ${username}. Share the password over a safe channel; they can change it and enable 2FA in Settings.`); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const setRoleFor = async (u: User, r: string) => { try { await api.userUpdate(u.id, { role: r, password: "" }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const resetPw = async (u: User) => { const pw = prompt(`New password for ${u.username} (at least 12 characters). Their sessions are signed out.`); if (!pw) return; try { await api.userUpdate(u.id, { role: "", password: pw }); setMsg(`Password for ${u.username} changed.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const remove = async (u: User) => { if (!confirm(`Delete ${u.username}? Their sessions and API tokens are revoked.`)) return; try { await api.userDelete(u.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  return (
+    <Card title="Users" description="Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read.">
+      <ul className="divide-y divide-border">
+        {list.map((u) => (
+          <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+            <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
+            <div className="flex items-center gap-2 text-xs">
+              <select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
+              <button type="button" onClick={() => void resetPw(u)} className="text-ink-muted hover:text-ink">Reset password</button>
+              {u.id !== meId && <button type="button" onClick={() => void remove(u)} className="text-danger hover:underline">Delete</button>}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={create} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+        <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" required autoComplete="off" />
+        <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password (12+ characters)" required autoComplete="new-password" />
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
+        <Button type="submit" className="h-9">Add user</Button>
+        {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
       </form>
     </Card>
   );

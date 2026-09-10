@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { streamLines } from "@/lib/stream";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
@@ -76,7 +77,29 @@ export default function Security() {
         </Card>
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
+      <Diagnostics />
     </div>
+  );
+}
+
+function Diagnostics() {
+  const [host, setHost] = useState(""); const [port, setPort] = useState("443"); const [tool, setTool] = useState("ping");
+  const [out, setOut] = useState<string[]>([]); const [busy, setBusy] = useState(false);
+  const run = async (e: FormEvent) => {
+    e.preventDefault(); setOut([]); setBusy(true);
+    if (tool === "port") { try { const r = await api.portCheck(host, +port); setOut([`${host}:${port} is ${r.message}`]); } catch (er) { setOut([err(er)]); } setBusy(false); return; }
+    streamLines(`/api/v1/diagnostics?tool=${tool}&host=${encodeURIComponent(host)}`, (l) => setOut((p) => [...p, l]), (m) => { if (m !== "done") setOut((p) => [...p, m]); setBusy(false); });
+  };
+  return (
+    <Card title="Network diagnostics" description="Run from this server, so you see what the server sees.">
+      <form onSubmit={run} className="flex flex-wrap items-end gap-2">
+        <Field label="Tool"><select value={tool} onChange={(e) => setTool(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="ping">ping</option><option value="traceroute">traceroute</option><option value="dig">dig</option><option value="port">port check</option></select></Field>
+        <Field label="Host"><Input value={host} onChange={(e) => setHost(e.target.value)} className="w-56 font-mono" placeholder="example.com" required /></Field>
+        {tool === "port" && <Field label="Port"><Input value={port} onChange={(e) => setPort(e.target.value)} className="w-20 font-mono" /></Field>}
+        <Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Running…" : "Run"}</Button>
+      </form>
+      {out.length > 0 && <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{out.join("\n")}</pre>}
+    </Card>
   );
 }
 

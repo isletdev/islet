@@ -4,6 +4,7 @@ import { bytes, duration, pct, rate } from "@/lib/format";
 import Sparkline, { type SparkPoint } from "@/components/Sparkline";
 import { Card } from "@/components/ui";
 import DiskDoctor from "@/components/DiskDoctor";
+import Attention from "@/components/Attention";
 import { useAuth } from "@/lib/auth";
 
 type Range = "1h" | "6h" | "24h" | "7d";
@@ -90,6 +91,8 @@ export default function Overview() {
           ))}
         </div>
       </div>
+
+      <Attention />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Tile label="CPU" value={latest ? pct(latest.cpuPct) : "–"} sub={latest ? `load ${latest.load1.toFixed(2)} / ${latest.load5.toFixed(2)} / ${latest.load15.toFixed(2)}` : ""} warn={!!latest && latest.cpuPct >= 90}>
