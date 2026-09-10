@@ -21,6 +21,7 @@ import (
 
 	"github.com/isletdev/islet/internal/api"
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/backup"
 	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/cron"
@@ -118,10 +119,12 @@ func run() error {
 	}
 	rn := runner.New(st, keys, cmds, bus, log)
 	rn.Start(ctx)
+	bk := backup.New(st, keys, cmds, dbs, bus, *dataDir, log)
+	bk.Start(ctx)
 	sec := security.New(st, cmds, bus, *dataDir, security.Hooks{
 		Admin2FA:      as.AllAdminsHave2FA,
 		PanelHasCert:  func() bool { return *tlsMode == "off" || panelHasTrustedCert(ctx, px) },
-		HasBackupPlan: func(ctx context.Context) bool { return false },
+		HasBackupPlan: bk.HasPlan,
 	}, log)
 	up := uptime.New(st, bus)
 	if err := up.Start(ctx); err != nil {
@@ -163,7 +166,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Backup: bk, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

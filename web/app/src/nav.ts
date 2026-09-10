@@ -19,7 +19,7 @@ export const NAV: NavItem[] = [
   { path: "/notifications", label: "Notifications", phase: "v0.4", ready: true, blurb: "Telegram, Discord, Slack, email and webhooks." },
   { path: "/runners", label: "Runners", phase: "v0.5", ready: true, blurb: "GitHub Actions, GitLab and Gitea runners on this server." },
   { path: "/uptime", label: "Uptime", phase: "v0.4", ready: true, blurb: "HTTP, TCP and keyword checks from this server." },
-  { path: "/backups", label: "Backups", phase: "v0.6", blurb: "Encrypted backups that are tested by restoring them." },
+  { path: "/backups", label: "Backups", phase: "v0.6", ready: true, blurb: "Encrypted backups that are tested by restoring them." },
   { path: "/security", label: "Security", phase: "v0.6", ready: true, blurb: "Score, firewall, SSH, intrusion prevention, scans." },
   { path: "/logs", label: "Logs", phase: "v0.4", ready: true, blurb: "One viewer across system, Docker and app logs." },
   { path: "/settings", label: "Settings", phase: "v0.1", ready: true, blurb: "Users, 2FA, API tokens, updates." },

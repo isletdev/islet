@@ -101,6 +101,8 @@ func main() {
 		run(cmdNotify(os.Args[2:]))
 	case "db":
 		run(cmdDB(os.Args[2:]))
+	case "backup":
+		run(cmdBackup(os.Args[2:]))
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -132,6 +134,7 @@ Usage:
   islet cron [list | run <job>]
   islet notify "title" [-m "message"] [--severity info|warning|critical]
   islet db [list | shell <instance>]
+  islet backup [list | run <plan> | snapshots <dest> | verify <dest> | restore <dest> <snap> <path> [--volume NAME]]
   islet status              show whether isletd is running and its version
   islet update [--check] [--beta]
                             install the latest signed release and restart isletd

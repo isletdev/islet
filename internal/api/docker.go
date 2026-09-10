@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,6 +115,10 @@ func streamLines(w http.ResponseWriter, r *http.Request, rc interface{ Read([]by
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "streaming unsupported"})
 		return
 	}
+	// Drain the request body first: closing a connection with unread request
+	// bytes makes the kernel send RST, and Windows clients then drop the
+	// buffered tail of the response.
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")

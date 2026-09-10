@@ -454,6 +454,103 @@ func cmdDB(args []string) error {
 	return errors.New("usage: islet db [list | shell <instance>]")
 }
 
+func cmdBackup(args []string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	var o struct {
+		Destinations []struct{ ID, Name, Repo, LastCheck string }
+		Plans        []struct {
+			ID, Name, Described, LastRunAt, LastStatus, DestinationID string
+			Stale                                                     bool
+		}
+	}
+	if err := c.get("/api/v1/backups", &o); err != nil {
+		return err
+	}
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "list":
+		for _, d := range o.Destinations {
+			fmt.Printf("destination %-16s %s (checked %s)\n", d.Name, d.Repo, firstNonEmpty(d.LastCheck, "never"))
+		}
+		for _, p := range o.Plans {
+			stale := ""
+			if p.Stale {
+				stale = "  STALE"
+			}
+			fmt.Printf("plan        %-16s %-28s last: %s %s%s\n", p.Name, p.Described, firstNonEmpty(p.LastStatus, "never"), p.LastRunAt, stale)
+		}
+		return nil
+	case "run":
+		if len(args) < 2 {
+			return errors.New("usage: islet backup run <plan>")
+		}
+		for _, p := range o.Plans {
+			if p.Name == args[1] || p.ID == args[1] {
+				return c.stream("POST", "/api/v1/backups/plans/"+p.ID+"/run")
+			}
+		}
+		return fmt.Errorf("no plan named %q", args[1])
+	case "snapshots", "verify", "restore":
+		if len(args) < 2 {
+			return errors.New("usage: islet backup " + sub + " <destination> …")
+		}
+		var dest string
+		for _, d := range o.Destinations {
+			if d.Name == args[1] || d.ID == args[1] {
+				dest = d.ID
+			}
+		}
+		if dest == "" {
+			return fmt.Errorf("no destination named %q", args[1])
+		}
+		switch sub {
+		case "snapshots":
+			var snaps []struct {
+				ID, Time string
+				Tags     []string
+				Size     int64
+			}
+			if err := c.get("/api/v1/backups/destinations/"+dest+"/snapshots", &snaps); err != nil {
+				return err
+			}
+			for _, s := range snaps {
+				fmt.Printf("%s  %s  %8d MB  %s\n", s.ID, s.Time[:19], s.Size/1048576, strings.Join(s.Tags, ","))
+			}
+		case "verify":
+			var r struct{ Output string }
+			if err := c.post("/api/v1/backups/destinations/"+dest+"/verify", nil, &r); err != nil {
+				return err
+			}
+			fmt.Println(strings.TrimSpace(r.Output))
+		case "restore":
+			if len(args) < 4 {
+				return errors.New("usage: islet backup restore <destination> <snapshot|latest> </data/volumes/NAME | /data/path> [--volume NEWNAME]")
+			}
+			vol, _ := flag(args, "--volume")
+			var r struct{ Target string }
+			if err := c.post("/api/v1/backups/destinations/"+dest+"/restore", map[string]string{"snapshot": args[2], "include": args[3], "newVolume": vol}, &r); err != nil {
+				return err
+			}
+			fmt.Println("restored to", r.Target)
+		}
+		return nil
+	}
+	return errors.New("usage: islet backup [list | run <plan> | snapshots <dest> | verify <dest> | restore <dest> <snapshot> <path> [--volume NAME]]")
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
 func cmdWhoami() error {
 	c, err := newClient()
 	if err != nil {

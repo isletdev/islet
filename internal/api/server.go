@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/backup"
 	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/cron"
@@ -49,6 +50,7 @@ type Deps struct {
 	Deploy   *deploy.Service
 	Runners  *runner.Service
 	Security *security.Service
+	Backup   *backup.Service
 	UI       http.Handler
 	Log      *slog.Logger
 }
@@ -71,6 +73,7 @@ type Server struct {
 	deploy   *deploy.Service
 	runners  *runner.Service
 	security *security.Service
+	backup   *backup.Service
 	ui       http.Handler
 	log      *slog.Logger
 	started  time.Time
@@ -78,7 +81,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -163,6 +166,24 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/apps/{id}/cancel", requireJSON(s.requireAuth(s.handleAppCancel)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases", s.requireAuth(s.handleAppReleases))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases/{release}", s.requireAuth(s.handleAppRelease))
+
+	// Backups
+	mux.HandleFunc("GET /api/v1/backups", s.requireAuth(s.handleBackupOverview))
+	mux.HandleFunc("GET /api/v1/backups/kit", s.requireAuth(s.handleRecoveryKit))
+	mux.HandleFunc("POST /api/v1/backups/destinations", requireJSON(s.requireAuth(s.handleDestinationSave)))
+	mux.HandleFunc("PUT /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationSave)))
+	mux.HandleFunc("DELETE /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationDelete)))
+	mux.HandleFunc("POST /api/v1/backups/destinations/{id}/verify", requireJSON(s.requireAuth(s.handleDestinationVerify)))
+	mux.HandleFunc("GET /api/v1/backups/destinations/{id}/snapshots", s.requireAuth(s.handleSnapshots))
+	mux.HandleFunc("GET /api/v1/backups/destinations/{id}/snapshots/{snapshot}/ls", s.requireAuth(s.handleSnapshotLs))
+	mux.HandleFunc("POST /api/v1/backups/destinations/{id}/restore", requireJSON(s.requireAuth(s.handleRestore)))
+	mux.HandleFunc("POST /api/v1/backups/plans", requireJSON(s.requireAuth(s.handlePlanSave)))
+	mux.HandleFunc("PUT /api/v1/backups/plans/{id}", requireJSON(s.requireAuth(s.handlePlanSave)))
+	mux.HandleFunc("DELETE /api/v1/backups/plans/{id}", requireJSON(s.requireAuth(s.handlePlanDelete)))
+	mux.HandleFunc("POST /api/v1/backups/plans/{id}/run", requireJSON(s.requireAuth(s.handlePlanRun)))
+	mux.HandleFunc("POST /api/v1/backups/plans/{id}/cancel", requireJSON(s.requireAuth(s.handlePlanCancel)))
+	mux.HandleFunc("GET /api/v1/backups/plans/{id}/runs", s.requireAuth(s.handlePlanRuns))
+	mux.HandleFunc("GET /api/v1/backups/plans/{id}/runs/{run}", s.requireAuth(s.handlePlanRunDetail))
 
 	// Security
 	mux.HandleFunc("GET /api/v1/security", s.requireAuth(s.handleSecurityReport))

@@ -244,20 +244,28 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Panic button: block all inbound except the current IP, revoke every other session and all API tokens
 
 **Backups** (full spec in `VISION.md` section 3.16)
-- [ ] restic-based backup plans: sources (volumes, bind mounts, database dumps, `/etc`, Islet state), destinations, schedule, retention
-- [ ] Destinations: S3-compatible (AWS, R2, B2, Wasabi, Hetzner Object Storage, MinIO), SFTP and Hetzner Storage Box, local disk, another Islet server
-- [ ] Presets on first run ("Everything nightly", "Databases hourly", "Config weekly") and a day-one nudge if no plan exists
-- [ ] Recovery kit download forced on first setup, with quarterly reminders
-- [ ] Retention in plain English with snapshot count, size and monthly cost estimate
-- [ ] Consistency: automatic pre-snapshot database dumps, per-app pre and post hooks, pause-during-snapshot toggle
-- [ ] Bandwidth and IO limits, resume after interruption, progress and dedup stats, per-run logs
-- [ ] Backup health card on the dashboard, stale-backup and failure events through notifications
-- [ ] Restore browser: single file or folder, volume into a new volume, database into a new instance, whole app, with dry run
+- [x] restic-based backup plans: sources (volumes, host paths, database dumps, Islet state), destinations, schedule, retention; restic runs in a container
+- [x] Destinations: S3-compatible (AWS, R2, B2, Wasabi, Hetzner Object Storage, MinIO), SFTP and Hetzner Storage Box, local disk, restic REST server
+- [ ] "Another Islet server" as a one-click destination (rest-server hosted by Islet)
+- [x] Presets ("Everything nightly", "Databases hourly", "Config weekly") and a nudge while no plan exists
+- [x] Recovery kit download (repositories, keys, credentials, restore instructions)
+- [ ] Forced download on first setup and quarterly reminders
+- [x] Retention in plain English with the maximum snapshot count
+- [ ] Size and monthly cost estimate
+- [x] Consistency: automatic pre-snapshot database dumps
+- [ ] Per-app pre and post hooks, pause-during-snapshot toggle
+- [x] Progress and dedup stats (bytes added vs processed), per-run logs, resumable uploads (restic)
+- [ ] Bandwidth and IO limits
+- [x] Backup health summary on the Backups page, stale-backup and failure events through notifications, backup plan counted in the Security Score
+- [ ] Health card on the dashboard
+- [x] Restore browser: single file or folder to disk, volume into a new volume
+- [ ] Database into a new instance, whole app, dry run
 - [ ] Full server restore from a fresh install using the recovery kit, also the migration path between providers
-- [ ] Weekly integrity check and monthly automated restore test with a "last verified" badge
+- [x] Weekly integrity check (restic check with a data sample) and a "last verified" date
+- [ ] Monthly automated restore test
 - [ ] Write-only credentials and object lock or append-only mode set up automatically for B2, R2 and S3
 - [ ] Provider snapshot before risky operations where the provider API is configured
-- [ ] `islet backup run|list|restore|verify` in the CLI
+- [x] `islet backup list|run|snapshots|verify|restore` in the CLI
 
 **Networking and access**
 - [ ] WireGuard server with QR onboarding and a "panel only via VPN" toggle
