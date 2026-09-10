@@ -18,8 +18,8 @@ After this phase a user can: run one command, open a URL, log in with 2FA, and s
 - [ ] Installs Docker Engine if missing, verifies it works
 - [x] Self-signed HTTPS on first boot (Let's Encrypt for the panel's own domain arrives with the proxy in v0.3)
 - [x] One-time login link printed by the installer
-- [ ] Self-update command with signature verification, stable and beta channels
-- [ ] Uninstall script that leaves Docker and apps running
+- [x] Self-update command with signature verification, stable and beta channels
+- [x] Uninstall script that leaves Docker and apps running
 
 **Auth and panel shell**
 - [x] Admin account creation, Argon2id passwords, sessions, rate-limited login

@@ -1,0 +1,65 @@
+version: 2
+project_name: islet
+
+before:
+  hooks:
+    - sh -c "cd web/app && pnpm install --frozen-lockfile && pnpm build"
+    - sh -c "rm -rf internal/web/dist && cp -r web/app/dist internal/web/dist"
+
+builds:
+  - id: isletd
+    main: ./cmd/isletd
+    binary: isletd
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/isletdev/islet/internal/version.Version={{ .Version }}
+      - -X github.com/isletdev/islet/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/isletdev/islet/internal/version.Date={{ .Date }}
+
+archives:
+  - id: isletd
+    ids: [isletd]
+    formats: [tar.gz]
+    # The installer downloads isletd_linux_<arch>.tar.gz and creates the islet symlink.
+    name_template: "isletd_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - deploy/systemd/isletd.service
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+signs:
+  - id: checksums
+    artifacts: checksum
+    cmd: go
+    args: ["run", "./tools/sign", "sign", "-", "${artifact}"]
+    signature: "${artifact}.sig"
+    env: ["ISLET_SIGNING_KEY={{ .Env.ISLET_SIGNING_KEY }}"]
+
+release:
+  github:
+    owner: isletdev
+    name: islet
+  prerelease: auto
+  draft: false
+
+changelog:
+  use: git
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^feat'
+    - title: Fixes
+      regexp: '^fix'
+    - title: Security
+      regexp: '^security'
+    - title: Other
+      order: 999
+  filters:
+    exclude: ['^docs', '^chore', '^ci', '^test']

@@ -2,19 +2,68 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/isletdev/islet/internal/update"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
 )
+
+func doUpdate(args []string) error {
+	check, beta := false, false
+	for _, a := range args {
+		switch a {
+		case "--check":
+			check = true
+		case "--beta":
+			beta = true
+		default:
+			return fmt.Errorf("unknown flag %q", a)
+		}
+	}
+	ch := update.Stable
+	if beta {
+		ch = update.Beta
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	rel, err := update.Latest(ctx, ch)
+	if err != nil {
+		return err
+	}
+	if !update.IsNewer(rel.Version, version.Version) {
+		fmt.Printf("islet %s is up to date (latest %s)\n", version.Version, rel.Version)
+		return nil
+	}
+	fmt.Printf("update available: %s -> %s (%s)\n", version.Version, rel.Version, rel.PublishedAt.Format("2006-01-02"))
+	if check {
+		return nil
+	}
+	res, err := update.Apply(ctx, rel, version.Version, func(msg string, kv ...any) { fmt.Println(msg) })
+	if err != nil {
+		return err
+	}
+	fmt.Printf("installed %s at %s\n", res.To, res.Path)
+	if runtime.GOOS == "linux" {
+		if out, err := exec.Command("systemctl", "restart", "isletd").CombinedOutput(); err != nil {
+			fmt.Printf("restart isletd yourself: %s\n", strings.TrimSpace(string(out)))
+		} else {
+			fmt.Println("isletd restarted")
+		}
+	}
+	return nil
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -26,6 +75,11 @@ func main() {
 		fmt.Printf("islet %s (%s, %s)\n", version.Version, version.Commit, version.Date)
 	case "status":
 		if err := status(); err != nil {
+			fmt.Fprintln(os.Stderr, "islet:", err)
+			os.Exit(1)
+		}
+	case "update":
+		if err := doUpdate(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "islet:", err)
 			os.Exit(1)
 		}
@@ -42,8 +96,10 @@ func usage() {
 	fmt.Print(`islet — manage the server this daemon runs on
 
 Usage:
-  islet status      show whether isletd is running and its version
-  islet version     print the CLI version
+  islet status              show whether isletd is running and its version
+  islet update [--check] [--beta]
+                            install the latest signed release and restart isletd
+  islet version             print the CLI version
 
 Environment:
   ISLET_URL         daemon address (default https://127.0.0.1:9443)

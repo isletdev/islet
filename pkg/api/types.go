@@ -21,3 +21,14 @@ type Error struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 }
+
+// UpdateStatus is returned by GET /api/v1/system/update.
+type UpdateStatus struct {
+	Current         string    `json:"current"`
+	Channel         string    `json:"channel"`
+	Latest          string    `json:"latest"`
+	Prerelease      bool      `json:"prerelease"`
+	PublishedAt     time.Time `json:"publishedAt"`
+	UpdateAvailable bool      `json:"updateAvailable"`
+	Notes           string    `json:"notes,omitempty"`
+}
