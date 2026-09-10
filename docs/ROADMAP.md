@@ -116,13 +116,16 @@ After this phase a user can: point a domain at any container, get a certificate 
 After this phase a user can: create a Postgres instance with a backup schedule, write and schedule a script from the browser, and get a Telegram message when it fails.
 
 **Databases**
-- [ ] First-class database objects for Postgres, MySQL, MariaDB, Redis, Valkey, MongoDB
-- [ ] Create databases and users, copyable connection strings for internal and public access
-- [ ] Public exposure gated behind a warning and an IP allowlist, with SSH tunnel instructions
-- [ ] Postgres extension toggles (pgvector, postgis, pg_stat_statements) and a PgBouncer toggle
-- [ ] Embedded Adminer, pgweb and RedisInsight sessions
-- [ ] Scheduled dumps to local disk or S3-compatible storage, retention, restore into a new instance
-- [ ] Connection count, size and slow query views
+- [x] First-class database objects for Postgres, MySQL, MariaDB, Redis, MongoDB (catalog installs appear on the Databases page)
+- [x] Create databases and users, copyable connection strings for internal and public access
+- [x] Public exposure gated behind a warning, on a chosen host port, with SSH tunnel instructions
+- [ ] IP allowlist for published database ports (needs the firewall, v0.6)
+- [x] Postgres extension toggles (pg_stat_statements, pg_trgm, pgcrypto, uuid-ossp, hstore, citext; pgvector/postgis when the image has them)
+- [ ] PgBouncer toggle
+- [ ] Embedded Adminer, pgweb and RedisInsight sessions (Adminer is in the catalog; deep links pending)
+- [x] Dump now, scheduled dumps to local disk as an editable cron job, retention, restore into any database, download
+- [ ] Dumps to S3-compatible storage (with backups, v0.6)
+- [x] Connection count, size, uptime and slow query view (pg_stat_statements)
 
 **Cron and task runner**
 - [x] Job types: command, inline script, existing file, container exec, one-off container, HTTP request, chain, heartbeat

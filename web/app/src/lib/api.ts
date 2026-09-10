@@ -98,6 +98,13 @@ export interface Job {
 }
 export interface JobTemplate { id: string; name: string; description: string; schedule: string; script: string }
 
+export interface DBInstance { name: string; slug: string; engine: "postgres" | "mysql" | "redis" | "mongo"; container: string; state: string; image: string; port: number; network: string; public?: string; user: string; password?: string; rootUser?: string; rootPassword?: string; database?: string; internalUrl: string; publicUrl?: string; installedAt: string }
+export interface DBDatabase { name: string; size: string; connections: number; owner?: string }
+export interface DBStats { version: string; connections: number; maxConnections: number; uptime: string; dataSize: string; extra?: string[] }
+export interface DBExtension { name: string; installed: boolean; available: boolean; comment: string }
+export interface DBDump { file: string; database: string; size: number; createdAt: string }
+export interface DBDetail extends DBInstance { databases: DBDatabase[]; stats?: DBStats; extensions: DBExtension[]; dumps: DBDump[]; error?: string; dumpJob?: Job }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -177,6 +184,16 @@ export const api = {
   catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
+  databases: () => request<DBInstance[]>("/api/v1/databases"),
+  database: (name: string) => request<DBDetail>(`/api/v1/databases/${name}`),
+  dbCreate: (name: string, b: { name: string; user: string; password: string }) => post<{ url: string }>(`/api/v1/databases/${name}/databases`, b),
+  dbDrop: (name: string, db: string) => post<void>(`/api/v1/databases/${name}/databases/${db}`, undefined, "DELETE"),
+  dbSlow: (name: string) => request<{ query: string; calls: number; meanMs: number }[]>(`/api/v1/databases/${name}/slow`),
+  dbExtension: (name: string, ext: string, enabled: boolean) => post<void>(`/api/v1/databases/${name}/extensions`, { name: ext, enabled }),
+  dbDump: (name: string, database: string) => post<DBDump>(`/api/v1/databases/${name}/dumps`, { database }),
+  dbRestore: (name: string, file: string, database: string) => post<void>(`/api/v1/databases/${name}/restore`, { file, database }),
+  dbDumpDelete: (name: string, file: string) => post<void>(`/api/v1/databases/${name}/dumps/${file}`, undefined, "DELETE"),
+  dbSchedule: (name: string, b: { schedule: string; keepDays: number; enabled: boolean }) => post<Job>(`/api/v1/databases/${name}/schedule`, b),
   jobs: () => request<Job[]>("/api/v1/cron/jobs"),
   job: (id: string) => request<Job>(`/api/v1/cron/jobs/${id}`),
   jobSave: (j: Partial<Job>) => j.id ? post<Job>(`/api/v1/cron/jobs/${j.id}`, j, "PUT") : post<Job>("/api/v1/cron/jobs", j),

@@ -14,7 +14,7 @@ export const NAV: NavItem[] = [
   { path: "/terminal", label: "Terminal", phase: "v0.1", ready: true, blurb: "A shell on this server, in the browser." },
   { path: "/domains", label: "Domains", phase: "v0.3", ready: true, blurb: "Point a domain at a container and get HTTPS." },
   { path: "/apps", label: "Apps", phase: "v0.3", ready: true, blurb: "One-click apps from the catalog and deploys from Git." },
-  { path: "/databases", label: "Databases", phase: "v0.4", blurb: "Postgres, MySQL, Redis and friends with backups." },
+  { path: "/databases", label: "Databases", phase: "v0.4", ready: true, blurb: "Postgres, MySQL, Redis and friends with backups." },
   { path: "/cron", label: "Cron", phase: "v0.4", ready: true, blurb: "Scheduled commands and scripts with run history." },
   { path: "/notifications", label: "Notifications", phase: "v0.4", ready: true, blurb: "Telegram, Discord, Slack, email and webhooks." },
   { path: "/backups", label: "Backups", phase: "v0.6", blurb: "Encrypted backups that are tested by restoring them." },

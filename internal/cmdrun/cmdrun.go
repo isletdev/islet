@@ -126,6 +126,12 @@ func (r *Runner) record(ctx context.Context, actor, name string, args []string, 
 	}
 }
 
+// Record stores a command that was run outside the Runner (piped dumps),
+// so the transparency drawer stays complete.
+func (r *Runner) Record(ctx context.Context, actor, line string, res Result) {
+	r.record(ctx, actor, line, nil, res)
+}
+
 // Display renders a command line the way a person would type it.
 func Display(name string, args ...string) string {
 	parts := []string{name}
