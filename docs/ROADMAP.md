@@ -102,7 +102,8 @@ After this phase a user can: point a domain at any container, get a certificate 
 
 **Recipes**
 - [ ] Recipe engine: multi-step wizards with progress and rollback
-- [ ] First recipes: "Static site with a domain", "Docker image with a domain", "WordPress with a domain"
+- [x] First recipes as guides in `docs/recipes/`: static site, Docker image, WordPress
+- [ ] Recipes as in-panel wizards
 
 **Not in this phase:** git-based deploys, databases as first-class objects.
 
@@ -205,7 +206,8 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] `islet` CLI: login, whoami, apps, deploy (with rollback), logs, restart, cron list/run, notify, db list/shell
 - [x] Scoped API tokens (Settings → API tokens) with bearer auth
 - [x] REST API described in `docs/openapi.yaml`
-- [ ] Recipes: "Next.js + Postgres + domain", "Node API + Redis", "Django", "Rails", "Go", "Laravel"
+- [x] Recipes as guides: Next.js + Postgres + domain, Node API + Redis, Django, Go
+- [ ] Recipes: Rails, Laravel (need detection first)
 
 **Not in this phase:** security suite, backups beyond database dumps.
 

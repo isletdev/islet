@@ -1,6 +1,6 @@
 # Repository structure
 
-One Go module, one pnpm workspace, one binary. Folders exist as empty `.gitkeep` placeholders until their phase in `ROADMAP.md` starts.
+One Go module, one pnpm workspace, one binary. A few folders (`reconcile/`, `recipes/`, `runners/`, `plugins/`, `web/packages/ui/`, `e2e/`) are still empty placeholders; `runner/` (singular) holds the CI runner code, and `mcp/`, `uptime/`, `watch/`, `update/`, `tlsutil/`, `cmdrun/`, `version/` and `web/` exist beyond the list below.
 
 ```
 islet/

@@ -2,33 +2,45 @@
 
 Things only the maintainer can do. Everything else keeps moving without them. Tick items as you complete them; the notes say what each unblocks.
 
+## First: read what happened while you were away
+
+The roadmap is implemented through phase 6 with the exceptions listed at the bottom. 25 commits on `main`, nothing pushed. Start with `docs/ROADMAP.md` (118 items ticked, 68 open, most of them polish) and `docs/DECISIONS.md` (the calls I made, all reversible).
+
 ## Accounts and secrets
 
 - [ ] **Create the GitHub org `isletdev` and the repo `isletdev/islet`.** Then push `main` from this folder. Unblocks: CI, releases, the update check, the installer's download URL.
 - [ ] **Back up the release signing key** at `C:\Users\User1582\.islet\release-signing.key` somewhere offline (password manager or encrypted USB). If it is lost, no installed daemon can ever trust another update. Then add the file's contents as the GitHub Actions secret `ISLET_SIGNING_KEY` on `isletdev/islet`. Unblocks: tagged releases.
-- [ ] **Register a GitHub App** (Settings → Developer settings → GitHub Apps → New) so users can pick repositories without pasting tokens. Deploys already work today with any git URL plus a push webhook, so this is not blocking. Settings to use: name `Islet`, homepage `https://islet.dev`, callback URL left empty for now, webhook active with URL `https://<panel>/api/v1/hooks/github` (per install; leave a placeholder), permissions: Repository → Contents (read), Metadata (read), Webhooks (read and write), Administration (read and write, needed for self-hosted runner registration tokens); Organization → Self-hosted runners (read and write); subscribe to events `push` and `workflow_job`. Where can it be installed: any account. After creating it, put the App ID, the client ID and the private key (.pem) somewhere safe; the daemon will take them as settings once the GitHub App code lands.
+- [ ] **Register a GitHub App** (Settings → Developer settings → GitHub Apps → New) so users can pick repositories without pasting tokens and runners can register without a personal access token. Not blocking: deploys work today with any git URL plus a push webhook, runners with a PAT. Settings: name `Islet`, homepage `https://islet.dev`, webhook active with a placeholder URL, permissions Repository → Contents (read), Metadata (read), Webhooks (read and write), Administration (read and write); Organization → Self-hosted runners (read and write); events `push` and `workflow_job`; installable on any account. Keep the App ID, client ID and private key; the daemon will take them as settings once the GitHub App code lands.
 
 ## Domains
 
 - [ ] **Buy `islet.dev`** (and `islet.sh`, `islet.run` if you want them held). RDAP showed them unregistered on 2026-09-10.
-- [ ] **Serve `get.islet.dev`** as the raw content of `installer/get.sh` from `main`. Simplest: Cloudflare Pages project on the repo with a redirect rule, or a Cloudflare Worker that proxies `https://raw.githubusercontent.com/isletdev/islet/main/installer/get.sh`. Unblocks: the one-line install.
-- [ ] **Serve `update.islet.dev`** only if you want a first-party update endpoint later; today updates go straight to GitHub Releases, so this is optional.
+- [ ] **Serve `get.islet.dev`** as the raw content of `installer/get.sh` from `main`. Simplest: a Cloudflare Worker that proxies `https://raw.githubusercontent.com/isletdev/islet/main/installer/get.sh`. Unblocks: the one-line install.
+- [ ] Set up `security@islet.dev` and `conduct@islet.dev` (both referenced in `SECURITY.md` and `CODE_OF_CONDUCT.md`), or change those files to addresses you own.
 
 ## A test server
 
-The proxy is built and tested locally with self-signed certificates. Let's Encrypt issuance can only be verified on a server with a public IP and a real domain pointing at it, so that stays unticked until the VPS exists.
+Everything host-level was written for Ubuntu and Debian but could only be exercised on Windows against Docker Desktop. On a real server, please run through this list and paste anything that fails:
 
-
-- [ ] **One Ubuntu 24.04 VPS** (a Hetzner CX22 is enough, about 4 EUR/month). Give me root SSH access or run the installer yourself and paste the output. Unblocks: verifying the installer, Docker install, systemd unit, TLS on a public IP, and later the Traefik and certificate work. Without it, those roadmap items stay unticked no matter how much code exists.
+- [ ] **One Ubuntu 24.04 VPS** (a Hetzner CX22 is enough). Give me root SSH access or run the installer and paste the output. Unblocks: installer, Docker install, systemd unit, TLS on a public IP.
+- [ ] **Let's Encrypt:** point a domain at the box, add it on the Domains page with Let's Encrypt, confirm the certificate appears under Domains → Certificates.
+- [ ] **Security page:** press each Fix (firewall, fail2ban, auto-updates, swap, NTP), then apply an SSH change and confirm the five-minute rollback works both ways (confirm, and let it expire). Check the Security Score reaches 90.
+- [ ] **Deploy:** connect a real repository (a Vite site and a Next.js app are the best first tests), add the webhook from the app's Auto-deploy panel, push, watch it redeploy, roll back.
+- [ ] **Runners:** create a GitHub personal access token (classic, `repo`) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`. I could only verify the pool logic, webhooks and the workflow generator without credentials. Same for GitLab and Gitea if you use them.
+- [ ] **Backups off-site:** add an S3 (R2 or B2) or SFTP (Storage Box) destination and run a plan; local-path repositories are verified, remote ones are not.
 - [ ] **Hetzner API token** (read/write, project-scoped) if you want the e2e job in CI to create and destroy throwaway servers automatically.
 
 ## Legal and billing (not urgent)
 
-- [ ] Registration number, address, tax number and a contact address for the legal notice on the website (`islet-website/index.html` has bracketed placeholders).
+- [ ] Registration number, address, tax number and a contact address for the legal notice on the website (`../islet-website/index.html` has bracketed placeholders).
 - [ ] Have a lawyer read the privacy policy and terms before the site goes public.
-- [ ] Check whether Paddle or Lemon Squeezy accept a seller registered in North Macedonia. Only matters when paid work starts, but it is a hard constraint.
+- [ ] Check whether Paddle or Lemon Squeezy accept a seller registered in North Macedonia. Only matters when paid work starts.
 
-## Decisions I made while you were away
+## Known gaps I left on purpose
 
-Logged in `docs/DECISIONS.md` as they happen. Anything you disagree with can be reversed; nothing has been pushed anywhere.
-- [ ] **Try the runners page with a real token.** Create a GitHub personal access token (classic, `repo` scope) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`, and tell me what happened. Same for GitLab (runner authentication token) or Gitea if you use them. I could only verify the pool logic, webhooks and the workflow generator without credentials.
+Listed as open items in `docs/ROADMAP.md`. The ones most worth your opinion:
+
+- Railpack/Nixpacks buildpacks (deploys use generated Dockerfiles for Node, Python, Go and static sites; PHP, Ruby, Java and .NET repos need their own Dockerfile today).
+- Forward-auth "protect this app with Islet login" on routes (needs a cookie shared across subdomains; design question).
+- Plugin host, i18n, PWA offline shell, docs site, email reports.
+- Traefik's file watcher does not fire on Docker Desktop bind mounts on Windows, so local testing restarts the proxy after route changes. Linux inotify works; nothing to do on a real server.
