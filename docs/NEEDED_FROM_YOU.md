@@ -6,7 +6,7 @@ Things only the maintainer can do. Everything else keeps moving without them. Ti
 
 - [ ] **Create the GitHub org `isletdev` and the repo `isletdev/islet`.** Then push `main` from this folder. Unblocks: CI, releases, the update check, the installer's download URL.
 - [ ] **Back up the release signing key** at `C:\Users\User1582\.islet\release-signing.key` somewhere offline (password manager or encrypted USB). If it is lost, no installed daemon can ever trust another update. Then add the file's contents as the GitHub Actions secret `ISLET_SIGNING_KEY` on `isletdev/islet`. Unblocks: tagged releases.
-- [ ] **Register the GitHub App** for deploys and runners once phase 4 lands (I will write the exact permissions list in this file when that code exists).
+- [ ] **Register a GitHub App** (Settings → Developer settings → GitHub Apps → New) so users can pick repositories without pasting tokens. Deploys already work today with any git URL plus a push webhook, so this is not blocking. Settings to use: name `Islet`, homepage `https://islet.dev`, callback URL left empty for now, webhook active with URL `https://<panel>/api/v1/hooks/github` (per install; leave a placeholder), permissions: Repository → Contents (read), Metadata (read), Webhooks (read and write), Administration (read and write, needed for self-hosted runner registration tokens); Organization → Self-hosted runners (read and write); subscribe to events `push` and `workflow_job`. Where can it be installed: any account. After creating it, put the App ID, the client ID and the private key (.pem) somewhere safe; the daemon will take them as settings once the GitHub App code lands.
 
 ## Domains
 

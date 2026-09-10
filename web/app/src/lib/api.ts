@@ -109,6 +109,15 @@ export interface Check { id: string; name: string; type: "http" | "tcp" | "keywo
 export interface CheckResult { at: string; ok: boolean; latencyMs: number; error?: string }
 export interface LogSource { id: string; label: string; group: string }
 
+export interface Release { id: number; appId: string; number: number; trigger: string; actor: string; commit: string; message: string; author: string; status: string; image: string; container: string; log?: string; error: string; startedAt: string; finishedAt: string; durationMs: number }
+export interface DeployApp {
+  id: string; name: string; source: "git" | "image"; repoUrl: string; branch: string; rootDir: string; image: string; strategy: string; framework: string;
+  installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; predeployCmd: string; env: string; domain: string; tls: string;
+  webhookSecret?: string; autoDeploy: boolean; memoryMb: number; cpus: number; volumes: string; currentRelease: number; status: string; createdAt: string; updatedAt: string;
+  nodeVersion: string; pythonVersion: string; url: string; container: string; deploying: boolean; lastRelease?: Release;
+}
+export interface Detection { strategy: string; framework: string; summary: string; installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; composeFile?: string; nodeVersion?: string; pythonVersion?: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -188,6 +197,14 @@ export const api = {
   catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
+  deployApps: () => request<DeployApp[]>("/api/v1/apps"),
+  deployApp: (id: string) => request<DeployApp>(`/api/v1/apps/${id}`),
+  deployAppSave: (a: Partial<DeployApp>) => a.id ? post<DeployApp>(`/api/v1/apps/${a.id}`, a, "PUT") : post<DeployApp>("/api/v1/apps", a),
+  deployAppDelete: (id: string) => post<void>(`/api/v1/apps/${id}`, undefined, "DELETE"),
+  deployInspect: (repoUrl: string, branch: string, rootDir: string) => post<Detection>("/api/v1/apps/inspect", { repoUrl, branch, rootDir }),
+  deployCancel: (id: string) => post<void>(`/api/v1/apps/${id}/cancel`),
+  releases: (id: string) => request<Release[]>(`/api/v1/apps/${id}/releases`),
+  release: (id: string, rel: number) => request<Release>(`/api/v1/apps/${id}/releases/${rel}`),
   checks: () => request<Check[]>("/api/v1/uptime/checks"),
   checkSave: (c: Partial<Check>) => c.id ? post<Check>(`/api/v1/uptime/checks/${c.id}`, c, "PUT") : post<Check>("/api/v1/uptime/checks", c),
   checkDelete: (id: string) => post<void>(`/api/v1/uptime/checks/${id}`, undefined, "DELETE"),

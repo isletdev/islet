@@ -166,21 +166,30 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 After this phase a user can: connect a GitHub repo, get a build on every push, roll back in one click, and run GitHub Actions on their own server.
 
 **App deployments** (full spec in `VISION.md` section 3.17)
-- [ ] "New app" flow: Source, Detect, Configure, Services, Deploy, with a preview domain pre-filled
-- [ ] Sources: GitHub App (no personal tokens), GitLab, Gitea, public git URL, Docker image, drag-and-drop folder or zip
-- [ ] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask), Go, Rust, PHP and Laravel, Rails, Spring Boot, .NET
-- [ ] Build strategies chosen automatically: Static, Buildpack (Railpack, Nixpacks fallback), Dockerfile, Compose, Image
-- [ ] Static apps: SPA fallback, base path, redirects file, asset caching, brotli, optional password
-- [ ] Next.js: standalone output, build-time vs runtime env split, ISR cache volume
-- [ ] Environment variables and secrets, `.env` paste, shared env groups, "redeploy to apply" prompt
+- [x] "New app" flow: Source, Detect, Configure, Deploy, with a preview domain pre-filled
+- [ ] "Services" step (add a database from the app form)
+- [x] Sources: any git URL (public, or with a token stored encrypted), local path, Docker image
+- [ ] GitHub App repo picker (needs the app registered, see NEEDED_FROM_YOU), drag-and-drop folder or zip
+- [x] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, Gatsby, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask, uv, Poetry), Go, Dockerfile, Compose
+- [ ] Detection for Rust, PHP and Laravel, Rails, Spring Boot, .NET
+- [x] Build strategies chosen automatically: Static, generated Dockerfile (Node, Python, Go), Dockerfile, Compose, Image
+- [ ] Railpack/Nixpacks as the buildpack for languages without a generated Dockerfile
+- [x] Static apps: SPA fallback, `_redirects` file, hashed-asset caching, gzip, custom 404, password via the domain's basic auth
+- [ ] Static apps: base path, brotli
+- [x] Build-time (NEXT_PUBLIC_*, VITE_*, PUBLIC_*) vs runtime env split; persistent paths for caches
+- [ ] Next.js standalone output detection
+- [x] Environment variables stored encrypted, `.env` paste, changes apply on the next deploy
+- [ ] Shared env groups
 - [ ] "Add Postgres / MySQL / Redis" buttons that create the service and inject its URL
-- [ ] Pipeline: clone, cached install and build, package, pre-deploy command, health check, zero-downtime switch, drain old
-- [ ] Deploy history with commit, author, duration and log; instant rollback without rebuild
-- [ ] Triggers: push webhook, manual deploy, redeploy, tag rules, CLI, API, runner job; one deploy at a time per app, cancellable
+- [x] Pipeline: clone, layer-cached build, pre-deploy command, health check, zero-downtime switch, drain old
+- [x] Deploy history with commit, author, duration and log; instant rollback without rebuild
+- [x] Triggers: push webhook (GitHub, GitLab, Gitea signatures), manual deploy, redeploy, API; one deploy at a time per app, cancellable
+- [ ] Triggers: tag rules, CLI, runner job
 - [ ] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
 - [ ] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
-- [ ] App page: status, logs, restart, shell, metrics, health, crash-loop alert, multiple domains, maintenance page
-- [ ] Deploy events wired into notifications
+- [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
+- [ ] Multiple domains per app
+- [x] Deploy events wired into notifications (started, deployed, failed with the last 30 log lines)
 - [ ] Sample repos for each recipe so users can try a deploy before connecting their own code
 
 **Runners**

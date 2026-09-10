@@ -132,12 +132,11 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 		"-v", sock + ":/var/run/docker.sock:ro",
 		"-v", dir + ":" + mountPath,
 		"--add-host", "host.docker.internal:host-gateway",
-		"--label", "islet.managed=proxy",
+		"--label", "islet.managed=proxy", "--label", "islet.proxy.args=2",
 		Image,
 		"--providers.docker=true", "--providers.docker.exposedbydefault=false", "--providers.docker.network=" + NetworkName,
 		"--providers.file.directory=" + mountPath + "/dynamic", "--providers.file.watch=true",
 		"--entrypoints.web.address=:80",
-		"--entrypoints.web.http.redirections.entrypoint.to=websecure", "--entrypoints.web.http.redirections.entrypoint.scheme=https",
 		"--entrypoints.websecure.address=:443",
 		"--entrypoints.websecure.http.tls=true",
 		"--api.dashboard=false", "--ping=true", "--log.level=INFO",
@@ -374,6 +373,11 @@ func (m *Manager) Delete(ctx context.Context, actor, id string) error {
 
 // Reconcile writes the Traefik dynamic config from the domains table.
 func (m *Manager) Reconcile(ctx context.Context) error {
+	if res, err := m.run.Run(ctx, "system", "docker", "inspect", "--format", "{{index .Config.Labels \"islet.proxy.args\"}}", ContainerName); err == nil && strings.TrimSpace(res.Stdout) != "2" {
+		if err := m.Install(ctx, "system", ""); err != nil {
+			return fmt.Errorf("upgrade proxy: %w", err)
+		}
+	}
 	domains, err := m.Domains(ctx)
 	if err != nil {
 		return err
@@ -400,6 +404,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 	middlewares := map[string]any{
 		"islet-compress":         map[string]any{"compress": map[string]any{}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
+		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
 	}
 	transports := map[string]any{"islet-insecure": map[string]any{"insecureSkipVerify": true}}
 
@@ -452,6 +457,10 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			router["tls"] = map[string]any{}
 		case "none":
 			router["entryPoints"] = []string{"web"}
+		}
+		if d.TLS != "none" {
+			// Plain HTTP for this host redirects to HTTPS; ACME challenges are answered before routing.
+			routers[name+"-http"] = map[string]any{"rule": rule, "entryPoints": []string{"web"}, "middlewares": []string{"islet-https-redirect"}, "service": "noop@internal"}
 		}
 		if d.Maintenance {
 			// Send everything to the daemon's public maintenance page.

@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+
+const Deploys = lazy(() => import("./Deploys"));
 import { api, RequestError, type CatalogApp, type InstalledApp } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { postStream } from "@/lib/stream";
@@ -14,6 +16,8 @@ export default function Apps() {
   const [cat, setCat] = useState("all");
   const [sel, setSel] = useState<CatalogApp | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "catalog" ? "catalog" : "deploys";
 
   const load = () => Promise.all([api.catalog(), api.installedApps()]).then(([a, i]) => { setApps(a); setInstalled(i); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e)));
   useEffect(() => { void load(); }, []);
@@ -25,8 +29,13 @@ export default function Apps() {
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-[-0.02em]">Apps</h1>
-        <p className="mt-1 text-ink-muted">One-click apps from the catalog. Each becomes a Compose stack you can inspect and edit.</p>
+        <p className="mt-1 text-ink-muted">Deploy your own code from Git, or install one-click apps from the catalog.</p>
       </div>
+      <div className="flex gap-1 border-b border-border text-sm">
+        {(["deploys", "catalog"] as const).map((t) => <button key={t} type="button" onClick={() => setParams(t === "deploys" ? {} : { tab: t })} className={`-mb-px border-b-2 px-3 py-2 ${tab === t ? "border-ink font-medium" : "border-transparent text-ink-muted hover:text-ink"}`}>{t === "deploys" ? "Your apps" : "Catalog"}</button>)}
+      </div>
+      {tab === "deploys" && <Suspense fallback={<p className="text-sm text-ink-muted">Loading…</p>}><Deploys /></Suspense>}
+      {tab === "catalog" && <>
       {err && <Alert>{err}</Alert>}
 
       {installed.length > 0 && (
@@ -64,6 +73,7 @@ export default function Apps() {
       </div>
 
       {sel && <Installer app={sel} canInstall={canInstall} onClose={() => setSel(null)} onDone={load} />}
+    </>}
     </div>
   );
 }
