@@ -144,6 +144,8 @@ export const api = {
   filesUsage: (path: string) => request<{ path: string; total: number; truncated: boolean; children: { name: string; size: number; isDir: boolean }[] }>(`/api/v1/files/usage?path=${encodeURIComponent(path)}`),
   trash: () => request<TrashItem[]>("/api/v1/files/trash"),
   trashOp: (body: { op: "restore" | "purge"; id: string }) => post<unknown>("/api/v1/files/trash", body),
+  diskReport: () => request<{ key: string; label: string; bytes: number; reclaimable: number; hint: string; cleanable: boolean }[]>("/api/v1/system/disk"),
+  diskClean: (keys: string[]) => post<Record<string, string>>("/api/v1/system/disk/clean", { keys }),
   commands: (limit = 100) => request<CommandEntry[]>(`/api/v1/commands?limit=${limit}`),
   dockerStatus: () => request<DockerStatus>("/api/v1/docker/status"),
   containers: () => request<Container[]>("/api/v1/docker/containers"),

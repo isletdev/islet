@@ -3,10 +3,14 @@ import { api, type HostInfo, type Point, type Process, type Port, type Sample } 
 import { bytes, duration, pct, rate } from "@/lib/format";
 import Sparkline, { type SparkPoint } from "@/components/Sparkline";
 import { Card } from "@/components/ui";
+import DiskDoctor from "@/components/DiskDoctor";
+import { useAuth } from "@/lib/auth";
 
 type Range = "1h" | "6h" | "24h" | "7d";
 
 export default function Overview() {
+  const { state } = useAuth();
+  const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [latest, setLatest] = useState<Sample | null>(null);
   const [recent, setRecent] = useState<Sample[]>([]);
   const [range, setRange] = useState<Range>("1h");
@@ -139,6 +143,8 @@ export default function Overview() {
           </table>
         </Card>
       </div>
+
+      <DiskDoctor isAdmin={isAdmin} />
 
       {host && (
         <Card title="Server">

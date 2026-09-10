@@ -71,7 +71,7 @@ After this phase a user can: manage every container, paste a Compose file and ru
 - [x] Protected paths need typed confirmation, every write audited
 
 **Disk Doctor**
-- [ ] Disk usage breakdown (images, volumes, logs, journal, apt cache) with safe one-click cleanup and preview
+- [x] Disk usage breakdown (Docker, journal, apt cache, logs, tmp, trash) with safe one-click cleanup; volumes are excluded on purpose
 
 **Not in this phase:** domains and SSL for containers, app catalog.
 

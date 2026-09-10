@@ -37,6 +37,9 @@ func New(dataDir string) *Service {
 	return &Service{trashDir: filepath.Join(abs, "trash")}
 }
 
+// TrashDir is where deleted items wait for restore or purge.
+func (s *Service) TrashDir() string { return s.trashDir }
+
 // Entry is one directory listing row.
 type Entry struct {
 	Name      string `json:"name"`

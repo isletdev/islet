@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/metrics"
@@ -29,6 +30,7 @@ type Deps struct {
 	Sampler *metrics.Sampler
 	Docker  *docker.Service
 	Files   *files.Service
+	Runner  *cmdrun.Runner
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -41,6 +43,7 @@ type Server struct {
 	sampler *metrics.Sampler
 	docker  *docker.Service
 	files   *files.Service
+	runner  *cmdrun.Runner
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -48,7 +51,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -116,6 +119,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/docker/stacks/{name}", requireJSON(s.requireAuth(s.handleStackWrite)))
 	mux.HandleFunc("DELETE /api/v1/docker/stacks/{name}", requireJSON(s.requireAuth(s.handleStackRemove)))
 	mux.HandleFunc("POST /api/v1/docker/stacks/{name}/{action}", requireJSON(s.requireAuth(s.handleStackAction)))
+	mux.HandleFunc("GET /api/v1/system/disk", s.requireAuth(s.handleDiskReport))
+	mux.HandleFunc("POST /api/v1/system/disk/clean", requireJSON(s.requireAuth(s.handleDiskClean)))
 	mux.HandleFunc("GET /api/v1/system/update", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/v1/system/update", requireJSON(s.requireAuth(s.handleUpdateApply)))
 
