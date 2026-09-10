@@ -25,6 +25,9 @@ var nameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,199}$`)
 // ErrBadName rejects identifiers that could be mistaken for flags.
 var ErrBadName = errors.New("invalid name")
 
+// ValidName reports whether n is safe to pass to docker or systemd.
+func ValidName(n string) bool { return nameRe.MatchString(n) }
+
 func checkName(n string) error {
 	if !nameRe.MatchString(n) {
 		return ErrBadName

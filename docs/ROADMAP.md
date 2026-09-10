@@ -152,7 +152,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [x] Default alert rules: disk over 85%, memory pressure, CPU saturation, container exit/OOM/crash loop, cert expiring, failed logins, update available
 - [x] Alert rules for cron failed and heartbeat missed, with recovery
 - [ ] Alert rule for backup failed (wired when backups land)
-- [ ] HTTP, TCP and keyword uptime checks from the server
+- [x] HTTP, TCP and keyword uptime checks from the server, with latency history and down/recovery events
 
 **Not in this phase:** git deploys, runners, security suite.
 

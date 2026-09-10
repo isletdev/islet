@@ -32,6 +32,7 @@ import (
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
+	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
@@ -108,6 +109,10 @@ func run() error {
 	dbs := db.New(runner, dk, cat, *dataDir)
 	bus := notify.New(st, keys, log)
 	go bus.Run(ctx)
+	up := uptime.New(st, bus)
+	if err := up.Start(ctx); err != nil {
+		return fmt.Errorf("uptime: %w", err)
+	}
 	cr := cron.New(st, bus, *dataDir, log)
 	if err := cr.Start(ctx); err != nil {
 		return fmt.Errorf("cron: %w", err)
@@ -144,7 +149,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: runner, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

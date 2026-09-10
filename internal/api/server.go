@@ -23,6 +23,7 @@ import (
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/store"
+	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
 )
@@ -41,6 +42,7 @@ type Deps struct {
 	Notify  *notify.Bus
 	Cron    *cron.Service
 	DB      *db.Service
+	Uptime  *uptime.Service
 	UI      http.Handler
 	Log     *slog.Logger
 }
@@ -59,6 +61,7 @@ type Server struct {
 	notify  *notify.Bus
 	cron    *cron.Service
 	db      *db.Service
+	uptime  *uptime.Service
 	ui      http.Handler
 	log     *slog.Logger
 	started time.Time
@@ -66,7 +69,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, ui: d.UI, log: d.Log, started: time.Now()}
 	mux := http.NewServeMux()
 
 	// Public
@@ -133,6 +136,18 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
 	mux.HandleFunc("GET /api/v1/catalog/{slug}", s.requireAuth(s.handleCatalogApp))
 	mux.HandleFunc("POST /api/v1/catalog/{slug}/install", requireJSON(s.requireAuth(s.handleCatalogInstall)))
+
+	// Uptime
+	mux.HandleFunc("GET /api/v1/uptime/checks", s.requireAuth(s.handleChecks))
+	mux.HandleFunc("POST /api/v1/uptime/checks", requireJSON(s.requireAuth(s.handleCheckSave)))
+	mux.HandleFunc("PUT /api/v1/uptime/checks/{id}", requireJSON(s.requireAuth(s.handleCheckSave)))
+	mux.HandleFunc("DELETE /api/v1/uptime/checks/{id}", requireJSON(s.requireAuth(s.handleCheckDelete)))
+	mux.HandleFunc("GET /api/v1/uptime/checks/{id}/results", s.requireAuth(s.handleCheckResults))
+	mux.HandleFunc("POST /api/v1/uptime/checks/{id}/probe", requireJSON(s.requireAuth(s.handleCheckProbe)))
+
+	// Logs
+	mux.HandleFunc("GET /api/v1/logs/sources", s.requireAuth(s.handleLogSources))
+	mux.HandleFunc("GET /api/v1/logs/stream", s.requireAuth(s.handleLogStream))
 
 	// Databases
 	mux.HandleFunc("GET /api/v1/databases", s.requireAuth(s.handleDBList))

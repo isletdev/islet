@@ -105,6 +105,10 @@ export interface DBExtension { name: string; installed: boolean; available: bool
 export interface DBDump { file: string; database: string; size: number; createdAt: string }
 export interface DBDetail extends DBInstance { databases: DBDatabase[]; stats?: DBStats; extensions: DBExtension[]; dumps: DBDump[]; error?: string; dumpJob?: Job }
 
+export interface Check { id: string; name: string; type: "http" | "tcp" | "keyword"; target: string; keyword: string; intervalSec: number; timeoutSec: number; expectStatus: number; enabled: boolean; status: string; failures: number; lastCheckAt: string; lastLatencyMs: number; lastError: string; downSince: string; createdAt: string; uptime24h: number; uptime30d: number }
+export interface CheckResult { at: string; ok: boolean; latencyMs: number; error?: string }
+export interface LogSource { id: string; label: string; group: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -184,6 +188,12 @@ export const api = {
   catalog: () => request<CatalogApp[]>("/api/v1/catalog"),
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
+  checks: () => request<Check[]>("/api/v1/uptime/checks"),
+  checkSave: (c: Partial<Check>) => c.id ? post<Check>(`/api/v1/uptime/checks/${c.id}`, c, "PUT") : post<Check>("/api/v1/uptime/checks", c),
+  checkDelete: (id: string) => post<void>(`/api/v1/uptime/checks/${id}`, undefined, "DELETE"),
+  checkResults: (id: string, limit = 120) => request<CheckResult[]>(`/api/v1/uptime/checks/${id}/results?limit=${limit}`),
+  checkProbe: (id: string) => post<CheckResult>(`/api/v1/uptime/checks/${id}/probe`),
+  logSources: () => request<LogSource[]>("/api/v1/logs/sources"),
   databases: () => request<DBInstance[]>("/api/v1/databases"),
   database: (name: string) => request<DBDetail>(`/api/v1/databases/${name}`),
   dbCreate: (name: string, b: { name: string; user: string; password: string }) => post<{ url: string }>(`/api/v1/databases/${name}/databases`, b),

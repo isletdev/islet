@@ -14,6 +14,8 @@ const Apps = lazy(() => import("./pages/Apps"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Cron = lazy(() => import("./pages/Cron"));
 const Databases = lazy(() => import("./pages/Databases"));
+const Uptime = lazy(() => import("./pages/Uptime"));
+const Logs = lazy(() => import("./pages/Logs"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -43,6 +45,8 @@ export default function App() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/cron" element={<Cron />} />
         <Route path="/databases" element={<Databases />} />
+        <Route path="/uptime" element={<Uptime />} />
+        <Route path="/logs" element={<Logs />} />
         {NAV.filter((n) => !n.ready).map((n) => (
           <Route key={n.path} path={n.path} element={<Placeholder item={n} />} />
         ))}
