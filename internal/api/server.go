@@ -206,6 +206,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/apps/{id}/services", requireJSON(s.requireAuth(s.handleAppAddService)))
 	mux.HandleFunc("POST /api/v1/apps/{id}/cancel", requireJSON(s.requireAuth(s.handleAppCancel)))
 	mux.HandleFunc("POST /api/v1/apps/{id}/promote", requireJSON(s.requireAuth(s.handleAppPromote)))
+	mux.HandleFunc("POST /api/v1/apps/{id}/upload", s.requireAuth(s.handleAppUpload))
+	mux.HandleFunc("GET /api/v1/sidebar", s.requireAuth(s.handleSidebar))
+	mux.HandleFunc("POST /api/v1/sidebar", requireJSON(s.requireAuth(s.handleSidebar)))
+	mux.HandleFunc("GET /api/v1/auth/geo", s.requireAuth(s.handleGeoSetting))
+	mux.HandleFunc("POST /api/v1/auth/geo", requireJSON(s.requireAuth(s.handleGeoSetting)))
+	mux.HandleFunc("POST /api/v1/databases/{name}/adminer", requireJSON(s.requireAuth(s.handleDBAdminer)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases", s.requireAuth(s.handleAppReleases))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases/{release}", s.requireAuth(s.handleAppRelease))
 

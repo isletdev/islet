@@ -606,13 +606,13 @@ func (s *Service) afterRun(ctx context.Context, j *Job, ok bool, msg string) {
 	link := "/cron?job=" + j.ID
 	if ok {
 		if j.NotifyOn == "always" {
-			s.bus.Emit(ctx, notify.Event{Category: "cron", Severity: notify.Info, Title: "Job finished: " + j.Name, Message: "Completed successfully.", Link: link})
+			s.bus.Emit(ctx, notify.Event{Category: "cron", Subject: j.Name, Severity: notify.Info, Title: "Job finished: " + j.Name, Message: "Completed successfully.", Link: link})
 		} else if prevFailed, _ := s.previousFailed(ctx, j.ID); prevFailed {
-			s.bus.Emit(ctx, notify.Event{Category: "cron", Severity: notify.Info, Title: "Job recovered: " + j.Name, Message: "The last run succeeded after an earlier failure.", Link: link})
+			s.bus.Emit(ctx, notify.Event{Category: "cron", Subject: j.Name, Severity: notify.Info, Title: "Job recovered: " + j.Name, Message: "The last run succeeded after an earlier failure.", Link: link})
 		}
 		return
 	}
-	s.bus.Emit(ctx, notify.Event{Category: "cron", Severity: notify.Warning, Title: "Job failed: " + j.Name, Message: msg, Link: link})
+	s.bus.Emit(ctx, notify.Event{Category: "cron", Subject: j.Name, Severity: notify.Warning, Title: "Job failed: " + j.Name, Message: msg, Link: link})
 }
 
 func (s *Service) previousFailed(ctx context.Context, jobID string) (bool, error) {
@@ -840,7 +840,7 @@ func (s *Service) Ping(ctx context.Context, token string) bool {
 	_, _ = s.st.DB.ExecContext(ctx, `UPDATE jobs SET last_ping_at = ?, overdue = 0 WHERE id = ?`, now, id)
 	_, _ = s.st.DB.ExecContext(ctx, `INSERT INTO job_runs (job_id, trigger, status, finished_at) VALUES (?, 'ping', 'success', ?)`, id, now)
 	if overdue && s.bus != nil {
-		s.bus.Emit(ctx, notify.Event{Category: "cron", Severity: notify.Info, Title: "Heartbeat missed: " + name, Message: "Recovered: the ping arrived again.", Link: "/cron?job=" + id})
+		s.bus.Emit(ctx, notify.Event{Category: "cron", Subject: name, Severity: notify.Info, Title: "Heartbeat missed: " + name, Message: "Recovered: the ping arrived again.", Link: "/cron?job=" + id})
 	}
 	return true
 }
@@ -895,7 +895,7 @@ func (s *Service) watchHeartbeats(ctx context.Context) {
 				_, _ = s.st.DB.ExecContext(ctx, `UPDATE jobs SET overdue = 1 WHERE id = ?`, h.id)
 				_, _ = s.st.DB.ExecContext(ctx, `INSERT INTO job_runs (job_id, trigger, status, output, finished_at) VALUES (?, 'watch', 'failed', 'No ping received by the expected time.', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`, h.id)
 				if s.bus != nil {
-					s.bus.Emit(ctx, notify.Event{Category: "cron", Severity: notify.Critical, Title: "Heartbeat missed: " + h.name, Message: fmt.Sprintf("No ping since %s. The external job may have stopped.", last.Local().Format("Jan 2 15:04")), Link: "/cron?job=" + h.id})
+					s.bus.Emit(ctx, notify.Event{Category: "cron", Subject: h.name, Severity: notify.Critical, Title: "Heartbeat missed: " + h.name, Message: fmt.Sprintf("No ping since %s. The external job may have stopped.", last.Local().Format("Jan 2 15:04")), Link: "/cron?job=" + h.id})
 				}
 			}
 		}

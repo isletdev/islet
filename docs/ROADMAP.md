@@ -123,7 +123,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [ ] IP allowlist for published database ports (needs the firewall, v0.6)
 - [x] Postgres extension toggles (pg_stat_statements, pg_trgm, pgcrypto, uuid-ossp, hstore, citext; pgvector/postgis when the image has them)
 - [ ] PgBouncer toggle
-- [ ] Embedded Adminer, pgweb and RedisInsight sessions (Adminer is in the catalog; deep links pending)
+- [x] Adminer deep links from any Postgres, MySQL or Mongo instance (installs and attaches it on first use); pgweb and RedisInsight not planned
 - [x] Dump now, scheduled dumps to local disk as an editable cron job, retention, restore into any database, download
 - [x] Dumps reach S3-compatible storage through backup plans (database sources are dumped into the restic repository)
 - [x] Connection count, size, uptime and slow query view (pg_stat_statements)
@@ -145,7 +145,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [x] Channels: email (SMTP relay), Telegram with chat detection wizard, Discord webhook, Slack webhook, ntfy, Gotify, Pushover, generic signed webhook
 - [x] Routing matrix by category and severity, quiet hours, cooldowns, recovery messages
 - [x] Hourly and daily digests per channel (criticals still go out at once)
-- [ ] Per-app overrides
+- [x] Per-app overrides (channel "Only for" subject filter with wildcards)
 - [x] Message template with deep links, send-test button, delivery log
 - [x] In-app notification centre and event timeline
 - [ ] Outbound SMTP relay setup wizard with DKIM, SPF and DMARC helpers
@@ -172,7 +172,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] "Services" step: add Postgres, MySQL or Redis from the app page
 - [x] Sources: any git URL (public, or with a token stored encrypted), local path, Docker image
 - [x] GitHub App: repository picker, installation tokens for private clones, one webhook for pushes and CI jobs (code complete; needs the app registered to exercise)
-- [ ] Drag-and-drop folder or zip
+- [x] Drag-and-drop folder or zip
 - [x] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, Gatsby, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask, uv, Poetry), Go, Dockerfile, Compose
 - [x] Detection for Rust, PHP and Laravel, Rails, Spring Boot, .NET
 - [x] Build strategies chosen automatically: Static, generated Dockerfile (Node, Python, Go), Dockerfile, Compose, Image
@@ -246,7 +246,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [ ] rkhunter, file integrity monitoring on `/etc`, SUID and world-writable audits
 - [x] Auth log viewer (Logs → SSH logins)
 - [x] Login-from-new-address alert (first sign-in from an IP raises a warning)
-- [ ] Country lookup for that alert
+- [x] Country lookup for that alert (opt-in, ipapi.co)
 - [x] Pending security updates and reboot-required in the score
 - [x] Kernel livepatch status (when canonical-livepatch is installed)
 - [x] Panic button: block all inbound except the current IP, revoke every other session and all API tokens
@@ -305,7 +305,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [ ] Roles scoped to projects
 - [x] MCP server (Streamable HTTP) with scoped tokens, off by default, 16 tools
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
-- [ ] "Add to sidebar" embedding of any app UI behind Islet login
+- [x] "Add to sidebar" embedding of any app UI behind Islet login
 - [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide
 - [x] PWA install with a service worker for the app shell
 - [ ] Dedicated mobile layouts for logs, deploys, notifications and the file explorer

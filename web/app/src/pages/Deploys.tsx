@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import React, { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DeployApp, type Detection, type GitHubRepo, type Release } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
@@ -102,7 +102,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
 
   return (
     <div className="space-y-4">
-      <Card title={app.name} description={`${app.framework || STRATEGIES[app.strategy]} · ${app.source === "git" ? `${app.repoUrl} @ ${app.branch}${app.rootDir ? ` /${app.rootDir}` : ""}` : app.image}`}>
+      <Card title={app.name} description={`${app.framework || STRATEGIES[app.strategy]} · ${app.source === "git" ? `${app.repoUrl} @ ${app.branch}${app.rootDir ? ` /${app.rootDir}` : ""}` : app.source === "upload" ? "uploaded files" : app.image}`}>
         <div className="flex flex-wrap items-center gap-2">
           {app.url && <a href={app.url} target="_blank" rel="noreferrer" className="mr-2 text-sm text-accent hover:underline">{app.url}</a>}
           {canDeploy && <Button className="h-8 text-xs" disabled={busy || app.deploying} onClick={() => void run("")}>{busy || app.deploying ? "Deploying…" : app.currentRelease ? "Deploy latest" : "Deploy"}</Button>}
@@ -116,6 +116,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
           {canEdit && <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Delete app</button>}
         </div>
         {(app.processList?.length ?? 0) > 0 && <p className="mt-2 text-xs text-ink-muted">Processes: web{app.processList!.map((p) => <span key={p.name}> · <Link to={`/containers?c=islet-${app.name}-${p.name}-1-r${app.currentRelease}`} className="hover:text-ink">{p.name}{p.count > 1 ? ` ×${p.count}` : ""}</Link> <span className="font-mono">{p.cmd}</span></span>)}</p>}
+        {app.source === "upload" && canEdit && <UploadZone appId={app.id} busy={busy || app.deploying} onUploaded={(m) => { setMsg(m); void run(""); }} onError={(m) => setMsg(m)} />}
         {msg && <p className="mt-2 text-xs text-ink-muted">{msg}</p>}
         {last && !log && !open && <p className="mt-2 text-xs text-ink-muted">Last: release #{last.number} <RelStatus s={last.status} /> · {last.trigger} · {fmt(last.startedAt)}{last.durationMs > 0 && ` · ${dur(last.durationMs)}`}{last.error && <span className="text-danger"> · {last.error}</span>}</p>}
         {showHook && (
@@ -169,6 +170,58 @@ function EnvGroups() {
   );
 }
 
+function UploadZone({ appId, busy, onUploaded, onError }: { appId: string; busy: boolean; onUploaded: (msg: string) => void; onError: (msg: string) => void }) {
+  const [over, setOver] = useState(false);
+  const [state, setState] = useState<string | null>(null);
+  const send = async (fd: FormData, what: string) => {
+    setState(`Uploading ${what}…`);
+    try {
+      const r = await fetch(`/api/v1/apps/${appId}/upload`, { method: "POST", body: fd, credentials: "same-origin" });
+      if (!r.ok) throw new Error(((await r.json()) as { message: string }).message);
+      const j = (await r.json()) as { upload: { files: number }; detection: { summary: string } };
+      setState(null);
+      onUploaded(`Uploaded ${j.upload.files} files. ${j.detection.summary}`);
+    } catch (e) { setState(null); onError(err(e)); }
+  };
+  const fromFiles = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 1 && list[0].name.toLowerCase().endsWith(".zip")) { const fd = new FormData(); fd.append("zip", list[0]); void send(fd, list[0].name); return; }
+    const fd = new FormData();
+    for (const f of list) fd.append("file:" + ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name), f);
+    void send(fd, `${list.length} files`);
+  };
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault(); setOver(false);
+    if (busy) return;
+    const items = Array.from(e.dataTransfer.items);
+    const entries = items.map((it) => (it as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
+    if (entries.length === 0) { fromFiles(e.dataTransfer.files); return; }
+    const fd = new FormData(); let n = 0;
+    const walk = async (entry: FileSystemEntry, prefix: string): Promise<void> => {
+      if (entry.isFile) {
+        const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+        if (entries.length === 1 && file.name.toLowerCase().endsWith(".zip") && prefix === "") { fd.append("zip", file); n++; return; }
+        fd.append("file:" + prefix + file.name, file); n++;
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        for (;;) {
+          const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+          if (batch.length === 0) break;
+          for (const b of batch) await walk(b, prefix + entry.name + "/");
+        }
+      }
+    };
+    for (const en of entries) await walk(en, "");
+    if (n === 0) { onError("Nothing to upload."); return; }
+    void send(fd, `${n} files`);
+  };
+  return (
+    <div onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={(e) => void onDrop(e)} className={`mt-3 rounded-md border border-dashed p-3 text-xs ${over ? "border-accent bg-accent-soft" : "border-border-strong"}`}>
+      {state ?? <>Drop a folder or a .zip here to deploy it, or <label className="cursor-pointer text-accent hover:underline">choose a zip<input type="file" accept=".zip" className="hidden" disabled={busy} onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label> / <label className="cursor-pointer text-accent hover:underline">choose a folder<input type="file" className="hidden" disabled={busy} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label>.</>}
+    </div>
+  );
+}
+
 function RelStatus({ s }: { s: string }) {
   const tone = s === "live" ? "text-success" : s === "failed" || s === "cancelled" ? "text-danger" : s === "superseded" ? "text-ink-muted" : "text-accent";
   return <span className={`font-medium ${tone}`}>{s}</span>;
@@ -206,8 +259,10 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
     <Card title={isNew ? "New app" : `Settings for ${initial.name}`} description={isNew ? "Point Islet at a repository. It clones it, tells you what it found, and you can change anything before the first deploy." : "Changes apply on the next deploy."}>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
         <Field label="Name" hint="Lowercase, becomes the container name and preview domain."><Input value={a.name ?? ""} onChange={(e) => set({ name: e.target.value })} required disabled={!isNew} placeholder="shop" /></Field>
-        <Field label="Source"><select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image", strategy: e.target.value === "image" ? "image" : "auto" })} className={SELECT} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option></select></Field>
-        {a.source === "git" ? (
+        <Field label="Source"><select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image" | "upload", strategy: e.target.value === "image" ? "image" : "auto" })} className={SELECT} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option><option value="upload">Upload a folder or zip</option></select></Field>
+        {a.source === "upload" ? (
+          <p className="text-sm text-ink-muted md:col-span-2">Create the app, then drop a folder or a .zip on its card. Islet detects the framework from the upload and every new upload becomes a release you can roll back.</p>
+        ) : a.source === "git" ? (
           <>
             <Field label="Repository URL" hint={repos.length ? "Pick one of the repositories the GitHub App can see, or paste any git URL." : "Public https URL, or https://user:token@host/org/repo for private repos (stored encrypted). Configure the GitHub App in Settings to pick from a list."}>
               {repos.length > 0 && <select value="" onChange={(e) => { const r = repos.find((x) => x.url === e.target.value); if (r) set({ repoUrl: r.url, branch: r.defaultBranch, name: a.name || r.fullName.split("/")[1].toLowerCase().replace(/[^a-z0-9-]/g, "-") }); }} className={`${SELECT} mb-1`}><option value="">Pick from GitHub…</option>{repos.map((r) => <option key={r.fullName} value={r.url}>{r.fullName}{r.private ? " (private)" : ""}</option>)}</select>}

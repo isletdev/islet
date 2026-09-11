@@ -419,8 +419,9 @@ func cmdCron(args []string) error {
 func cmdNotify(args []string) error {
 	sev, args := flag(args, "--severity")
 	msg, args := flag(args, "-m")
+	subject, args := flag(args, "--subject")
 	if len(args) < 1 {
-		return errors.New(`usage: islet notify "title" [-m "message"] [--severity info|warning|critical]`)
+		return errors.New(`usage: islet notify "title" [-m "message"] [--severity info|warning|critical] [--subject app-name]`)
 	}
 	c, err := newClient()
 	if err != nil {
@@ -429,7 +430,7 @@ func cmdNotify(args []string) error {
 	if sev == "" {
 		sev = "info"
 	}
-	if err := c.post("/api/v1/notify/emit", map[string]string{"severity": sev, "title": strings.Join(args, " "), "message": msg}, nil); err != nil {
+	if err := c.post("/api/v1/notify/emit", map[string]string{"severity": sev, "title": strings.Join(args, " "), "message": msg, "subject": subject}, nil); err != nil {
 		return err
 	}
 	fmt.Println("sent")

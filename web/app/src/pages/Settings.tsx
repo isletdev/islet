@@ -23,6 +23,8 @@ export default function Settings() {
       <Tokens />
       {me.user.role === "admin" && <Users meId={me.user.id} />}
       <Updates />
+      {me.user.role === "admin" && <SidebarLinks />}
+      {me.user.role === "admin" && <LoginAlerts />}
       {me.user.role === "admin" && <WeeklyReport />}
       {me.user.role === "admin" && <SSO />}
       {me.user.role === "admin" && <GitHubApp />}
@@ -242,6 +244,37 @@ function Users({ meId }: { meId: string }) {
         <Button type="submit" className="h-9">Add user</Button>
         {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
       </form>
+    </Card>
+  );
+}
+
+function SidebarLinks() {
+  const [links, setLinks] = useState<{ label: string; url: string }[] | null>(null);
+  const [label, setLabel] = useState(""); const [url, setUrl] = useState(""); const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.sidebar().then(setLinks).catch(() => {}); }, []);
+  if (!links) return null;
+  const save = async (next: { label: string; url: string }[]) => { setMsg(null); try { setLinks(await api.sidebarSet(next)); setLabel(""); setUrl(""); setMsg("Saved. Reload to see the sidebar change."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  return (
+    <Card title="Add to sidebar" description="Show any app's own UI inside the panel. Pair it with &quot;Protect with Islet login&quot; on the app's domain so one sign-in covers both.">
+      <ul className="divide-y divide-border text-sm">{links.map((l, i) => <li key={i} className="flex items-center justify-between py-1.5"><span>{l.label} <span className="ml-2 font-mono text-xs text-ink-muted">{l.url}</span></span><button type="button" onClick={() => void save(links.filter((_, j) => j !== i))} className="text-xs text-danger hover:underline">Remove</button></li>)}{links.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No links yet.</li>}</ul>
+      <form onSubmit={(e) => { e.preventDefault(); void save([...links, { label, url }]); }} className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <Field label="Label"><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Grafana" className="w-40" required /></Field>
+        <Field label="URL"><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://grafana.example.com" className="w-72 font-mono" required /></Field>
+        <Button type="submit" className="h-9">Add</Button>
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      </form>
+    </Card>
+  );
+}
+
+function LoginAlerts() {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => { void api.geo().then((r) => setOn(r.enabled)).catch(() => {}); }, []);
+  if (on === null) return null;
+  return (
+    <Card title="Login alerts" description="A sign-in from an address never seen for that user raises a warning.">
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={on} onChange={async (e) => setOn((await api.geoSet(e.target.checked)).enabled)} />Add the city and country of new addresses</label>
+      <p className="mt-1 text-xs text-ink-muted">Sends only that address to ipapi.co, only for new-address alerts. Off by default.</p>
     </Card>
   );
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/pkg/api"
@@ -130,6 +131,7 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 		Severity string `json:"severity"`
 		Title    string `json:"title"`
 		Message  string `json:"message"`
+		Subject  string `json:"subject"`
 	}
 	if err := decode(r, &req); err != nil || req.Title == "" {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "title is required"})
@@ -138,6 +140,6 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 	if req.Severity == "" {
 		req.Severity = notify.Info
 	}
-	s.notify.Emit(r.Context(), notify.Event{Category: "custom", Severity: req.Severity, Title: req.Title, Message: req.Message, Link: "/notifications"})
+	s.notify.Emit(r.Context(), notify.Event{Category: "custom", Severity: req.Severity, Title: req.Title, Message: req.Message, Subject: strings.TrimSpace(req.Subject), Link: "/notifications"})
 	w.WriteHeader(http.StatusAccepted)
 }

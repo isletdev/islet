@@ -88,3 +88,15 @@ Promoting staging to production tags the live image as `islet/<target>:r<N>` and
 
 ## 2026-09-12 — "After CI passes" reuses the existing hooks
 An app set to deploy after CI ignores push payloads. With the GitHub App a successful `workflow_run` on the app's branch starts the deploy; on any other CI a final job step calls the app's deploy hook with the secret token and no body. No new credentials or endpoints.
+
+## 2026-09-12 — Events carry a subject; channels filter on it
+Every event about a specific thing (an app, container, uptime check, cron job or backup plan) names it in `subject`. A channel's "Only for" list (globs allowed) filters only events that carry a subject, so a channel dedicated to one app still receives server-wide warnings such as a full disk. This replaces a per-app channel matrix with one field.
+
+## 2026-09-12 — Uploads are a source like git, not a separate deploy path
+An app whose source is "upload" keeps its files under the app's workspace; each upload replaces them and the normal pipeline (detection, generated Dockerfile, health check, route, rollback) runs unchanged. Zip entries and file paths that would leave the upload folder are dropped rather than rejected, and a lone top-level folder is flattened so zips made from a project folder just work.
+
+## 2026-09-12 — Sidebar embedding is an iframe, protected by the same cookie
+"Add to sidebar" renders the app's URL in an iframe. With the session cookie domain set and the app's domain marked "Protect with Islet login", the panel and the app are same-site, so the session cookie flows into the frame and no second login is needed. Apps that send X-Frame-Options stay reachable through the new-tab link; Islet does not strip headers.
+
+## 2026-09-12 — Location on login alerts is opt-in
+Looking up the city and country of a new sign-in address means sending that address to a third party (ipapi.co). It is off by default and, when on, applies only to the new-address alert, never to routine logins.

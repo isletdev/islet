@@ -182,8 +182,13 @@ func (a *App) Validate() error {
 			return errors.New("image must be a valid reference like ghcr.io/org/app:1.2")
 		}
 		a.Strategy = "image"
+	case "upload":
+		a.RepoURL, a.Branch, a.AutoDeploy = "", "", false
+		if a.Strategy == "image" {
+			a.Strategy = "auto"
+		}
 	default:
-		return errors.New("source must be git or image")
+		return errors.New("source must be git, image or upload")
 	}
 	if a.Strategy == "" {
 		a.Strategy = "auto"
@@ -763,12 +768,12 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 			if lines := strings.Split(strings.TrimSpace(tail), "\n"); len(lines) > 30 {
 				tail = strings.Join(lines[len(lines)-30:], "\n")
 			}
-			s.bus.Emit(context.Background(), notify.Event{Category: "deploy", Severity: notify.Warning, Title: "Deploy failed: " + a.Name, Message: msg + "\n\n" + tail, Link: "/apps?app=" + a.ID})
+			s.bus.Emit(context.Background(), notify.Event{Category: "deploy", Subject: a.Name, Severity: notify.Warning, Title: "Deploy failed: " + a.Name, Message: msg + "\n\n" + tail, Link: "/apps?app=" + a.ID})
 		}
 	}
 	lg.line(fmt.Sprintf("[islet] release #%d of %s (%s)", rel.Number, a.Name, rel.Trigger))
 	if s.bus != nil {
-		s.bus.Emit(ctx, notify.Event{Category: "deploy", Severity: notify.Info, Title: "Deploy started: " + a.Name, Message: fmt.Sprintf("Release #%d, triggered by %s.", rel.Number, rel.Trigger), Link: "/apps?app=" + a.ID})
+		s.bus.Emit(ctx, notify.Event{Category: "deploy", Subject: a.Name, Severity: notify.Info, Title: "Deploy started: " + a.Name, Message: fmt.Sprintf("Release #%d, triggered by %s.", rel.Number, rel.Trigger), Link: "/apps?app=" + a.ID})
 	}
 	setStatus("building")
 
@@ -806,21 +811,32 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 		}
 	default:
 		ws := filepath.Join(s.dir, a.ID, "src")
-		_ = os.RemoveAll(ws)
-		ref := a.Branch
-		if rn.ref != "" {
-			ref = rn.ref
-		} else if strings.HasPrefix(a.Branch, "tag:") {
-			fail(errors.New("this app deploys on tag pushes matching " + strings.TrimPrefix(a.Branch, "tag:") + "; push a tag, or set a branch to deploy by hand"))
-			return
+		if a.Source == "upload" {
+			ws = s.uploadDir(a.ID)
+			meta, err := readUploadMeta(ws)
+			if err != nil {
+				fail(errors.New("nothing uploaded yet: drop a folder or a .zip on the app first"))
+				return
+			}
+			lg.step(fmt.Sprintf("use uploaded %s (%d files, by %s)", meta.Name, meta.Files, meta.By))
+			rel.Commit, rel.Message, rel.Author = "upload", meta.Name+" uploaded "+meta.At, meta.By
+		} else {
+			_ = os.RemoveAll(ws)
+			ref := a.Branch
+			if rn.ref != "" {
+				ref = rn.ref
+			} else if strings.HasPrefix(a.Branch, "tag:") {
+				fail(errors.New("this app deploys on tag pushes matching " + strings.TrimPrefix(a.Branch, "tag:") + "; push a tag, or set a branch to deploy by hand"))
+				return
+			}
+			lg.step("clone " + redact(a.RepoURL) + " @ " + ref)
+			if err := s.clone(ctx, a.RepoURL, ref, ws, lg.writer()); err != nil {
+				fail(err)
+				return
+			}
+			rel.Commit, rel.Message, rel.Author = gitHead(ws)
+			lg.line(fmt.Sprintf("commit %s by %s: %s", short(rel.Commit), rel.Author, rel.Message))
 		}
-		lg.step("clone " + redact(a.RepoURL) + " @ " + ref)
-		if err := s.clone(ctx, a.RepoURL, ref, ws, lg.writer()); err != nil {
-			fail(err)
-			return
-		}
-		rel.Commit, rel.Message, rel.Author = gitHead(ws)
-		lg.line(fmt.Sprintf("commit %s by %s: %s", short(rel.Commit), rel.Author, rel.Message))
 		ctxDir := filepath.Join(ws, a.RootDir)
 		if a.Strategy == "auto" || a.Framework == "" {
 			d := Detect(ctxDir)
@@ -989,7 +1005,7 @@ func (s *Service) succeed(ctx context.Context, a *App, rel *Release, lg *logger,
 	}
 	lg.line(fmt.Sprintf("[islet] live in %s %s", time.Since(start).Round(time.Second), url))
 	if s.bus != nil {
-		s.bus.Emit(context.Background(), notify.Event{Category: "deploy", Severity: notify.Info, Title: "Deployed: " + a.Name, Message: fmt.Sprintf("Release #%d is live (%s). %s", rel.Number, time.Since(start).Round(time.Second), url), Link: "/apps?app=" + a.ID})
+		s.bus.Emit(context.Background(), notify.Event{Category: "deploy", Subject: a.Name, Severity: notify.Info, Title: "Deployed: " + a.Name, Message: fmt.Sprintf("Release #%d is live (%s). %s", rel.Number, time.Since(start).Round(time.Second), url), Link: "/apps?app=" + a.ID})
 	}
 }
 

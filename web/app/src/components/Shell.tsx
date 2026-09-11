@@ -19,6 +19,8 @@ function Mark({ className = "" }: { className?: string }) {
 }
 
 export default function Shell() {
+  const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
+  useEffect(() => { void api.sidebar().then(setLinks).catch(() => {}); }, []);
   const [health, setHealth] = useState<Health | null>(null);
   const [theme, setThemeState] = useState<Theme>(getTheme());
   const [open, setOpen] = useState(false);
@@ -64,6 +66,9 @@ export default function Shell() {
               {!n.ready && <span className="font-mono text-[11px] text-ink-faint">{n.phase}</span>}
             </NavLink>
           ))}
+          {links.length > 0 && <div className="mt-2 border-t border-border pt-2">{links.map((l, i) => (
+            <NavLink key={i} to={`/embed/${i}`} onClick={() => setOpen(false)} className={({ isActive }) => `flex items-center rounded-md px-2.5 py-1.5 font-medium transition-colors ${isActive ? "bg-surface-2 text-ink" : "text-ink-muted hover:text-ink"}`}>{l.label}</NavLink>
+          ))}</div>}
         </nav>
       </aside>
 

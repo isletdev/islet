@@ -318,7 +318,7 @@ func (s *Service) probe(ctx context.Context, id string) {
 		_, _ = s.st.DB.ExecContext(ctx, `UPDATE checks SET status = 'up', failures = 0, last_check_at = ?, last_latency = ?, last_error = '', down_since = '' WHERE id = ?`, now, r.LatencyMs, c.ID)
 		if wasDown && s.bus != nil {
 			since, _ := time.Parse(sqlTime, c.DownSince)
-			s.bus.Emit(ctx, notify.Event{Category: "uptime", Severity: notify.Info, Title: "Down: " + c.Name, Message: fmt.Sprintf("Recovered after %s. %s answers again in %d ms.", time.Since(since).Round(time.Second), c.Target, r.LatencyMs), Link: "/uptime"})
+			s.bus.Emit(ctx, notify.Event{Category: "uptime", Subject: c.Name, Severity: notify.Info, Title: "Down: " + c.Name, Message: fmt.Sprintf("Recovered after %s. %s answers again in %d ms.", time.Since(since).Round(time.Second), c.Target, r.LatencyMs), Link: "/uptime"})
 		}
 		return
 	}
@@ -327,7 +327,7 @@ func (s *Service) probe(ctx context.Context, id string) {
 	if failures >= 2 && c.Status != "down" {
 		_, _ = s.st.DB.ExecContext(ctx, `UPDATE checks SET status = 'down', failures = ?, last_check_at = ?, last_latency = ?, last_error = ?, down_since = ? WHERE id = ?`, failures, now, r.LatencyMs, r.Error, now, c.ID)
 		if s.bus != nil {
-			s.bus.Emit(ctx, notify.Event{Category: "uptime", Severity: notify.Critical, Title: "Down: " + c.Name, Message: c.Target + ": " + r.Error, Link: "/uptime"})
+			s.bus.Emit(ctx, notify.Event{Category: "uptime", Subject: c.Name, Severity: notify.Critical, Title: "Down: " + c.Name, Message: c.Target + ": " + r.Error, Link: "/uptime"})
 		}
 		return
 	}

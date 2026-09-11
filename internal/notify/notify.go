@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,7 @@ type Event struct {
 	Title     string `json:"title"`
 	Message   string `json:"message"`
 	Link      string `json:"link"`
+	Subject   string `json:"subject,omitempty"` // the app, container, check, job or plan this is about
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -60,7 +62,8 @@ type Channel struct {
 	MinSeverity string            `json:"minSeverity"`
 	QuietFrom   string            `json:"quietFrom"`
 	QuietTo     string            `json:"quietTo"`
-	Digest      string            `json:"digest"` // "" | hourly | daily: batch non-critical events
+	Digest      string            `json:"digest"`   // "" | hourly | daily: batch non-critical events
+	Subjects    string            `json:"subjects"` // comma list of subject globs (app names…); empty = all
 	Enabled     bool              `json:"enabled"`
 	CreatedAt   string            `json:"createdAt"`
 }
@@ -106,8 +109,8 @@ func (b *Bus) Emit(ctx context.Context, e Event) {
 	}
 	b.mu.Unlock()
 
-	res, err := b.st.DB.ExecContext(ctx, `INSERT INTO events (server_id, category, severity, title, message, link) VALUES (?, ?, ?, ?, ?, ?)`,
-		b.st.ServerID, e.Category, e.Severity, e.Title, e.Message, e.Link)
+	res, err := b.st.DB.ExecContext(ctx, `INSERT INTO events (server_id, category, severity, title, message, link, subject) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		b.st.ServerID, e.Category, e.Severity, e.Title, e.Message, e.Link, e.Subject)
 	if err != nil {
 		b.log.Warn("event insert failed", "err", err)
 		return
@@ -151,6 +154,24 @@ func (c Channel) accepts(e Event, now time.Time) bool {
 	}
 	if c.QuietFrom != "" && c.QuietTo != "" && e.Severity != Critical && inQuiet(now, c.QuietFrom, c.QuietTo) {
 		return false
+	}
+	// Subject filter: only events that name a subject are filtered; server-wide
+	// events (disk, security) still follow the category rules.
+	if strings.TrimSpace(c.Subjects) != "" && e.Subject != "" {
+		ok := false
+		for _, pat := range strings.Split(c.Subjects, ",") {
+			pat = strings.TrimSpace(pat)
+			if pat == "" {
+				continue
+			}
+			if m, _ := path.Match(pat, e.Subject); m || pat == e.Subject {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
 	}
 	return true
 }
@@ -328,7 +349,7 @@ func (b *Bus) render(e Event) Message {
 
 // Channels lists channels; withConfig decrypts the secrets.
 func (b *Bus) Channels(ctx context.Context, withConfig bool) ([]Channel, error) {
-	rows, err := b.st.DB.QueryContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled, created_at FROM channels WHERE server_id = ? ORDER BY name`, b.st.ServerID)
+	rows, err := b.st.DB.QueryContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, subjects, enabled, created_at FROM channels WHERE server_id = ? ORDER BY name`, b.st.ServerID)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +367,7 @@ func (b *Bus) Channels(ctx context.Context, withConfig bool) ([]Channel, error) 
 
 // Channel loads one channel.
 func (b *Bus) Channel(ctx context.Context, id string, withConfig bool) (*Channel, error) {
-	row := b.st.DB.QueryRowContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled, created_at FROM channels WHERE id = ? AND server_id = ?`, id, b.st.ServerID)
+	row := b.st.DB.QueryRowContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, subjects, enabled, created_at FROM channels WHERE id = ? AND server_id = ?`, id, b.st.ServerID)
 	return b.scanChannel(row, withConfig)
 }
 
@@ -354,7 +375,7 @@ func (b *Bus) scanChannel(sc interface{ Scan(...any) error }, withConfig bool) (
 	var c Channel
 	var enc []byte
 	var en int
-	if err := sc.Scan(&c.ID, &c.Type, &c.Name, &enc, &c.Categories, &c.MinSeverity, &c.QuietFrom, &c.QuietTo, &c.Digest, &en, &c.CreatedAt); err != nil {
+	if err := sc.Scan(&c.ID, &c.Type, &c.Name, &enc, &c.Categories, &c.MinSeverity, &c.QuietFrom, &c.QuietTo, &c.Digest, &c.Subjects, &en, &c.CreatedAt); err != nil {
 		return nil, err
 	}
 	c.Enabled = en == 1
@@ -394,11 +415,11 @@ func (b *Bus) SaveChannel(ctx context.Context, c *Channel) (*Channel, error) {
 	}
 	if c.ID == "" {
 		c.ID = newID()
-		_, err = b.st.DB.ExecContext(ctx, `INSERT INTO channels (id, server_id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			c.ID, b.st.ServerID, c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, en)
+		_, err = b.st.DB.ExecContext(ctx, `INSERT INTO channels (id, server_id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, subjects, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			c.ID, b.st.ServerID, c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, c.Subjects, en)
 	} else {
-		_, err = b.st.DB.ExecContext(ctx, `UPDATE channels SET type=?, name=?, config_enc=?, categories=?, min_severity=?, quiet_from=?, quiet_to=?, digest=?, enabled=? WHERE id=? AND server_id=?`,
-			c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, en, c.ID, b.st.ServerID)
+		_, err = b.st.DB.ExecContext(ctx, `UPDATE channels SET type=?, name=?, config_enc=?, categories=?, min_severity=?, quiet_from=?, quiet_to=?, digest=?, subjects=?, enabled=? WHERE id=? AND server_id=?`,
+			c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, c.Subjects, en, c.ID, b.st.ServerID)
 	}
 	if err != nil {
 		return nil, err
@@ -423,7 +444,7 @@ func (b *Bus) Test(ctx context.Context, id string) error {
 
 // Events lists recent events newest first.
 func (b *Bus) Events(ctx context.Context, limit int, before int64) ([]Event, error) {
-	q := `SELECT id, category, severity, title, message, link, created_at FROM events WHERE server_id = ?`
+	q := `SELECT id, category, severity, title, message, link, subject, created_at FROM events WHERE server_id = ?`
 	args := []any{b.st.ServerID}
 	if before > 0 {
 		q += ` AND id < ?`
@@ -439,7 +460,7 @@ func (b *Bus) Events(ctx context.Context, limit int, before int64) ([]Event, err
 	out := []Event{}
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.Category, &e.Severity, &e.Title, &e.Message, &e.Link, &e.CreatedAt); err == nil {
+		if err := rows.Scan(&e.ID, &e.Category, &e.Severity, &e.Title, &e.Message, &e.Link, &e.Subject, &e.CreatedAt); err == nil {
 			out = append(out, e)
 		}
 	}

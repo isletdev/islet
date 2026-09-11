@@ -163,7 +163,7 @@ func (s *Service) tick(ctx context.Context) {
 			go func(id string) { _ = s.RunPlan(context.Background(), "schedule", id, nil) }(p.ID)
 		}
 		if p.Stale && s.bus != nil {
-			s.bus.Emit(ctx, notify.Event{Category: "backup", Severity: notify.Warning, Title: "Backup stale: " + p.Name, Message: "The last successful backup is older than expected. Last: " + p.LastRunAt, Link: "/backups"})
+			s.bus.Emit(ctx, notify.Event{Category: "backup", Severity: notify.Warning, Subject: p.Name, Title: "Backup stale: " + p.Name, Message: "The last successful backup is older than expected. Last: " + p.LastRunAt, Link: "/backups"})
 		}
 	}
 	// Recovery kit: nag once a day while it was never downloaded, and quarterly after.
@@ -723,9 +723,9 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE backup_plans SET last_run_at = ?, last_status = ?, next_run_at = ? WHERE id = ?`, time.Now().UTC().Format(sqlTime), status, next, p.ID)
 		if s.bus != nil {
 			if status == "failed" {
-				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Warning, Title: "Backup failed: " + p.Name, Message: errMsg, Link: "/backups"})
+				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Warning, Subject: p.Name, Title: "Backup failed: " + p.Name, Message: errMsg, Link: "/backups"})
 			} else if sum != nil && p.LastStatus == "failed" {
-				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Info, Title: "Backup failed: " + p.Name, Message: fmt.Sprintf("Recovered: snapshot %s, %s added.", snapshot, human(sum.DataAdded)), Link: "/backups"})
+				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Info, Subject: p.Name, Title: "Backup failed: " + p.Name, Message: fmt.Sprintf("Recovered: snapshot %s, %s added.", snapshot, human(sum.DataAdded)), Link: "/backups"})
 			}
 		}
 	}

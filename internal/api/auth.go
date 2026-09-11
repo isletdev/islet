@@ -264,7 +264,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.notify != nil && !sess.MFAPending {
 		sev, title, msg := notify.Info, "Panel login: "+req.Username, "Signed in from "+clientIP(r)+"."
 		if s.newLoginIP(r.Context(), req.Username, clientIP(r)) {
-			sev, title, msg = notify.Warning, "Login from a new address: "+req.Username, "First sign-in from "+clientIP(r)+". If this was not you, change the password and revoke sessions in Settings."
+			where := clientIP(r)
+			if s.geoEnabled(r.Context()) {
+				if g := lookupGeo(r.Context(), clientIP(r)); g != "" {
+					where += " (" + g + ")"
+				}
+			}
+			sev, title, msg = notify.Warning, "Login from a new address: "+req.Username, "First sign-in from "+where+". If this was not you, change the password and revoke sessions in Settings."
 		}
 		s.notify.Emit(r.Context(), notify.Event{Category: "security", Severity: sev, Title: title, Message: msg, Link: "/settings"})
 	}

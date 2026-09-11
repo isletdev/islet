@@ -58,7 +58,7 @@ func Docker(ctx context.Context, run *cmdrun.Runner, bus *notify.Bus, log *slog.
 			}
 			switch ev.Action {
 			case "oom":
-				bus.Emit(ctx, notify.Event{Category: "container", Severity: notify.Critical, Title: "Container out of memory: " + name, Message: "The kernel killed a process in " + name + " for exceeding its memory limit.", Link: "/containers"})
+				bus.Emit(ctx, notify.Event{Category: "container", Subject: name, Severity: notify.Critical, Title: "Container out of memory: " + name, Message: "The kernel killed a process in " + name + " for exceeding its memory limit.", Link: "/containers"})
 			case "die":
 				code := ev.Actor.Attributes["exitCode"]
 				if code == "0" {
@@ -77,9 +77,9 @@ func Docker(ctx context.Context, run *cmdrun.Runner, bus *notify.Bus, log *slog.
 				n := len(recent)
 				mu.Unlock()
 				if n == 1 {
-					bus.Emit(ctx, notify.Event{Category: "container", Severity: notify.Warning, Title: "Container exited: " + name, Message: fmt.Sprintf("%s exited with code %s.", name, code), Link: "/containers"})
+					bus.Emit(ctx, notify.Event{Category: "container", Subject: name, Severity: notify.Warning, Title: "Container exited: " + name, Message: fmt.Sprintf("%s exited with code %s.", name, code), Link: "/containers"})
 				} else if n == 3 {
-					bus.Emit(ctx, notify.Event{Category: "container", Severity: notify.Critical, Title: "Container crash loop: " + name, Message: fmt.Sprintf("%s died %d times in ten minutes (last exit code %s).", name, n, code), Link: "/containers"})
+					bus.Emit(ctx, notify.Event{Category: "container", Subject: name, Severity: notify.Critical, Title: "Container crash loop: " + name, Message: fmt.Sprintf("%s died %d times in ten minutes (last exit code %s).", name, n, code), Link: "/containers"})
 				}
 			}
 		}

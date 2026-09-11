@@ -88,8 +88,8 @@ export interface DNSCheck { host: string; expected: string; resolved: string[]; 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
 
-export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; digest?: string; enabled: boolean; createdAt: string }
-export interface IsletEvent { id: number; category: string; severity: "info" | "warning" | "critical"; title: string; message: string; link: string; createdAt: string }
+export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; digest?: string; subjects?: string; enabled: boolean; createdAt: string }
+export interface IsletEvent { id: number; category: string; severity: "info" | "warning" | "critical"; title: string; message: string; link: string; subject?: string; createdAt: string }
 
 export interface JobRun { id: number; jobId: string; trigger: string; attempt: number; status: string; exitCode: number; output?: string; startedAt: string; finishedAt: string; durationMs: number }
 export interface Job {
@@ -112,7 +112,7 @@ export interface LogSource { id: string; label: string; group: string }
 
 export interface Release { id: number; appId: string; number: number; trigger: string; actor: string; commit: string; message: string; author: string; status: string; image: string; container: string; log?: string; error: string; startedAt: string; finishedAt: string; durationMs: number }
 export interface DeployApp {
-  id: string; name: string; source: "git" | "image"; repoUrl: string; branch: string; rootDir: string; image: string; strategy: string; framework: string;
+  id: string; name: string; source: "git" | "image" | "upload"; repoUrl: string; branch: string; rootDir: string; image: string; strategy: string; framework: string;
   installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; predeployCmd: string; env: string; domain: string; tls: string;
   webhookSecret?: string; autoDeploy: boolean; memoryMb: number; cpus: number; volumes: string; processes: string; deployOn: "push" | "ci"; processList?: { name: string; count: number; cmd: string }[]; currentRelease: number; status: string; createdAt: string; updatedAt: string;
   nodeVersion: string; pythonVersion: string; url: string; container: string; deploying: boolean; lastRelease?: Release;
@@ -239,6 +239,11 @@ export const api = {
   github: () => request<GitHubState>("/api/v1/github"),
   githubSave: (b: { appId: string; clientId: string; slug: string; privateKey: string; webhookSecret: string }) => post<void>("/api/v1/github", b),
   githubRepos: () => request<GitHubRepo[]>("/api/v1/github/repos"),
+  sidebar: () => request<{ label: string; url: string }[]>("/api/v1/sidebar"),
+  sidebarSet: (links: { label: string; url: string }[]) => post<{ label: string; url: string }[]>("/api/v1/sidebar", links),
+  geo: () => request<{ enabled: boolean }>("/api/v1/auth/geo"),
+  geoSet: (enabled: boolean) => post<{ enabled: boolean }>("/api/v1/auth/geo", { enabled }),
+  dbAdminer: (name: string) => post<{ url: string; installed: boolean; password?: string; domain: string }>(`/api/v1/databases/${encodeURIComponent(name)}/adminer`),
   weeklyReport: () => request<{ enabled: boolean; lastSent: string }>("/api/v1/report/weekly"),
   weeklyReportSet: (enabled: boolean) => post<{ enabled: boolean; lastSent: string }>("/api/v1/report/weekly", { enabled }),
   weeklyReportSend: () => post<{ body: string }>("/api/v1/report/weekly/send"),

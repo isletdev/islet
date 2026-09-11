@@ -100,6 +100,7 @@ components:
         volumes: { type: string, description: Container paths to persist, one per line }
         processes: { type: string, description: "Extra processes from the same image, one per line: \"worker x2: command\"" }
         deployOn: { type: string, enum: [push, ci], description: Deploy on every push, or only after CI passes }
+        source: { type: string, enum: [git, image, upload] }
         status: { type: string, readOnly: true }
         url: { type: string, readOnly: true }
         container: { type: string, readOnly: true }
@@ -368,3 +369,13 @@ paths:
     post: { tags: [Notifications], summary: Send the weekly report now and return its text (admin), responses: { "200": { description: OK } } }
   /api/v1/apps/{id}/promote:
     post: { tags: [Apps], summary: Deploy this app's live image onto another app without rebuilding (streams the deploy log), parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string } } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/apps/{id}/upload:
+    post: { tags: [Apps], summary: "Replace an upload-source app's files: multipart with a `zip` part, or `file:<relative path>` parts (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Upload summary and detection } } }
+  /api/v1/sidebar:
+    get: { tags: [Settings], summary: Sidebar links (apps embedded in the panel), responses: { "200": { description: OK } } }
+    post: { tags: [Settings], summary: Replace the sidebar links (admin), requestBody: { content: { application/json: { schema: { type: array, items: { type: object, properties: { label: { type: string }, url: { type: string } } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/auth/geo:
+    get: { tags: [Auth], summary: Whether new-address login alerts include a city and country lookup, responses: { "200": { description: OK } } }
+    post: { tags: [Auth], summary: Toggle the lookup (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/databases/{name}/adminer:
+    post: { tags: [Databases], summary: Install Adminer if needed, attach it to the instance network and return a deep link (admin), parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: "{ url, installed, domain, password }" } } }
