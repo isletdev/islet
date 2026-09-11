@@ -81,7 +81,7 @@ export interface CommandEntry { id: number; actor: string; command: string; exit
 export interface FileEntry { name: string; path: string; isDir: boolean; size: number; mode: string; perms: string; owner: string; group: string; modTime: string; isSymlink: boolean; target?: string; protected: boolean }
 export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
 
-export interface ProxyStatus { installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string }
+export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string }
 export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; enabled: boolean; createdAt: string; updatedAt: string }
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
 
@@ -220,7 +220,8 @@ export const api = {
   diskReport: () => request<{ key: string; label: string; bytes: number; reclaimable: number; hint: string; cleanable: boolean }[]>("/api/v1/system/disk"),
   diskClean: (keys: string[]) => post<Record<string, string>>("/api/v1/system/disk/clean", { keys }),
   proxyStatus: () => request<ProxyStatus>("/api/v1/proxy"),
-  proxyInstall: (acmeEmail: string) => post<ProxyStatus>("/api/v1/proxy/install", { acmeEmail }),
+  proxyInstall: (acmeEmail: string, dns?: { dnsProvider: string; dnsEnv: Record<string, string> }) => post<ProxyStatus>("/api/v1/proxy/install", { acmeEmail, ...(dns ?? {}) }),
+  dnsProviders: () => request<Record<string, string[]>>("/api/v1/proxy/dns-providers"),
   proxyRemove: () => post<void>("/api/v1/proxy/remove"),
   proxyCerts: () => request<{ domain: string; sans: string[]; notAfter: string; issuer: string }[]>("/api/v1/proxy/certs"),
   previewHost: (name: string) => request<{ host: string; publicIp: string }>(`/api/v1/proxy/preview-host?name=${encodeURIComponent(name)}`),

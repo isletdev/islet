@@ -26,11 +26,19 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		AcmeEmail string `json:"acmeEmail"`
+		AcmeEmail   string            `json:"acmeEmail"`
+		DNSProvider *string           `json:"dnsProvider"`
+		DNSEnv      map[string]string `json:"dnsEnv"`
 	}
 	if r.ContentLength > 0 {
 		if err := decode(r, &req); err != nil {
 			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			return
+		}
+	}
+	if req.DNSProvider != nil {
+		if err := s.proxy.SetDNS(r.Context(), strings.TrimSpace(*req.DNSProvider), req.DNSEnv); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "dns", Message: err.Error()})
 			return
 		}
 	}

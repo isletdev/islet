@@ -18,12 +18,17 @@ export default function Domains() {
   const [err, setErr] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [providers, setProviders] = useState<Record<string, string[]>>({});
+  const [dnsProvider, setDnsProvider] = useState("");
+  const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
+  useEffect(() => { void api.dnsProviders().then(setProviders).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     try {
       const [st, ds, cs, certList] = await Promise.all([api.proxyStatus(), api.domains(), api.containers().catch(() => []), api.proxyCerts().catch(() => [])]);
       setStatus(st); setDomains(ds); setContainers(cs); setCerts(certList); setErr(null);
       if (!email && st.acmeEmail) setEmail(st.acmeEmail);
+      if (st.dnsProvider !== undefined) setDnsProvider((p) => p || st.dnsProvider || "");
     } catch (e) { setErr(e instanceof RequestError ? e.message : String(e)); }
   }, [email]);
   useEffect(() => { void load(); }, [load]);
@@ -35,7 +40,7 @@ export default function Domains() {
 
   const install = async () => {
     setBusy(true); setMsg(null);
-    try { await api.proxyInstall(email); setMsg("Proxy is running."); await load(); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); }
+    try { await api.proxyInstall(email, { dnsProvider, dnsEnv }); setDnsEnv({}); setMsg("Proxy is running."); await load(); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); }
     finally { setBusy(false); }
   };
   const save = async (e: FormEvent) => {
@@ -73,7 +78,11 @@ export default function Domains() {
           {isAdmin && status?.installed && <Button variant="secondary" onClick={() => api.proxyRemove().then(load)}>Remove</Button>}
           {msg && <span className="text-sm text-ink-muted">{msg}</span>}
         </div>
-        <p className="mt-3 text-xs text-ink-muted">Ports 80 and 443 belong to the proxy. Apps are reached by domain, not by published ports.</p>
+        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
+          <Field label="DNS provider for wildcards" hint="Optional. Lets *.example.com get a certificate through DNS-01."><select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)} className="h-9 w-56 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="">None (HTTP-01 only)</option>{Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
+          {dnsProvider && (providers[dnsProvider] ?? []).map((k) => <Field key={k} label={k} hint={status?.dnsProvider === dnsProvider ? "Leave empty to keep the stored value." : undefined}><Input type="password" value={dnsEnv[k] ?? ""} onChange={(e) => setDnsEnv({ ...dnsEnv, [k]: e.target.value })} autoComplete="off" className="w-56 font-mono" /></Field>)}
+        </div>
+        <p className="mt-3 text-xs text-ink-muted">Ports 80 and 443 belong to the proxy. Apps are reached by domain, not by published ports. Press "Reinstall / apply" after changing the DNS provider.</p>
       </Card>
 
       <div className="rounded-lg border border-border bg-surface">

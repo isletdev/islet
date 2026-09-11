@@ -110,6 +110,7 @@ func run() error {
 	dk := docker.New(cmds, filepath.Join(*dataDir, "stacks"))
 	fl := files.New(*dataDir)
 	px := proxy.New(cmds, st, *dataDir, os.Getenv("ISLET_PROXY_PORTS"))
+	px.Keys = keys
 	cat := catalog.New(dk, px, filepath.Join(*dataDir, "stacks"))
 	dbs := db.New(cmds, dk, cat, *dataDir)
 	bus := notify.New(st, keys, log)

@@ -24,6 +24,7 @@ Everything host-level was written for Ubuntu and Debian but could only be exerci
 
 - [ ] **One Ubuntu 24.04 VPS** (a Hetzner CX22 is enough). Give me root SSH access or run the installer and paste the output. Unblocks: installer, Docker install, systemd unit, TLS on a public IP.
 - [ ] **Let's Encrypt:** point a domain at the box, add it on the Domains page with Let's Encrypt, confirm the certificate appears under Domains → Certificates.
+- [ ] **Wildcard certificate:** on the proxy card pick your DNS provider (Cloudflare token is the easiest), reinstall the proxy, add `*.yourdomain` with Let's Encrypt, confirm the certificate lists the wildcard.
 - [ ] **Security page:** press each Fix (firewall, fail2ban, auto-updates, swap, NTP), then apply an SSH change and confirm the five-minute rollback works both ways (confirm, and let it expire). Check the Security Score reaches 90.
 - [ ] **Deploy:** connect a real repository (a Vite site and a Next.js app are the best first tests), add the webhook from the app's Auto-deploy panel, push, watch it redeploy, roll back.
 - [ ] **Runners:** create a GitHub personal access token (classic, `repo`) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`. I could only verify the pool logic, webhooks and the workflow generator without credentials. Same for GitLab and Gitea if you use them.

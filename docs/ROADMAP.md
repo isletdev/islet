@@ -88,7 +88,7 @@ After this phase a user can: point a domain at any container, get a certificate 
 - [x] Traefik managed as a container, config reconciled from Islet's state
 - [x] Add domain, pick container and port, HTTPS issued via HTTP-01 (issuance itself needs a public server to verify)
 - [x] DNS helper: shows the exact record to create and rechecks on demand
-- [ ] DNS-01 wildcards for Cloudflare, Hetzner DNS, DigitalOcean, Route53, deSEC, Porkbun
+- [x] DNS-01 wildcards for Cloudflare, Hetzner DNS, DigitalOcean, Route53, deSEC, Porkbun, Gandi, OVH, Namecheap, Linode, Vultr, Scaleway (credentials encrypted; issuance unverified until a real domain exists)
 - [x] Per-route options: www and https redirects, basic auth, IP allowlist, rate limit, custom headers, path prefix, maintenance page
 - [x] Certificate inventory with expiry (manual renewal pending)
 - [x] Any Compose stack with Traefik labels works unchanged (Docker provider enabled, exposedByDefault off)

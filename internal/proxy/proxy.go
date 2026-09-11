@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/store"
 )
@@ -41,6 +42,9 @@ type Manager struct {
 	httpP  string
 	httpsP string
 	panel  string // URL of the daemon as seen from the proxy container
+
+	// Keys encrypts DNS provider credentials at rest (set by main).
+	Keys *auth.Keys
 }
 
 // New builds the manager. httpPort/httpsPort default to 80/443; a dev box
@@ -58,21 +62,100 @@ func (m *Manager) SetPanelURL(scheme, port string) {
 	m.panel = scheme + "://host.docker.internal:" + port
 }
 
+// DNSProviders maps a provider name to the environment variables Traefik's
+// ACME DNS-01 challenge needs (lego provider names).
+var DNSProviders = map[string][]string{
+	"cloudflare":   {"CF_DNS_API_TOKEN"},
+	"hetzner":      {"HETZNER_API_KEY"},
+	"digitalocean": {"DO_AUTH_TOKEN"},
+	"route53":      {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"},
+	"desec":        {"DESEC_TOKEN"},
+	"porkbun":      {"PORKBUN_API_KEY", "PORKBUN_SECRET_API_KEY"},
+	"gandiv5":      {"GANDIV5_PERSONAL_ACCESS_TOKEN"},
+	"ovh":          {"OVH_ENDPOINT", "OVH_APPLICATION_KEY", "OVH_APPLICATION_SECRET", "OVH_CONSUMER_KEY"},
+	"namecheap":    {"NAMECHEAP_API_USER", "NAMECHEAP_API_KEY"},
+	"linode":       {"LINODE_TOKEN"},
+	"vultr":        {"VULTR_API_KEY"},
+	"scaleway":     {"SCW_SECRET_KEY", "SCW_PROJECT_ID"},
+}
+
+// SetDNS stores the DNS-01 provider and its credentials (encrypted). An
+// empty provider clears it. Install applies the change.
+func (m *Manager) SetDNS(ctx context.Context, provider string, env map[string]string) error {
+	if provider == "" {
+		_ = m.st.SetSetting(ctx, "proxy.dns_provider", "")
+		_ = m.st.SetSetting(ctx, "proxy.dns_env", "")
+		return nil
+	}
+	keys, ok := DNSProviders[provider]
+	if !ok {
+		return errors.New("unknown DNS provider")
+	}
+	old := m.dnsEnv(ctx)
+	for _, k := range keys {
+		if strings.TrimSpace(env[k]) == "" {
+			if old[k] != "" {
+				env[k] = old[k] // keep stored secret
+				continue
+			}
+			return errors.New(k + " is required for " + provider)
+		}
+	}
+	if m.Keys == nil {
+		return errors.New("no key store for credentials")
+	}
+	b, _ := json.Marshal(env)
+	enc, err := m.Keys.Encrypt(b)
+	if err != nil {
+		return err
+	}
+	if err := m.st.SetSetting(ctx, "proxy.dns_provider", provider); err != nil {
+		return err
+	}
+	return m.st.SetSetting(ctx, "proxy.dns_env", base64.StdEncoding.EncodeToString(enc))
+}
+
+// DNSProvider returns the configured provider name, if any.
+func (m *Manager) DNSProvider(ctx context.Context) string {
+	v, _, _ := m.st.Setting(ctx, "proxy.dns_provider")
+	return v
+}
+
+func (m *Manager) dnsEnv(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	v, _, _ := m.st.Setting(ctx, "proxy.dns_env")
+	if v == "" || m.Keys == nil {
+		return out
+	}
+	b, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return out
+	}
+	p, err := m.Keys.Decrypt(b)
+	if err != nil {
+		return out
+	}
+	_ = json.Unmarshal(p, &out)
+	return out
+}
+
 // Status describes the proxy container.
 type Status struct {
-	Installed bool   `json:"installed"`
-	Running   bool   `json:"running"`
-	Image     string `json:"image"`
-	Email     string `json:"acmeEmail"`
-	HTTPPort  string `json:"httpPort"`
-	HTTPSPort string `json:"httpsPort"`
-	Error     string `json:"error,omitempty"`
+	DNSProvider string `json:"dnsProvider"`
+	Installed   bool   `json:"installed"`
+	Running     bool   `json:"running"`
+	Image       string `json:"image"`
+	Email       string `json:"acmeEmail"`
+	HTTPPort    string `json:"httpPort"`
+	HTTPSPort   string `json:"httpsPort"`
+	Error       string `json:"error,omitempty"`
 }
 
 // Status inspects the proxy container.
 func (m *Manager) Status(ctx context.Context) Status {
 	st := Status{Image: Image, HTTPPort: m.httpP, HTTPSPort: m.httpsP}
 	st.Email, _, _ = m.st.Setting(ctx, "proxy.acme_email")
+	st.DNSProvider = m.DNSProvider(ctx)
 	res, err := m.run.Run(ctx, "system", "docker", "inspect", "--type", "container", "--format", "{{.State.Running}} {{.Config.Image}}", ContainerName)
 	if err != nil {
 		return st
@@ -148,6 +231,29 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 			"--certificatesresolvers.letsencrypt.acme.storage="+mountPath+"/acme.json",
 			"--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web",
 		)
+		if prov := m.DNSProvider(ctx); prov != "" {
+			acmeDNS := filepath.Join(m.dir, "acme-dns.json")
+			if _, err := os.Stat(acmeDNS); errors.Is(err, os.ErrNotExist) {
+				_ = os.WriteFile(acmeDNS, []byte("{}"), 0o600)
+			}
+			args = append(args,
+				"--certificatesresolvers.letsencrypt-dns.acme.email="+acmeEmail,
+				"--certificatesresolvers.letsencrypt-dns.acme.storage="+mountPath+"/acme-dns.json",
+				"--certificatesresolvers.letsencrypt-dns.acme.dnschallenge.provider="+prov,
+				"--certificatesresolvers.letsencrypt-dns.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53",
+			)
+			// Credentials go in as environment variables before the image name.
+			var envArgs []string
+			for k, v := range m.dnsEnv(ctx) {
+				envArgs = append(envArgs, "-e", k+"="+v)
+			}
+			for i, a := range args {
+				if a == Image {
+					args = append(append(append([]string{}, args[:i]...), envArgs...), args[i:]...)
+					break
+				}
+			}
+		}
 	}
 	if _, err := m.run.Run(ctx, actor, "docker", args...); err != nil {
 		return fmt.Errorf("start traefik: %w", err)
@@ -319,6 +425,9 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(d.Host, "*.") && d.TLS == "letsencrypt" && m.DNSProvider(ctx) == "" {
+		return nil, errors.New("wildcard certificates need a DNS provider: set one on the proxy card first, or use a self-signed certificate")
+	}
 	b := func(v bool) int {
 		if v {
 			return 1
@@ -414,6 +523,10 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		}
 		name := "d-" + d.ID
 		rule := fmt.Sprintf("Host(`%s`)", d.Host)
+		wildcard := strings.HasPrefix(d.Host, "*.")
+		if wildcard {
+			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(strings.TrimPrefix(d.Host, "*."), ".", "\\."))
+		}
 		if d.RedirectWWW {
 			rule = fmt.Sprintf("(Host(`%s`) || Host(`www.%s`))", d.Host, d.Host)
 		}
@@ -453,6 +566,9 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		switch d.TLS {
 		case "letsencrypt":
 			router["tls"] = map[string]any{"certResolver": "letsencrypt"}
+			if wildcard {
+				router["tls"] = map[string]any{"certResolver": "letsencrypt-dns", "domains": []map[string]any{{"main": d.Host, "sans": []string{strings.TrimPrefix(d.Host, "*.")}}}}
+			}
 		case "self":
 			router["tls"] = map[string]any{}
 		case "none":
@@ -510,7 +626,19 @@ type Cert struct {
 
 // Certificates parses Traefik's acme.json.
 func (m *Manager) Certificates() ([]Cert, error) {
-	b, err := os.ReadFile(filepath.Join(m.dir, "acme.json"))
+	out := []Cert{}
+	for _, f := range []string{"acme.json", "acme-dns.json"} {
+		list, err := m.certsFrom(filepath.Join(m.dir, f))
+		if err != nil && f == "acme.json" {
+			return nil, err
+		}
+		out = append(out, list...)
+	}
+	return out, nil
+}
+
+func (m *Manager) certsFrom(path string) ([]Cert, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
