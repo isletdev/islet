@@ -31,6 +31,35 @@ func sessionFrom(ctx context.Context) *auth.Session {
 	return s
 }
 
+// newLoginIP records the address and reports whether it was unseen for
+// this user (ignoring the very first login, which is always new).
+func (s *Server) newLoginIP(ctx context.Context, username, ip string) bool {
+	if ip == "" || ip == "127.0.0.1" || ip == "::1" {
+		return false
+	}
+	key := "auth.ips." + username
+	v, _, _ := s.store.Setting(ctx, key)
+	seen := map[string]bool{}
+	for _, x := range strings.Split(v, ",") {
+		if x != "" {
+			seen[x] = true
+		}
+	}
+	if seen[ip] {
+		return false
+	}
+	seen[ip] = true
+	var list []string
+	for x := range seen {
+		list = append(list, x)
+	}
+	if len(list) > 50 {
+		list = list[len(list)-50:]
+	}
+	_ = s.store.SetSetting(ctx, key, strings.Join(list, ","))
+	return v != ""
+}
+
 func userFrom(ctx context.Context) *auth.User {
 	u, _ := ctx.Value(ctxUser).(*auth.User)
 	return u
@@ -214,7 +243,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	setSessionCookie(w, r, token, sess.ExpiresAt)
 	if s.notify != nil && !sess.MFAPending {
-		s.notify.Emit(r.Context(), notify.Event{Category: "security", Severity: notify.Info, Title: "Panel login: " + req.Username, Message: "Signed in from " + clientIP(r) + ".", Link: "/settings"})
+		sev, title, msg := notify.Info, "Panel login: "+req.Username, "Signed in from "+clientIP(r)+"."
+		if s.newLoginIP(r.Context(), req.Username, clientIP(r)) {
+			sev, title, msg = notify.Warning, "Login from a new address: "+req.Username, "First sign-in from "+clientIP(r)+". If this was not you, change the password and revoke sessions in Settings."
+		}
+		s.notify.Emit(r.Context(), notify.Event{Category: "security", Severity: sev, Title: title, Message: msg, Link: "/settings"})
 	}
 	if sess.MFAPending {
 		writeJSON(w, http.StatusOK, api.LoginResponse{MFARequired: true})

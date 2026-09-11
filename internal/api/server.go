@@ -90,6 +90,9 @@ type Server struct {
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
+	if s.deploy != nil {
+		s.deploy.EnvGroup = s.EnvGroupLines
+	}
 	mux := http.NewServeMux()
 
 	// Public
@@ -182,6 +185,9 @@ func New(d Deps) http.Handler {
 	// Deploys
 	mux.HandleFunc("GET /api/v1/apps", s.requireAuth(s.handleApps))
 	mux.HandleFunc("POST /api/v1/apps", requireJSON(s.requireAuth(s.handleAppSave)))
+	mux.HandleFunc("GET /api/v1/apps/env-groups", s.requireAuth(s.handleEnvGroups))
+	mux.HandleFunc("POST /api/v1/apps/env-groups", requireJSON(s.requireAuth(s.handleEnvGroupSave)))
+	mux.HandleFunc("DELETE /api/v1/apps/env-groups/{name}", requireJSON(s.requireAuth(s.handleEnvGroupDelete)))
 	mux.HandleFunc("POST /api/v1/apps/inspect", requireJSON(s.requireAuth(s.handleAppInspect)))
 	mux.HandleFunc("GET /api/v1/apps/{id}", s.requireAuth(s.handleApp))
 	mux.HandleFunc("PUT /api/v1/apps/{id}", requireJSON(s.requireAuth(s.handleAppSave)))
@@ -213,6 +219,7 @@ func New(d Deps) http.Handler {
 
 	// Security
 	mux.HandleFunc("GET /api/v1/security", s.requireAuth(s.handleSecurityReport))
+	mux.HandleFunc("POST /api/v1/security/fix-all", requireJSON(s.requireAuth(s.handleSecurityFixAll)))
 	mux.HandleFunc("POST /api/v1/security/fix/{id}", requireJSON(s.requireAuth(s.handleSecurityFix)))
 	mux.HandleFunc("POST /api/v1/security/firewall/rules", requireJSON(s.requireAuth(s.handleFirewallRule)))
 	mux.HandleFunc("DELETE /api/v1/security/firewall/rules", requireJSON(s.requireAuth(s.handleFirewallRule)))

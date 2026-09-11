@@ -42,7 +42,10 @@ export default function Security() {
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Security</h1>
           <p className="mt-1 text-ink-muted">{r.linux ? "Ten minutes of one-click fixes take a fresh server to 90." : "Host checks need a Linux server; panel checks are shown."}</p>
         </div>
-        {isAdmin && r.linux && <Button variant="danger" className="h-8 text-xs" disabled={busy !== null} onClick={() => void panic()}>Panic button</Button>}
+        <div className="flex gap-2">
+          {isAdmin && r.linux && failing.some((c) => c.fix && c.fix !== "ssh-harden" && c.fix !== "apt-upgrade") && <Button className="h-8 text-xs" disabled={busy !== null} onClick={async () => { setBusy("all"); setOut(null); try { const res = await api.securityFixAll(); setOut({ title: "Ran all safe fixes", text: res.map((x) => `${x.fix}: ${x.status}${x.error ? " (" + x.error + ")" : ""}`).join("\n") }); await load(); } finally { setBusy(null); } }}>{busy === "all" ? "Fixing…" : "Fix everything safe"}</Button>}
+          {isAdmin && r.linux && <Button variant="danger" className="h-8 text-xs" disabled={busy !== null} onClick={() => void panic()}>Panic button</Button>}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">

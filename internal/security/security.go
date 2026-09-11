@@ -318,6 +318,48 @@ func (s *Service) Report(ctx context.Context) Report {
 
 // ---- fixes ----
 
+// FixAll runs the safe fixes in order and reports each result. SSH
+// hardening is left out on purpose: it needs the admin's key in place.
+func (s *Service) FixAll(ctx context.Context, actor, clientIP string) []map[string]string {
+	var out []map[string]string
+	for _, id := range []string{"auto-updates", "fail2ban", "swap", "ntp", "firewall"} {
+		res := map[string]string{"fix": id, "status": "ok"}
+		if _, err := s.Fix(ctx, actor, id, clientIP); err != nil {
+			res["status"], res["error"] = "failed", err.Error()
+		}
+		out = append(out, res)
+	}
+	return out
+}
+
+// StartSchedules runs Lynis weekly when it has been run once by hand.
+func (s *Service) StartSchedules(ctx context.Context) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	go func() {
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			if v, _, _ := s.st.Setting(ctx, "security.lynis_score"); v == "" {
+				continue
+			}
+			last, _, _ := s.st.Setting(ctx, "security.lynis_at")
+			if tm, err := time.Parse(time.RFC3339, last); err == nil && time.Since(tm) < 7*24*time.Hour {
+				continue
+			}
+			if _, _, err := s.Lynis(ctx, "system"); err == nil {
+				_ = s.st.SetSetting(ctx, "security.lynis_at", time.Now().UTC().Format(time.RFC3339))
+			}
+		}
+	}()
+}
+
 // Fix applies a one-click fix by id.
 func (s *Service) Fix(ctx context.Context, actor, id, clientIP string) (string, error) {
 	if runtime.GOOS != "linux" {
@@ -765,6 +807,7 @@ func (s *Service) Lynis(ctx context.Context, actor string) (string, int, error) 
 		_ = s.st.SetSetting(ctx, "security.lynis_history", strings.TrimLeft(prev+","+time.Now().UTC().Format("2006-01-02")+":"+strconv.Itoa(score), ","))
 	}
 	_ = s.st.Audit(ctx, actor, "security.lynis", strconv.Itoa(score), "")
+	_ = s.st.SetSetting(ctx, "security.lynis_at", time.Now().UTC().Format(time.RFC3339))
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) > 80 {
 		lines = lines[len(lines)-80:]

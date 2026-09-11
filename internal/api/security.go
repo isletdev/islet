@@ -45,6 +45,13 @@ func (s *Server) handleSecurityFix(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
 }
 
+func (s *Server) handleSecurityFixAll(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.security.FixAll(r.Context(), userFrom(r.Context()).Username, clientIP(r)))
+}
+
 func (s *Server) handleFirewallRule(w http.ResponseWriter, r *http.Request) {
 	if !s.adminOnly(w, r) {
 		return

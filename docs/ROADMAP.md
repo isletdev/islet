@@ -182,13 +182,14 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Build-time (NEXT_PUBLIC_*, VITE_*, PUBLIC_*) vs runtime env split; persistent paths for caches
 - [x] Next.js standalone output detection
 - [x] Environment variables stored encrypted, `.env` paste, changes apply on the next deploy
-- [ ] Shared env groups
+- [x] Shared env groups (@name lines in an app's environment)
 - [x] "Add Postgres / MySQL / Redis" buttons that install the instance, create a database and inject DATABASE_URL or REDIS_URL
 - [x] Pipeline: clone, layer-cached build, pre-deploy command, health check, zero-downtime switch, drain old
 - [x] Deploy history with commit, author, duration and log; instant rollback without rebuild
 - [x] Triggers: push webhook (GitHub, GitLab, Gitea signatures), manual deploy, redeploy, API; one deploy at a time per app, cancellable
 - [x] Trigger: CLI (`islet deploy`)
-- [ ] Triggers: tag rules, runner job
+- [x] Trigger: tag rules (branch field tag:v* deploys matching tag pushes)
+- [ ] Trigger: runner job
 - [ ] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
 - [ ] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
 - [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
@@ -224,7 +225,8 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 
 **Hardening wizard and Security Score**
 - [x] One-click fixes: disable root and password login, UFW rules, fail2ban, unattended-upgrades, security upgrades, swap, NTP
-- [ ] First-run wizard flow (sudo user with SSH key, SSH port, timezone) tying the fixes together
+- [x] "Fix everything safe" runs updates, fail2ban, swap, NTP and the firewall in order
+- [ ] Guided sudo user, SSH key and timezone steps
 - [x] Security Score (0–100) with explanations and one-click fixes
 - [x] Security Score card on the dashboard
 - [x] SSH settings UI with validation (sshd -t, authorized_keys present) and a five-minute rollback timer
@@ -238,12 +240,13 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 
 **Audit and scanning**
 - [x] Lynis audit on demand with the hardening index in the Security Score and a stored history
-- [ ] Lynis on a schedule
+- [x] Lynis weekly once it has been run by hand
 - [x] Trivy image scanning (in a container), stored results with critical and high findings, events on criticals
 - [ ] Filesystem scans, findings on the container page
 - [ ] rkhunter, file integrity monitoring on `/etc`, SUID and world-writable audits
 - [x] Auth log viewer (Logs → SSH logins)
-- [ ] Login-from-new-country alert
+- [x] Login-from-new-address alert (first sign-in from an IP raises a warning)
+- [ ] Country lookup for that alert
 - [x] Pending security updates and reboot-required in the score
 - [x] Kernel livepatch status (when canonical-livepatch is installed)
 - [x] Panic button: block all inbound except the current IP, revoke every other session and all API tokens
@@ -294,7 +297,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 **Adoption and import**
 - [x] Adopt existing Compose projects into managed stacks; crontab import
 - [x] Import nginx sites as domains (proxied server blocks) and systemd timers as jobs
-- [ ] Import from Coolify, Dokploy and Portainer stacks
+- [x] Compose projects created by Coolify, Dokploy or Portainer show up as adoptable stacks
+- [ ] Import their app metadata (domains, env) rather than only the Compose file
 
 **Platform**
 - [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)

@@ -20,6 +20,7 @@ export default function Deploys() {
   const [apps, setApps] = useState<DeployApp[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<DeployApp> | null>(null);
+  const [groups, setGroups] = useState(false);
   const selected = params.get("app");
   const load = useCallback(() => api.deployApps().then((a) => { setApps(a); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); const id = setInterval(() => void load(), 10000); return () => clearInterval(id); }, [load]);
@@ -29,8 +30,9 @@ export default function Deploys() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">Apps built from a Git repository or an image, with releases you can roll back to.</p>
-        {canEdit && <Button className="h-8 text-xs" onClick={() => setEditing(blank())}>New app</Button>}
+        {canEdit && <div className="flex gap-2"><Button variant="secondary" className="h-8 text-xs" onClick={() => setGroups(!groups)}>Env groups</Button><Button className="h-8 text-xs" onClick={() => setEditing(blank())}>New app</Button></div>}
       </div>
+      {groups && <EnvGroups />}
       {error && <Alert>{error}</Alert>}
       {editing && <AppForm initial={editing} onClose={() => setEditing(null)} onSaved={async (a) => { setEditing(null); await load(); setParams({ app: a.id }); }} />}
       {apps.length > 0 && (
@@ -137,6 +139,25 @@ function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: Deploy
   );
 }
 
+function EnvGroups() {
+  const [list, setList] = useState<{ name: string; keys: string[]; env?: string }[]>([]);
+  const [name, setName] = useState(""); const [env, setEnv] = useState(""); const [msg, setMsg] = useState<string | null>(null);
+  const load = () => api.envGroups().then(setList).catch(() => {});
+  useEffect(() => { void load(); }, []);
+  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.envGroupSave(name, env); setName(""); setEnv(""); await load(); } catch (er) { setMsg(err(er)); } };
+  return (
+    <Card title="Shared env groups" description="The same variables across apps (a Sentry DSN, an SMTP relay). Add a line @name to an app's environment to pull a group in; the app's own lines win on conflicts.">
+      <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Delete group @${g.name}?`)) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet.</li>}</ul>
+      <form onSubmit={save} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[200px_1fr_auto]">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="group-name" className="font-mono" required />
+        <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"SENTRY_DSN=https://…\nSMTP_URL=smtp://…"} required />
+        <Button type="submit" className="h-9 self-start text-xs">Save group</Button>
+        {msg && <p className="text-xs text-danger sm:col-span-3">{msg}</p>}
+      </form>
+    </Card>
+  );
+}
+
 function RelStatus({ s }: { s: string }) {
   const tone = s === "live" ? "text-success" : s === "failed" || s === "cancelled" ? "text-danger" : s === "superseded" ? "text-ink-muted" : "text-accent";
   return <span className={`font-medium ${tone}`}>{s}</span>;
@@ -182,7 +203,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
               <Input value={a.repoUrl ?? ""} onChange={(e) => set({ repoUrl: e.target.value })} className="font-mono" placeholder="https://github.com/org/repo" required />
             </Field>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Branch"><Input value={a.branch ?? "main"} onChange={(e) => set({ branch: e.target.value })} className="font-mono" /></Field>
+              <Field label="Branch or tag rule" hint="A branch name, or tag:v* to deploy tags matching a pattern."><Input value={a.branch ?? "main"} onChange={(e) => set({ branch: e.target.value })} className="font-mono" /></Field>
               <Field label="Root directory" hint="For monorepos."><Input value={a.rootDir ?? ""} onChange={(e) => set({ rootDir: e.target.value })} className="font-mono" placeholder="apps/web" /></Field>
             </div>
             <div className="md:col-span-2 flex flex-wrap items-center gap-3">
@@ -200,7 +221,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
         <Field label="Domains" hint={isNew ? "Comma separated; the first is the primary. Leave empty for a free preview domain on sslip.io. Own domains need an A record to this server." : "Comma separated; the first is the primary. Changes re-route the live release."}><Input value={a.domain ?? ""} onChange={(e) => set({ domain: e.target.value })} className="font-mono" placeholder="app.example.com, www.app.example.com" /></Field>
         <Field label="Certificate"><select value={a.tls ?? "letsencrypt"} onChange={(e) => set({ tls: e.target.value })} className={SELECT}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None (HTTP only)</option></select></Field>
         <div className="md:col-span-2">
-          <Field label="Environment variables" hint="KEY=VALUE per line, or paste a whole .env. NEXT_PUBLIC_*, VITE_* and similar are baked in at build time; the rest are injected at runtime."><textarea value={envShown} onChange={(e) => set({ env: e.target.value })} rows={5} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"DATABASE_URL=postgres://…\nNEXT_PUBLIC_API=https://api.example.com"} /></Field>
+          <Field label="Environment variables" hint="KEY=VALUE per line, or paste a whole .env. A line @group pulls in a shared env group. NEXT_PUBLIC_*, VITE_* and similar are baked in at build time; the rest are injected at runtime."><textarea value={envShown} onChange={(e) => set({ env: e.target.value })} rows={5} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"DATABASE_URL=postgres://…\nNEXT_PUBLIC_API=https://api.example.com"} /></Field>
         </div>
         {a.source === "git" && <div className="md:col-span-2"><button type="button" onClick={() => setAdvanced(!advanced)} className="text-xs text-ink-muted hover:text-ink">{advanced ? "Hide" : "Show"} build and run settings</button></div>}
         {advanced && a.source === "git" && (

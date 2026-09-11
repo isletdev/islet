@@ -94,11 +94,14 @@ func (s *Server) handleGitHubHook(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("pong\n"))
 		return
 	case "push":
-		branch := deploy.PushBranch(ev.Ref)
 		apps, _ := s.deploy.List(r.Context())
 		for _, a := range apps {
-			if rep, ok := github.RepoFromURL(a.RepoURL); ok && strings.ToLower(rep) == full && a.Branch == branch && a.AutoDeploy {
-				if _, err := s.deploy.Deploy(r.Context(), "github", a.ID, "push", 0); err != nil {
+			if rep, ok := github.RepoFromURL(a.RepoURL); ok && strings.ToLower(rep) == full && deploy.RefMatches(a.Branch, ev.Ref) && a.AutoDeploy {
+				ref := ""
+				if strings.HasPrefix(ev.Ref, "refs/tags/") {
+					ref = deploy.RefName(ev.Ref)
+				}
+				if _, err := s.deploy.DeployRef(r.Context(), "github", a.ID, "push", 0, ref); err != nil {
 					notes = append(notes, a.Name+": "+err.Error())
 				} else {
 					_ = s.store.Audit(r.Context(), "github", "app.deploy", a.ID, "push")

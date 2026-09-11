@@ -121,11 +121,14 @@ type Service struct {
 
 	// CloneAuth may return an authenticated clone URL for a repository (GitHub App).
 	CloneAuth func(ctx context.Context, repoURL string) (string, bool)
+	// EnvGroup resolves a shared environment group by name (lines), or ok=false.
+	EnvGroup func(ctx context.Context, name string) ([]string, bool)
 }
 
 type run struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	ref    string // git ref to clone when it differs from the app's branch (tag rules)
 	subs   []chan string
 	mu     sync.Mutex
 	lines  []string
@@ -166,6 +169,9 @@ func (a *App) Validate() error {
 		}
 		if strings.ContainsAny(a.Branch, " \t\n'\"`$") || strings.HasPrefix(a.Branch, "-") {
 			return errors.New("invalid branch name")
+		}
+		if strings.HasPrefix(a.Branch, "tag:") && strings.TrimPrefix(a.Branch, "tag:") == "" {
+			return errors.New("tag rule needs a pattern, for example tag:v*")
 		}
 	case "image":
 		if !docker.ValidName(a.Image) {
@@ -221,6 +227,12 @@ func (a *App) Validate() error {
 	for _, kv := range strings.Split(a.Env, "\n") {
 		kv = strings.TrimSpace(kv)
 		if kv == "" || strings.HasPrefix(kv, "#") {
+			continue
+		}
+		if strings.HasPrefix(kv, "@") {
+			if !regexp.MustCompile(`^@[a-z0-9][a-z0-9-]{0,39}$`).MatchString(kv) {
+				return fmt.Errorf("environment line %q must be @group-name", kv)
+			}
 			continue
 		}
 		k, _, ok := strings.Cut(kv, "=")
@@ -550,6 +562,11 @@ func code(err error) int {
 // Deploy starts a release in the background and returns it. Subscribe to
 // follow the log.
 func (s *Service) Deploy(ctx context.Context, actor, id, trigger string, rollbackTo int64) (*Release, error) {
+	return s.DeployRef(ctx, actor, id, trigger, rollbackTo, "")
+}
+
+// DeployRef deploys a specific git ref (a tag pushed under a tag rule).
+func (s *Service) DeployRef(ctx context.Context, actor, id, trigger string, rollbackTo int64, ref string) (*Release, error) {
 	a, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -560,7 +577,7 @@ func (s *Service) Deploy(ctx context.Context, actor, id, trigger string, rollbac
 		return nil, ErrBusy
 	}
 	rctx, cancel := context.WithCancel(context.Background())
-	rn := &run{cancel: cancel, done: make(chan struct{})}
+	rn := &run{cancel: cancel, done: make(chan struct{}), ref: ref}
 	s.active[id] = rn
 	s.mu.Unlock()
 
@@ -711,7 +728,7 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	setStatus("building")
 
 	var image string
-	env := envLines(a.Env)
+	env := s.expandGroups(ctx, envLines(a.Env), lg)
 	buildEnv, runEnv := splitEnv(env)
 
 	switch {
@@ -737,8 +754,15 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	default:
 		ws := filepath.Join(s.dir, a.ID, "src")
 		_ = os.RemoveAll(ws)
-		lg.step("clone " + redact(a.RepoURL) + " @ " + a.Branch)
-		if err := s.clone(ctx, a.RepoURL, a.Branch, ws, lg.writer()); err != nil {
+		ref := a.Branch
+		if rn.ref != "" {
+			ref = rn.ref
+		} else if strings.HasPrefix(a.Branch, "tag:") {
+			fail(errors.New("this app deploys on tag pushes matching " + strings.TrimPrefix(a.Branch, "tag:") + "; push a tag, or set a branch to deploy by hand"))
+			return
+		}
+		lg.step("clone " + redact(a.RepoURL) + " @ " + ref)
+		if err := s.clone(ctx, a.RepoURL, ref, ws, lg.writer()); err != nil {
 			fail(err)
 			return
 		}
@@ -1064,6 +1088,43 @@ func envLines(env string) []string {
 	return out
 }
 
+// expandGroups replaces "@name" lines with the lines of that shared group.
+// App lines win over group lines with the same key.
+func (s *Service) expandGroups(ctx context.Context, lines []string, lg *logger) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "@") {
+			if k, _, ok := strings.Cut(l, "="); ok {
+				seen[k] = true
+			}
+			out = append(out, l)
+		}
+	}
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "@") {
+			continue
+		}
+		name := strings.TrimPrefix(l, "@")
+		if s.EnvGroup == nil {
+			continue
+		}
+		grp, ok := s.EnvGroup(ctx, name)
+		if !ok {
+			lg.line("[islet] env group @" + name + " does not exist, skipped")
+			continue
+		}
+		for _, g := range grp {
+			if k, _, ok := strings.Cut(g, "="); ok && !seen[k] {
+				seen[k] = true
+				out = append(out, g)
+			}
+		}
+		lg.line("[islet] env group @" + name + " applied")
+	}
+	return out
+}
+
 // splitEnv separates build-time variables from runtime ones. Public
 // front-end prefixes are baked in; everything else is injected at run.
 func splitEnv(lines []string) (build, run []string) {
@@ -1115,6 +1176,25 @@ func VerifyWebhook(secret string, body []byte, ghSig, glToken, giteaSig string) 
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(sig))
+}
+
+// RefMatches reports whether a push ref should deploy an app: a branch push
+// on the app's branch, or a tag push matching the app's tag rule (glob).
+func RefMatches(rule, ref string) bool {
+	if strings.HasPrefix(rule, "tag:") {
+		if !strings.HasPrefix(ref, "refs/tags/") {
+			return false
+		}
+		ok, _ := filepath.Match(strings.TrimPrefix(rule, "tag:"), strings.TrimPrefix(ref, "refs/tags/"))
+		return ok
+	}
+	return strings.HasPrefix(ref, "refs/heads/") && PushBranch(ref) == rule
+}
+
+// RefName returns the branch or tag name of a push ref.
+func RefName(ref string) string {
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	return strings.TrimPrefix(ref, "refs/tags/")
 }
 
 // PushBranch extracts the branch from a push payload ref (refs/heads/main).

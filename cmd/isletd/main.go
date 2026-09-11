@@ -132,6 +132,7 @@ func run() error {
 		PanelHasCert:  func() bool { return *tlsMode == "off" || panelHasTrustedCert(ctx, px) },
 		HasBackupPlan: bk.HasPlan,
 	}, log)
+	sec.StartSchedules(ctx)
 	up := uptime.New(st, bus)
 	if err := up.Start(ctx); err != nil {
 		return fmt.Errorf("uptime: %w", err)

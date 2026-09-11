@@ -245,15 +245,19 @@ func (s *Server) handleDeployHook(w http.ResponseWriter, r *http.Request) {
 		Ref string `json:"ref"`
 	}
 	_ = json.Unmarshal(body, &payload)
-	if payload.Ref != "" && deploy.PushBranch(payload.Ref) != a.Branch {
-		w.Write([]byte("ignored: other branch\n"))
+	if payload.Ref != "" && !deploy.RefMatches(a.Branch, payload.Ref) {
+		w.Write([]byte("ignored: ref does not match " + a.Branch + "\n"))
 		return
 	}
 	if !a.AutoDeploy {
 		w.Write([]byte("ignored: auto-deploy is off\n"))
 		return
 	}
-	if _, err := s.deploy.Deploy(r.Context(), "webhook", a.ID, "push", 0); err != nil {
+	ref := ""
+	if strings.HasPrefix(payload.Ref, "refs/tags/") {
+		ref = deploy.RefName(payload.Ref)
+	}
+	if _, err := s.deploy.DeployRef(r.Context(), "webhook", a.ID, "push", 0, ref); err != nil {
 		if errors.Is(err, deploy.ErrBusy) {
 			w.WriteHeader(http.StatusAccepted)
 			w.Write([]byte("a deploy is already running\n"))
