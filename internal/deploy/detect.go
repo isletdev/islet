@@ -436,14 +436,19 @@ func shellCmd(s string) string {
 
 // NginxConf serves a static build with SPA fallback, hashed-asset caching
 // and Netlify-style _redirects.
-func NginxConf(spa bool, redirects string) string {
+func NginxConf(spa bool, redirects, basePath string) string {
 	var b strings.Builder
 	b.WriteString(`server {
     listen 80;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
-    gzip on;
+`)
+	if basePath != "" && basePath != "/" {
+		bp := strings.TrimSuffix(basePath, "/")
+		fmt.Fprintf(&b, "    rewrite ^%s$ %s/ permanent;\n    rewrite ^%s/(.*)$ /$1 last;\n", bp, bp, bp)
+	}
+	b.WriteString(`    gzip on;
     gzip_types text/plain text/css application/json application/javascript image/svg+xml font/woff2;
     gzip_min_length 1024;
     error_page 404 /404.html;

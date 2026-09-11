@@ -49,3 +49,36 @@ func TestDetectFrameworks(t *testing.T) {
 		t.Fatalf("dotnet start: %s", d.StartCmd)
 	}
 }
+
+func TestParseProcesses(t *testing.T) {
+	ps, err := ParseProcesses("worker: node worker.js\n# comment\nsched x3: node cron.js\n")
+	if err != nil || len(ps) != 2 || ps[0].Count != 1 || ps[1].Name != "sched" || ps[1].Count != 3 || ps[1].Cmd != "node cron.js" {
+		t.Fatalf("got %+v err %v", ps, err)
+	}
+	for _, bad := range []string{"worker node worker.js", "web: x", "a: x\na: y", "w x40: cmd"} {
+		if _, err := ParseProcesses(bad); err == nil {
+			t.Errorf("%q should fail", bad)
+		}
+	}
+}
+
+func TestHostPathsAndNginxBase(t *testing.T) {
+	a := &App{Name: "docs", Source: "git", RepoURL: "https://example.com/r.git", Domain: "Example.com/Docs/, api.example.com, example.com//docs"}
+	if err := a.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if a.Domain != "example.com/docs,api.example.com" {
+		t.Fatalf("domain: %s", a.Domain)
+	}
+	hp := a.HostPaths()
+	if len(hp) != 2 || hp[0].Host != "example.com" || hp[0].Prefix != "/docs" || hp[1].Prefix != "" {
+		t.Fatalf("hostpaths: %+v", hp)
+	}
+	conf := NginxConf(true, "", "/docs")
+	if !strings.Contains(conf, "rewrite ^/docs/(.*)$ /$1 last;") {
+		t.Fatalf("nginx conf lacks base path rewrite:\n%s", conf)
+	}
+	if strings.Contains(NginxConf(true, "", ""), "rewrite ^") {
+		t.Fatal("no base path should add no rewrite")
+	}
+}

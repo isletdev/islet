@@ -78,7 +78,13 @@ func (s *Server) handleGitHubHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ev struct {
-		Ref        string `json:"ref"`
+		Ref         string `json:"ref"`
+		Action      string `json:"action"`
+		WorkflowRun struct {
+			Name       string `json:"name"`
+			Conclusion string `json:"conclusion"`
+			HeadBranch string `json:"head_branch"`
+		} `json:"workflow_run"`
 		Repository struct {
 			FullName string `json:"full_name"`
 			Owner    struct {
@@ -97,6 +103,10 @@ func (s *Server) handleGitHubHook(w http.ResponseWriter, r *http.Request) {
 		apps, _ := s.deploy.List(r.Context())
 		for _, a := range apps {
 			if rep, ok := github.RepoFromURL(a.RepoURL); ok && strings.ToLower(rep) == full && deploy.RefMatches(a.Branch, ev.Ref) && a.AutoDeploy {
+				if a.DeployOn == "ci" {
+					notes = append(notes, a.Name+": waiting for CI")
+					continue
+				}
 				ref := ""
 				if strings.HasPrefix(ev.Ref, "refs/tags/") {
 					ref = deploy.RefName(ev.Ref)
@@ -106,6 +116,22 @@ func (s *Server) handleGitHubHook(w http.ResponseWriter, r *http.Request) {
 				} else {
 					_ = s.store.Audit(r.Context(), "github", "app.deploy", a.ID, "push")
 					notes = append(notes, a.Name+": deploy started")
+				}
+			}
+		}
+	case "workflow_run":
+		if ev.Action != "completed" || ev.WorkflowRun.Conclusion != "success" {
+			_, _ = w.Write([]byte("ignored: workflow " + ev.Action + " " + ev.WorkflowRun.Conclusion + "\n"))
+			return
+		}
+		apps, _ := s.deploy.List(r.Context())
+		for _, a := range apps {
+			if rep, ok := github.RepoFromURL(a.RepoURL); ok && strings.ToLower(rep) == full && a.DeployOn == "ci" && a.AutoDeploy && deploy.RefMatches(a.Branch, "refs/heads/"+ev.WorkflowRun.HeadBranch) {
+				if _, err := s.deploy.DeployRef(r.Context(), "github", a.ID, "ci", 0, ""); err != nil {
+					notes = append(notes, a.Name+": "+err.Error())
+				} else {
+					_ = s.store.Audit(r.Context(), "github", "app.deploy", a.ID, "ci: "+ev.WorkflowRun.Name)
+					notes = append(notes, a.Name+": deploy started after "+ev.WorkflowRun.Name)
 				}
 			}
 		}

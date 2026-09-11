@@ -10,7 +10,7 @@ const STRATEGIES: Record<string, string> = { auto: "Detect automatically", stati
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function dur(ms: number) { return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(0)} s` : `${(ms / 60000).toFixed(1)} min`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
-const blank = (): Partial<DeployApp> => ({ id: "", name: "", source: "git", repoUrl: "", branch: "main", rootDir: "", image: "", strategy: "auto", framework: "", installCmd: "", buildCmd: "", startCmd: "", outputDir: "", port: 0, healthPath: "/", predeployCmd: "", env: "", domain: "", tls: "letsencrypt", autoDeploy: true, memoryMb: 0, cpus: 0, volumes: "" });
+const blank = (): Partial<DeployApp> => ({ id: "", name: "", source: "git", repoUrl: "", branch: "main", rootDir: "", image: "", strategy: "auto", framework: "", installCmd: "", buildCmd: "", startCmd: "", outputDir: "", port: 0, healthPath: "/", predeployCmd: "", env: "", domain: "", tls: "letsencrypt", autoDeploy: true, memoryMb: 0, cpus: 0, volumes: "", processes: "", deployOn: "push" });
 
 export default function Deploys() {
   const { state } = useAuth();
@@ -47,12 +47,13 @@ export default function Deploys() {
         </div>
       )}
       {apps.length === 0 && !editing && <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-muted">No apps yet. Connect a repository and Islet detects how to build and run it.</div>}
-      {sel && <AppDetail app={sel} canEdit={canEdit} canDeploy={role !== "viewer"} onChanged={load} onEdit={() => setEditing({ ...sel })} />}
+      {sel && <AppDetail app={sel} apps={apps} canEdit={canEdit} canDeploy={role !== "viewer"} onChanged={load} onEdit={() => setEditing({ ...sel })} />}
     </div>
   );
 }
 
-function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: DeployApp; canEdit: boolean; canDeploy: boolean; onChanged: () => Promise<void>; onEdit: () => void }) {
+function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: DeployApp; apps: DeployApp[]; canEdit: boolean; canDeploy: boolean; onChanged: () => Promise<void>; onEdit: () => void }) {
+  const targets = apps.filter((x) => x.id !== app.id && x.source === "git" && x.strategy !== "compose");
   const [releases, setReleases] = useState<Release[]>([]);
   const [log, setLog] = useState<string[] | null>(null);
   const [open, setOpen] = useState<Release | null>(null);
@@ -86,6 +87,14 @@ function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: Deploy
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await onChanged(); }
   };
+  const promote = async (to: string) => {
+    const t = targets.find((x) => x.id === to);
+    if (!t || !confirm(`Deploy the image that is live on ${app.name} to ${t.name} without rebuilding?`)) return;
+    setBusy(true); setLog([]); setOpen(null); setMsg(null);
+    try { await postStream(`/api/v1/apps/${app.id}/promote`, (l) => setLog((p) => [...(p ?? []), l]), { to }); setMsg(`Promoted to ${t.name}.`); }
+    catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
+    finally { setBusy(false); await onChanged(); }
+  };
   const remove = async () => { if (!confirm(`Delete ${app.name}? Its containers, images, releases and route are removed. Volumes are kept.`)) return; await api.deployAppDelete(app.id); await onChanged(); };
   const show = async (r: Release) => { setLog(null); setOpen(await api.release(app.id, r.id)); };
   const hookUrl = `${location.origin}/api/v1/hooks/deploy/${app.id}`;
@@ -103,15 +112,17 @@ function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: Deploy
           {canEdit && <button type="button" onClick={onEdit} className="text-xs text-ink-muted hover:text-ink">Settings</button>}
           {canEdit && <span className="flex items-center gap-1 text-xs text-ink-muted">Add {(["postgres", "mysql", "redis"] as const).map((e) => <button key={e} type="button" disabled={busy || app.deploying} onClick={() => void addService(e)} className="rounded-sm border border-border-strong px-1.5 py-0.5 hover:text-ink">{e}</button>)}</span>}
           {canEdit && <button type="button" onClick={() => setShowHook(!showHook)} className="text-xs text-ink-muted hover:text-ink">Auto-deploy</button>}
+          {canDeploy && app.currentRelease > 0 && app.strategy !== "compose" && targets.length > 0 && <select value="" disabled={busy || app.deploying} onChange={(e) => { if (e.target.value) void promote(e.target.value); }} className="h-7 rounded-md border border-border-strong bg-bg px-1 text-xs"><option value="">Promote to…</option>{targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
           {canEdit && <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Delete app</button>}
         </div>
+        {(app.processList?.length ?? 0) > 0 && <p className="mt-2 text-xs text-ink-muted">Processes: web{app.processList!.map((p) => <span key={p.name}> · <Link to={`/containers?c=islet-${app.name}-${p.name}-1-r${app.currentRelease}`} className="hover:text-ink">{p.name}{p.count > 1 ? ` ×${p.count}` : ""}</Link> <span className="font-mono">{p.cmd}</span></span>)}</p>}
         {msg && <p className="mt-2 text-xs text-ink-muted">{msg}</p>}
         {last && !log && !open && <p className="mt-2 text-xs text-ink-muted">Last: release #{last.number} <RelStatus s={last.status} /> · {last.trigger} · {fmt(last.startedAt)}{last.durationMs > 0 && ` · ${dur(last.durationMs)}`}{last.error && <span className="text-danger"> · {last.error}</span>}</p>}
         {showHook && (
           <div className="mt-3 rounded-md border border-border p-3 text-xs">
             <p className="mb-2">Add this webhook to the repository ({app.autoDeploy ? "auto-deploy is on" : "auto-deploy is off in Settings"}). GitHub: Settings → Webhooks, content type JSON, secret below. GitLab: Settings → Webhooks with the secret token. Gitea: Settings → Webhooks (Gitea type).</p>
             <pre className="overflow-x-auto rounded-md bg-bg p-2 font-mono">{hookUrl}{"\n"}secret: {app.webhookSecret}</pre>
-            <p className="mt-2 text-ink-muted">Only pushes to <span className="font-mono">{app.branch}</span> deploy. No tokens or keys are stored in the repository.</p>
+            <p className="mt-2 text-ink-muted">{app.deployOn === "ci" ? <>Deploys after CI passes: with the GitHub App, a successful workflow run on <span className="font-mono">{app.branch}</span> starts it; on any CI, add a final job step <span className="font-mono">curl -X POST -H "X-Gitlab-Token: {app.webhookSecret}" {hookUrl}</span>.</> : <>Only pushes to <span className="font-mono">{app.branch}</span> deploy.</>} No tokens or keys are stored in the repository.</p>
           </div>
         )}
         {(log || open) && (
@@ -242,13 +253,17 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
             <Field label="Health check path" hint="Must answer 2xx or 3xx before traffic switches."><Input value={a.healthPath ?? "/"} onChange={(e) => set({ healthPath: e.target.value })} className="font-mono" /></Field>
             <Field label="Pre-deploy command" hint="Runs once in the new image before it takes traffic (migrations)."><Input value={a.predeployCmd ?? ""} onChange={(e) => set({ predeployCmd: e.target.value })} className="font-mono" placeholder="npx prisma migrate deploy" /></Field>
             <Field label="Persistent paths" hint="Container paths kept across deploys, one per line."><textarea value={a.volumes ?? ""} onChange={(e) => set({ volumes: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder="/app/.next/cache" /></Field>
+            {a.strategy !== "static" && a.strategy !== "compose" && <Field label="Extra processes" hint="Started from the same image, one per line: name: command, or name x2: command for two instances."><textarea value={a.processes ?? ""} onChange={(e) => set({ processes: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"worker: node worker.js\nscheduler: node scheduler.js"} /></Field>}
             <div className="grid grid-cols-2 gap-2">
               <Field label="Memory limit (MB)" hint="0 = unlimited"><Input type="number" value={a.memoryMb ?? 0} onChange={(e) => set({ memoryMb: +e.target.value })} /></Field>
               <Field label="CPU limit" hint="0 = unlimited"><Input type="number" step="0.5" value={a.cpus ?? 0} onChange={(e) => set({ cpus: +e.target.value })} /></Field>
             </div>
           </>
         )}
-        <label className="flex items-center gap-1.5 text-sm md:col-span-2"><input type="checkbox" checked={a.autoDeploy ?? true} onChange={(e) => set({ autoDeploy: e.target.checked })} />Deploy automatically on push (webhook)</label>
+        <div className="flex flex-wrap items-center gap-4 md:col-span-2">
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={a.autoDeploy ?? true} onChange={(e) => set({ autoDeploy: e.target.checked })} />Deploy automatically</label>
+          {a.source === "git" && (a.autoDeploy ?? true) && <select value={a.deployOn ?? "push"} onChange={(e) => set({ deployOn: e.target.value as "push" | "ci" })} className={SELECT}><option value="push">on every push</option><option value="ci">after CI passes</option></select>}
+        </div>
         <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>{isNew ? "Create app" : "Save"}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-sm text-danger">{msg}</span>}</div>
       </form>
     </Card>

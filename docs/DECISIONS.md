@@ -79,3 +79,12 @@ The Monday summary is emitted as an event in the `report` category, so it reache
 
 ## 2026-09-12 — More generated Dockerfiles rather than a buildpack
 PHP (serversideup/php with nginx and PHP-FPM), Ruby and Rails, Rust, Java (Maven or Gradle) and .NET join Node, Python and Go as generated multi-stage Dockerfiles. Each stays a few lines, is shown in the deploy log and can be replaced by the project's own Dockerfile at any time.
+
+## 2026-09-12 — Processes are sibling containers from the same image
+A worker or scheduler is one more `docker run` of the release image with `sh -c <command>`, the same env file, network, limits and volumes as the web process, labelled `islet.process=<name>`. They start after the web container is healthy and routed, and the previous release's process containers are removed on success (or the new ones on failure). No supervisor inside the container, so per-process logs and restarts come from Docker as usual.
+
+## 2026-09-12 — Promote re-tags rather than sharing an image
+Promoting staging to production tags the live image as `islet/<target>:r<N>` and deploys that; the target app then owns its own tag history, so pruning or deleting either app never breaks the other's rollbacks.
+
+## 2026-09-12 — "After CI passes" reuses the existing hooks
+An app set to deploy after CI ignores push payloads. With the GitHub App a successful `workflow_run` on the app's branch starts the deploy; on any other CI a final job step calls the app's deploy hook with the secret token and no body. No new credentials or endpoints.

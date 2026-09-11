@@ -147,6 +147,29 @@ func (s *Server) handleAppDeploy(w http.ResponseWriter, r *http.Request) {
 	s.streamDeploy(w, r, id)
 }
 
+// handleAppPromote deploys the source app's live image onto another app.
+func (s *Server) handleAppPromote(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role == "viewer" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot deploy"})
+		return
+	}
+	var req struct {
+		To string `json:"to"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	rel, err := s.deploy.Promote(r.Context(), u.Username, r.PathValue("id"), req.To)
+	if err != nil {
+		s.deployErr(w, err)
+		return
+	}
+	_ = s.store.Audit(r.Context(), u.Username, "app.promote", req.To, fmt.Sprintf("release #%d from %s", rel.Number, r.PathValue("id")))
+	s.streamDeploy(w, r, req.To)
+}
+
 // handleAppDeployLog attaches to a running deploy.
 func (s *Server) handleAppDeployLog(w http.ResponseWriter, r *http.Request) {
 	s.streamDeploy(w, r, r.PathValue("id"))
@@ -253,11 +276,19 @@ func (s *Server) handleDeployHook(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ignored: auto-deploy is off\n"))
 		return
 	}
+	trigger := "push"
+	if a.DeployOn == "ci" {
+		if payload.Ref != "" {
+			w.Write([]byte("ignored: this app deploys after CI passes; call this hook from the CI job (no push payload)\n"))
+			return
+		}
+		trigger = "ci"
+	}
 	ref := ""
 	if strings.HasPrefix(payload.Ref, "refs/tags/") {
 		ref = deploy.RefName(payload.Ref)
 	}
-	if _, err := s.deploy.DeployRef(r.Context(), "webhook", a.ID, "push", 0, ref); err != nil {
+	if _, err := s.deploy.DeployRef(r.Context(), "webhook", a.ID, trigger, 0, ref); err != nil {
 		if errors.Is(err, deploy.ErrBusy) {
 			w.WriteHeader(http.StatusAccepted)
 			w.Write([]byte("a deploy is already running\n"))
@@ -266,7 +297,7 @@ func (s *Server) handleDeployHook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	_ = s.store.Audit(r.Context(), "webhook", "app.deploy", a.ID, "push")
+	_ = s.store.Audit(r.Context(), "webhook", "app.deploy", a.ID, trigger)
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte("deploy started\n"))
 }

@@ -92,12 +92,14 @@ components:
         healthPath: { type: string, default: / }
         predeployCmd: { type: string }
         env: { type: string }
-        domain: { type: string, description: Empty on create picks a preview host on sslip.io }
+        domain: { type: string, description: "Comma list of host or host/prefix entries; empty on create picks a preview host on sslip.io" }
         tls: { type: string, enum: [letsencrypt, self, none] }
         autoDeploy: { type: boolean }
         memoryMb: { type: integer }
         cpus: { type: number }
         volumes: { type: string, description: Container paths to persist, one per line }
+        processes: { type: string, description: "Extra processes from the same image, one per line: \"worker x2: command\"" }
+        deployOn: { type: string, enum: [push, ci], description: Deploy on every push, or only after CI passes }
         status: { type: string, readOnly: true }
         url: { type: string, readOnly: true }
         container: { type: string, readOnly: true }
@@ -364,3 +366,5 @@ paths:
     post: { tags: [Notifications], summary: Turn the weekly report on or off (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
   /api/v1/report/weekly/send:
     post: { tags: [Notifications], summary: Send the weekly report now and return its text (admin), responses: { "200": { description: OK } } }
+  /api/v1/apps/{id}/promote:
+    post: { tags: [Apps], summary: Deploy this app's live image onto another app without rebuilding (streams the deploy log), parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string } } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }

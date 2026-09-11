@@ -178,7 +178,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Build strategies chosen automatically: Static, generated Dockerfile (Node, Python, Go), Dockerfile, Compose, Image
 - [ ] Railpack/Nixpacks as the buildpack for languages without a generated Dockerfile
 - [x] Static apps: SPA fallback, `_redirects` file, hashed-asset caching, gzip, custom 404, password via the domain's basic auth
-- [ ] Static apps: base path, brotli
+- [x] Static apps: base path (host/prefix domains); brotli comes from the proxy compress middleware
 - [x] Build-time (NEXT_PUBLIC_*, VITE_*, PUBLIC_*) vs runtime env split; persistent paths for caches
 - [x] Next.js standalone output detection
 - [x] Environment variables stored encrypted, `.env` paste, changes apply on the next deploy
@@ -189,9 +189,9 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Triggers: push webhook (GitHub, GitLab, Gitea signatures), manual deploy, redeploy, API; one deploy at a time per app, cancellable
 - [x] Trigger: CLI (`islet deploy`)
 - [x] Trigger: tag rules (branch field tag:v* deploys matching tag pushes)
-- [ ] Trigger: runner job
-- [ ] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
-- [ ] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
+- [x] Trigger: CI passed (GitHub workflow_run through the GitHub App, or a call from any CI job)
+- [x] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
+- [x] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
 - [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
 - [x] Multiple domains per app (comma separated, first is primary)
 - [x] Deploy events wired into notifications (started, deployed, failed with the last 30 log lines)

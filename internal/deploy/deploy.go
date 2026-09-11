@@ -60,6 +60,8 @@ type App struct {
 	MemoryMB       int     `json:"memoryMb"`
 	CPUs           float64 `json:"cpus"`
 	Volumes        string  `json:"volumes"`
+	Processes      string  `json:"processes"` // "worker x2: command" lines
+	DeployOn       string  `json:"deployOn"`  // push | ci
 	CurrentRelease int64   `json:"currentRelease"`
 	Status         string  `json:"status"`
 	CreatedAt      string  `json:"createdAt"`
@@ -68,10 +70,11 @@ type App struct {
 	PyVer          string  `json:"pythonVersion"`
 
 	// Derived
-	URL       string   `json:"url"`
-	Container string   `json:"container"`
-	Deploying bool     `json:"deploying"`
-	Last      *Release `json:"lastRelease,omitempty"`
+	URL       string    `json:"url"`
+	Container string    `json:"container"`
+	Deploying bool      `json:"deploying"`
+	Last      *Release  `json:"lastRelease,omitempty"`
+	Procs     []Process `json:"processList,omitempty"`
 }
 
 // Release is one deploy attempt.
@@ -128,7 +131,8 @@ type Service struct {
 type run struct {
 	cancel context.CancelFunc
 	done   chan struct{}
-	ref    string // git ref to clone when it differs from the app's branch (tag rules)
+	ref    string   // git ref to clone when it differs from the app's branch (tag rules)
+	from   *Release // promote: reuse this release's image instead of building
 	subs   []chan string
 	mu     sync.Mutex
 	lines  []string
@@ -217,8 +221,20 @@ func (a *App) Validate() error {
 		if h == "" || seen[h] {
 			continue
 		}
-		if strings.ContainsAny(h, " /:") {
+		host, prefix, _ := strings.Cut(h, "/")
+		if strings.ContainsAny(host, " :") || host == "" {
 			return fmt.Errorf("domain %q is not a host name", h)
+		}
+		prefix = strings.Trim(prefix, "/")
+		if prefix != "" && !regexp.MustCompile(`^[A-Za-z0-9._~/-]+$`).MatchString(prefix) {
+			return fmt.Errorf("path %q on %s may only contain letters, digits, dots, dashes and slashes", prefix, host)
+		}
+		h = host
+		if prefix != "" {
+			h = host + "/" + prefix
+		}
+		if seen[h] {
+			continue
 		}
 		seen[h] = true
 		hosts = append(hosts, h)
@@ -249,17 +265,30 @@ func (a *App) Validate() error {
 			return errors.New("volume paths must be absolute container paths")
 		}
 	}
+	if _, err := ParseProcesses(a.Processes); err != nil {
+		return err
+	}
+	if (a.Strategy == "static" || a.Strategy == "compose") && strings.TrimSpace(a.Processes) != "" {
+		return errors.New("extra processes need a service image; static sites and Compose stacks do not have one")
+	}
+	switch a.DeployOn {
+	case "":
+		a.DeployOn = "push"
+	case "push", "ci":
+	default:
+		return errors.New("deployOn must be push or ci")
+	}
 	return nil
 }
 
 // ---- CRUD ----
 
-const cols = `id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, current_release, status, created_at, updated_at`
+const cols = `id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on, current_release, status, created_at, updated_at`
 
 func (s *Service) scan(sc interface{ Scan(...any) error }) (App, error) {
 	var a App
 	var repo, env []byte
-	err := sc.Scan(&a.ID, &a.Name, &a.Source, &repo, &a.Branch, &a.RootDir, &a.Image, &a.Strategy, &a.Framework, &a.InstallCmd, &a.BuildCmd, &a.StartCmd, &a.OutputDir, &a.Port, &a.HealthPath, &a.PredeployCmd, &env, &a.Domain, &a.TLS, &a.WebhookSecret, &a.AutoDeploy, &a.MemoryMB, &a.CPUs, &a.Volumes, &a.CurrentRelease, &a.Status, &a.CreatedAt, &a.UpdatedAt)
+	err := sc.Scan(&a.ID, &a.Name, &a.Source, &repo, &a.Branch, &a.RootDir, &a.Image, &a.Strategy, &a.Framework, &a.InstallCmd, &a.BuildCmd, &a.StartCmd, &a.OutputDir, &a.Port, &a.HealthPath, &a.PredeployCmd, &env, &a.Domain, &a.TLS, &a.WebhookSecret, &a.AutoDeploy, &a.MemoryMB, &a.CPUs, &a.Volumes, &a.Processes, &a.DeployOn, &a.CurrentRelease, &a.Status, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return a, err
 	}
@@ -308,6 +337,7 @@ func (s *Service) decorate(ctx context.Context, a *App) {
 		}
 		a.URL = scheme + "://" + hosts[0]
 	}
+	a.Procs, _ = ParseProcesses(a.Processes)
 	s.mu.Lock()
 	_, a.Deploying = s.active[a.ID]
 	s.mu.Unlock()
@@ -316,7 +346,8 @@ func (s *Service) decorate(ctx context.Context, a *App) {
 	}
 }
 
-// Domains returns the app's hosts; the first is the primary one.
+// Domains returns the app's routed entries ("host" or "host/prefix"); the
+// first is the primary one.
 func (a *App) Domains() []string {
 	if a.Domain == "" {
 		return nil
@@ -374,9 +405,9 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 		if a.Domain == "" {
 			a.Domain = proxy.PreviewHost(ctx, a.Name)
 		}
-		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO apps (id, server_id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, s.st.ServerID, a.Name, a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.WebhookSecret, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes)
+		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO apps (id, server_id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, s.st.ServerID, a.Name, a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.WebhookSecret, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("an app with that name already exists")
@@ -391,8 +422,8 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 		if a.Name != old.Name {
 			return nil, errors.New("apps cannot be renamed; create a new one")
 		}
-		_, err = s.st.DB.ExecContext(ctx, `UPDATE apps SET source = ?, repo_url = ?, branch = ?, root_dir = ?, image = ?, strategy = ?, framework = ?, install_cmd = ?, build_cmd = ?, start_cmd = ?, output_dir = ?, port = ?, health_path = ?, predeploy_cmd = ?, env = ?, domain = ?, tls = ?, auto_deploy = ?, memory_mb = ?, cpus = ?, volumes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
-			a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.ID)
+		_, err = s.st.DB.ExecContext(ctx, `UPDATE apps SET source = ?, repo_url = ?, branch = ?, root_dir = ?, image = ?, strategy = ?, framework = ?, install_cmd = ?, build_cmd = ?, start_cmd = ?, output_dir = ?, port = ?, health_path = ?, predeploy_cmd = ?, env = ?, domain = ?, tls = ?, auto_deploy = ?, memory_mb = ?, cpus = ?, volumes = ?, processes = ?, deploy_on = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+			a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn, a.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -434,6 +465,9 @@ func (s *Service) Delete(ctx context.Context, actor, id string) error {
 	if a.Strategy == "compose" {
 		_ = s.dk.RemoveStack(ctx, actor, "app-"+a.Name, false)
 	}
+	if out, err := s.run.Run(ctx, actor, "docker", "ps", "-aq", "--filter", "label=islet.app="+a.Name); err == nil && strings.TrimSpace(out.Stdout) != "" {
+		_, _ = s.run.Run(ctx, actor, "docker", append([]string{"rm", "-f"}, strings.Fields(out.Stdout)...)...)
+	}
 	for _, h := range a.Domains() {
 		s.removeDomain(ctx, h)
 	}
@@ -443,13 +477,17 @@ func (s *Service) Delete(ctx context.Context, actor, id string) error {
 	return err
 }
 
-func (s *Service) removeDomain(ctx context.Context, host string) {
+func (s *Service) removeDomain(ctx context.Context, entry string) {
 	doms, err := s.px.Domains(ctx)
 	if err != nil {
 		return
 	}
+	host, prefix, _ := strings.Cut(entry, "/")
+	if prefix != "" {
+		prefix = "/" + prefix
+	}
 	for _, d := range doms {
-		if d.Host == host {
+		if d.Host == host && d.PathPrefix == prefix {
 			_ = s.px.Delete(ctx, "system", d.ID)
 		}
 	}
@@ -567,6 +605,10 @@ func (s *Service) Deploy(ctx context.Context, actor, id, trigger string, rollbac
 
 // DeployRef deploys a specific git ref (a tag pushed under a tag rule).
 func (s *Service) DeployRef(ctx context.Context, actor, id, trigger string, rollbackTo int64, ref string) (*Release, error) {
+	return s.start(ctx, actor, id, trigger, rollbackTo, ref, nil)
+}
+
+func (s *Service) start(ctx context.Context, actor, id, trigger string, rollbackTo int64, ref string, from *Release) (*Release, error) {
 	a, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -577,7 +619,7 @@ func (s *Service) DeployRef(ctx context.Context, actor, id, trigger string, roll
 		return nil, ErrBusy
 	}
 	rctx, cancel := context.WithCancel(context.Background())
-	rn := &run{cancel: cancel, done: make(chan struct{}), ref: ref}
+	rn := &run{cancel: cancel, done: make(chan struct{}), ref: ref, from: from}
 	s.active[id] = rn
 	s.mu.Unlock()
 
@@ -713,6 +755,9 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 		if rel.Container != "" {
 			_, _ = s.run.Run(context.Background(), "deploy", "docker", "rm", "-f", rel.Container)
 		}
+		if a.Processes != "" {
+			s.removeProcesses(context.Background(), a, rel.ID, true)
+		}
 		if s.bus != nil && ctx.Err() == nil {
 			tail := lg.b.String()
 			if lines := strings.Split(strings.TrimSpace(tail), "\n"); len(lines) > 30 {
@@ -732,6 +777,14 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	buildEnv, runEnv := splitEnv(env)
 
 	switch {
+	case rn.from != nil:
+		image = fmt.Sprintf("islet/%s:r%d", a.Name, rel.Number)
+		lg.step("promote " + rn.from.Image + " → " + image)
+		if err := s.docker(ctx, lg, "tag", rn.from.Image, image); err != nil {
+			fail(err)
+			return
+		}
+		rel.Commit, rel.Message, rel.Author = rn.from.Commit, rn.from.Message, rn.from.Author
 	case rollbackTo != 0:
 		prev, err := s.Release(ctx, a.ID, rollbackTo)
 		if err != nil || prev.Image == "" {
@@ -799,7 +852,14 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 				if len(redirects) == 0 {
 					redirects, _ = os.ReadFile(filepath.Join(ctxDir, "_redirects"))
 				}
-				_ = os.WriteFile(filepath.Join(ctxDir, ".islet", "nginx.conf"), []byte(NginxConf(true, string(redirects))), 0o644)
+				prefix := ""
+				for _, hp := range a.HostPaths() {
+					if hp.Prefix != "" {
+						prefix = hp.Prefix
+						break
+					}
+				}
+				_ = os.WriteFile(filepath.Join(ctxDir, ".islet", "nginx.conf"), []byte(NginxConf(true, string(redirects), prefix)), 0o644)
 				a.Port = 80
 			}
 			lg.step("build with a generated Dockerfile (" + a.Framework + ")")
@@ -848,20 +908,20 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	name := a.containerName(rel.ID)
 	rel.Container = name
 	lg.step("start " + name)
-	args := []string{"run", "-d", "--name", name, "--env-file", envPath, "--network", proxy.NetworkName, "--restart", "unless-stopped",
+	common := []string{"run", "-d", "--env-file", envPath, "--network", proxy.NetworkName, "--restart", "unless-stopped",
 		"--label", "islet.app=" + a.Name, "--label", "islet.release=" + strconv.Itoa(rel.Number), "--log-opt", "max-size=10m", "--log-opt", "max-file=3"}
 	if a.MemoryMB > 0 {
-		args = append(args, "--memory", fmt.Sprintf("%dm", a.MemoryMB))
+		common = append(common, "--memory", fmt.Sprintf("%dm", a.MemoryMB))
 	}
 	if a.CPUs > 0 {
-		args = append(args, "--cpus", strconv.FormatFloat(a.CPUs, 'f', -1, 64))
+		common = append(common, "--cpus", strconv.FormatFloat(a.CPUs, 'f', -1, 64))
 	}
 	for _, v := range strings.Split(a.Volumes, "\n") {
 		if v = strings.TrimSpace(v); v != "" {
-			args = append(args, "-v", fmt.Sprintf("islet-%s-%s:%s", a.Name, strings.Trim(strings.ReplaceAll(v, "/", "-"), "-"), v))
+			common = append(common, "-v", fmt.Sprintf("islet-%s-%s:%s", a.Name, strings.Trim(strings.ReplaceAll(v, "/", "-"), "-"), v))
 		}
 	}
-	args = append(args, image)
+	args := append(append([]string{}, common...), "--name", name, image)
 	if err := s.docker(ctx, lg, args...); err != nil {
 		fail(err)
 		return
@@ -886,6 +946,19 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 			return
 		}
 	}
+	// Extra processes from the same image.
+	procs, _ := ParseProcesses(a.Processes)
+	for _, p := range procs {
+		for i := 1; i <= p.Count; i++ {
+			pname := processContainer(a, p, i, rel.ID)
+			lg.step(fmt.Sprintf("start %s: %s", pname, p.Cmd))
+			pargs := append(append([]string{}, common...), "--name", pname, "--label", "islet.process="+p.Name, image, "sh", "-c", p.Cmd)
+			if err := s.docker(ctx, lg, pargs...); err != nil {
+				fail(err)
+				return
+			}
+		}
+	}
 	// Drain and stop the previous release.
 	if old := a.containerName(a.CurrentRelease); old != "" && old != name {
 		lg.step("drain " + old)
@@ -895,6 +968,9 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 		}
 		_, _ = s.run.Run(context.Background(), "deploy", "docker", "rm", "-f", old)
 		_, _ = s.st.DB.ExecContext(ctx, `UPDATE releases SET status = 'superseded' WHERE app_id = ? AND status = 'live'`, a.ID)
+	}
+	if a.Processes != "" || a.CurrentRelease != 0 {
+		s.removeProcesses(context.Background(), a, rel.ID, false)
 	}
 	s.succeed(ctx, a, rel, lg, start, name)
 	s.pruneImages(context.Background(), a)
@@ -958,19 +1034,19 @@ func (s *Service) route(ctx context.Context, actor string, a *App, container str
 	if err != nil {
 		return err
 	}
-	for _, host := range a.Domains() {
+	for _, hp := range a.HostPaths() {
 		var d *proxy.Domain
 		for i := range doms {
-			if doms[i].Host == host {
+			if doms[i].Host == hp.Host && doms[i].PathPrefix == hp.Prefix {
 				d = &doms[i]
 			}
 		}
 		if d == nil {
-			d = &proxy.Domain{Host: host, TLS: a.TLS, Enabled: true}
+			d = &proxy.Domain{Host: hp.Host, PathPrefix: hp.Prefix, TLS: a.TLS, Enabled: true}
 		}
 		d.TargetType, d.Target, d.Port = "container", container, a.Port
 		if _, err := s.px.Save(ctx, actor, d); err != nil {
-			return fmt.Errorf("%s: %w", host, err)
+			return fmt.Errorf("%s: %w", hp.Host+hp.Prefix, err)
 		}
 	}
 	return nil
