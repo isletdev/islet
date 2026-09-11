@@ -43,6 +43,8 @@ type Instance struct {
 	Port      int    `json:"port"`
 	Network   string `json:"network"`
 	Public    string `json:"public,omitempty"` // host:port when published
+	Pooler    bool   `json:"pooler"`           // PgBouncer service present
+	Pooled    string `json:"pooledUrl,omitempty"`
 	User      string `json:"user"`
 	Password  string `json:"password,omitempty"`
 	RootUser  string `json:"rootUser,omitempty"`
@@ -196,6 +198,10 @@ func (s *Service) build(ctx context.Context, actor string, a catalog.Installed, 
 		inst.State = "missing"
 	}
 	inst.Internal = s.connURL(inst, inst.Container, inst.Port, inst.User, inst.Password, inst.Database)
+	if inst.Engine == "postgres" && s.HasPooler(inst) {
+		inst.Pooler = true
+		inst.Pooled = s.connURL(inst, inst.Name+"-pgbouncer-1", 5432, inst.User, inst.Password, inst.Database)
+	}
 	if inst.Public != "" {
 		host, port, _ := strings.Cut(inst.Public, ":")
 		p, _ := strconv.Atoi(port)

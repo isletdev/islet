@@ -112,7 +112,7 @@ export default function Domains() {
                 </tr>
               );
             })}
-            {domains.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-ink-muted">No domains yet.</td></tr>}
+            {domains.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-ink-muted">No domains yet. Point an A record at this server, add the host here and pick what it should reach: a container, the panel, or any URL. HTTPS is automatic.</td></tr>}
           </tbody>
         </table>
       </div>

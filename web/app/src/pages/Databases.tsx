@@ -92,6 +92,11 @@ Host port to publish on:`, String(d?.port));
           <div>
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">From other containers</span>{isAdmin && d.internalUrl && <Copy text={d.internalUrl} />}</div>
             <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.internalUrl) : "(admins only)"}</pre>
+            {d.engine === "postgres" && isAdmin && <div className="mt-2 text-xs">
+              <button type="button" disabled={busy === "pooler"} onClick={async () => { setBusy("pooler"); setLog([]); setMsg(null); try { await postStream(`/api/v1/databases/${name}/pooler`, (l) => setLog((p) => [...(p ?? []), l]), { enabled: !d.pooler }); await load(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); } }} className={d.pooler ? "text-ink-muted hover:text-ink" : "text-accent hover:underline"}>{busy === "pooler" ? "Working…" : d.pooler ? "Remove PgBouncer" : "Add PgBouncer connection pooling"}</button>
+              <span className="ml-2 text-ink-muted">{d.pooler ? "Transaction pooling, 20 server connections shared by up to 1000 clients." : "For apps that open many short connections (serverless, PHP, many workers)."}</span>
+              {d.pooler && d.pooledUrl && <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{mask(d.pooledUrl)}</pre>}
+            </div>}
             <p className="mt-1 text-xs text-ink-muted">Attach the other stack to the <span className="font-mono">{d.network}</span> network, or connect from a stack on the same network by service name.</p>
           </div>
           <div>
@@ -129,7 +134,7 @@ Host port to publish on:`, String(d?.port));
               <li key={f.file} className="flex flex-wrap items-center justify-between gap-2 py-1.5"><span className="font-mono">{f.file}</span><span className="text-ink-muted">{bytes(f.size)} · {fmt(f.createdAt)}</span>
                 {isAdmin && <span className="flex gap-3"><a href={`/api/v1/databases/${name}/dumps/${f.file}`} className="text-ink-muted hover:text-ink">Download</a>{d.engine !== "redis" && <button type="button" disabled={!!busy} onClick={() => { const into = prompt("Restore into which database? It is created if missing. Existing objects are replaced.", f.database); if (into) void act("restore", () => api.dbRestore(name, f.file, into), `Restored ${f.file} into ${into}.`); }} className="text-ink-muted hover:text-ink">Restore…</button>}<button type="button" onClick={() => void act("del", () => api.dbDumpDelete(name, f.file))} className="text-danger hover:underline">Delete</button></span>}</li>
             ))}
-            {d.dumps.length === 0 && <li className="py-2 text-ink-muted">No dumps yet.</li>}
+            {d.dumps.length === 0 && <li className="py-2 text-ink-muted">No dumps yet. Dump now takes a logical copy you can download; scheduled dumps are cron jobs, and Backups keeps encrypted snapshots off-site.</li>}
           </ul>
         </Card>
       </div>

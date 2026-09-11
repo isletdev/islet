@@ -6,6 +6,12 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
 const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
+const SAMPLES = [
+  { dir: "static-site", label: "Static site (HTML + CSS)" },
+  { dir: "node-api", label: "Node API (no dependencies)" },
+  { dir: "go-service", label: "Go service" },
+  { dir: "python-fastapi", label: "Python FastAPI" },
+];
 const STRATEGIES: Record<string, string> = { auto: "Detect automatically", static: "Static site (build, then serve files)", node: "Node service", python: "Python service", go: "Go service", php: "PHP (nginx + PHP-FPM)", ruby: "Ruby / Rails", rust: "Rust binary", java: "Java (Maven or Gradle)", dotnet: ".NET", dockerfile: "Your Dockerfile", compose: "Your Compose file", image: "Docker image" };
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function dur(ms: number) { return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(0)} s` : `${(ms / 60000).toFixed(1)} min`; }
@@ -144,7 +150,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
               <td className="py-1.5 text-right text-xs whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{canDeploy && r.image && r.status !== "live" && r.status !== "failed" && r.status !== "cancelled" && <button type="button" disabled={busy || app.deploying} onClick={() => void run(`?release=${r.id}`)} className="text-ink-muted hover:text-ink">Roll back</button>}</td>
             </tr>
           ))}
-          {releases.length === 0 && <tr><td className="py-2 text-ink-muted">Nothing deployed yet.</td></tr>}
+          {releases.length === 0 && <tr><td className="py-2 text-ink-muted">Nothing deployed yet. Press Deploy: Islet clones, detects, builds, health-checks and routes; each attempt lands here with its log.</td></tr>}
         </tbody></table>
       </Card>
     </div>
@@ -159,7 +165,7 @@ function EnvGroups() {
   const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.envGroupSave(name, env); setName(""); setEnv(""); await load(); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title="Shared env groups" description="The same variables across apps (a Sentry DSN, an SMTP relay). Add a line @name to an app's environment to pull a group in; the app's own lines win on conflicts.">
-      <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Delete group @${g.name}?`)) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet.</li>}</ul>
+      <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Delete group @${g.name}?`)) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet. Good first group: @shared with SENTRY_DSN and SMTP_URL, then add the line @shared to each app.</li>}</ul>
       <form onSubmit={save} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[200px_1fr_auto]">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="group-name" className="font-mono" required />
         <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"SENTRY_DSN=https://…\nSMTP_URL=smtp://…"} required />
@@ -264,6 +270,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
           <p className="text-sm text-ink-muted md:col-span-2">Create the app, then drop a folder or a .zip on its card. Islet detects the framework from the upload and every new upload becomes a release you can roll back.</p>
         ) : a.source === "git" ? (
           <>
+            {isNew && <Field label="Try a sample" hint="Small apps from the Islet repository, one per framework."><select value="" onChange={(e) => { const s = SAMPLES.find((x) => x.dir === e.target.value); if (s) set({ repoUrl: "https://github.com/isletdev/islet", branch: "main", rootDir: `examples/${s.dir}`, name: a.name || `sample-${s.dir}`, env: "GREETING=hello from islet" }); }} className={SELECT}><option value="">Pick a sample…</option>{SAMPLES.map((s) => <option key={s.dir} value={s.dir}>{s.label}</option>)}</select></Field>}
             <Field label="Repository URL" hint={repos.length ? "Pick one of the repositories the GitHub App can see, or paste any git URL." : "Public https URL, or https://user:token@host/org/repo for private repos (stored encrypted). Configure the GitHub App in Settings to pick from a list."}>
               {repos.length > 0 && <select value="" onChange={(e) => { const r = repos.find((x) => x.url === e.target.value); if (r) set({ repoUrl: r.url, branch: r.defaultBranch, name: a.name || r.fullName.split("/")[1].toLowerCase().replace(/[^a-z0-9-]/g, "-") }); }} className={`${SELECT} mb-1`}><option value="">Pick from GitHub…</option>{repos.map((r) => <option key={r.fullName} value={r.url}>{r.fullName}{r.private ? " (private)" : ""}</option>)}</select>}
               <Input value={a.repoUrl ?? ""} onChange={(e) => set({ repoUrl: e.target.value })} className="font-mono" placeholder="https://github.com/org/repo" required />

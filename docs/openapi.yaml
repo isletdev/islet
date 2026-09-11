@@ -379,3 +379,5 @@ paths:
     post: { tags: [Auth], summary: Toggle the lookup (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
   /api/v1/databases/{name}/adminer:
     post: { tags: [Databases], summary: Install Adminer if needed, attach it to the instance network and return a deep link (admin), parameters: [{ name: name, in: path, required: true, schema: { type: string } }], responses: { "200": { description: "{ url, installed, domain, password }" } } }
+  /api/v1/databases/{name}/pooler:
+    post: { tags: [Databases], summary: Add or remove PgBouncer in front of a Postgres instance (streams Compose output; admin), parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }

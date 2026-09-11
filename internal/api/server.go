@@ -281,6 +281,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/databases/{name}/dumps/{file}", requireJSON(s.requireAuth(s.handleDBDumpDelete)))
 	mux.HandleFunc("POST /api/v1/databases/{name}/schedule", requireJSON(s.requireAuth(s.handleDBSchedule)))
 	mux.HandleFunc("POST /api/v1/databases/{name}/public", requireJSON(s.requireAuth(s.handleDBPublic)))
+	mux.HandleFunc("POST /api/v1/databases/{name}/pooler", requireJSON(s.requireAuth(s.handleDBPooler)))
 
 	// Cron
 	mux.HandleFunc("GET /api/v1/cron/jobs", s.requireAuth(s.handleJobs))

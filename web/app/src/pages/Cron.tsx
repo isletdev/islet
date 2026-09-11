@@ -139,7 +139,7 @@ function JobDetail({ job, canRun, canEdit, onChanged }: { job: Job; canRun: bool
       <Card title="History" description="Newest first. Click a run to see its output.">
         <ul className="divide-y divide-border text-xs">
           {runs.map((r) => <li key={r.id}><button type="button" onClick={() => void show(r)} className={`w-full py-1.5 text-left hover:text-ink ${open?.id === r.id ? "text-ink" : ""}`}><RunBadge r={r} /><span className="ml-1 text-ink-faint">{r.trigger}{r.attempt > 1 && ` #${r.attempt}`}</span></button></li>)}
-          {runs.length === 0 && <li className="py-2 text-ink-muted">No runs yet.</li>}
+          {runs.length === 0 && <li className="py-2 text-ink-muted">No runs yet. Press Run now to try it; every run keeps its output here.</li>}
         </ul>
         {runs.filter((r) => r.durationMs > 0).length > 1 && <DurationBars runs={runs} />}
       </Card>

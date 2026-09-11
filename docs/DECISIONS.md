@@ -100,3 +100,9 @@ An app whose source is "upload" keeps its files under the app's workspace; each 
 
 ## 2026-09-12 — Location on login alerts is opt-in
 Looking up the city and country of a new sign-in address means sending that address to a third party (ipapi.co). It is off by default and, when on, applies only to the new-address alert, never to routine logins.
+
+## 2026-09-12 — PgBouncer is a service added to the instance's own stack
+The pooler rides in the Postgres stack's Compose file as a `pgbouncer` service (edoburu image, transaction mode, scram auth), so it shares the stack's network and lifecycle and disappears cleanly when removed. Apps switch by changing the host to `<name>-pgbouncer-1`; credentials stay the same.
+
+## 2026-09-12 — Sample apps live in the main repo
+`examples/` holds one tiny app per framework, deployable with the repository URL plus a root directory. Keeping them in the same repo means detection changes are tested against them in CI and there is no second repository to keep in sync.

@@ -122,7 +122,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [x] Public exposure gated behind a warning, on a chosen host port, with SSH tunnel instructions
 - [ ] IP allowlist for published database ports (needs the firewall, v0.6)
 - [x] Postgres extension toggles (pg_stat_statements, pg_trgm, pgcrypto, uuid-ossp, hstore, citext; pgvector/postgis when the image has them)
-- [ ] PgBouncer toggle
+- [x] PgBouncer toggle
 - [x] Adminer deep links from any Postgres, MySQL or Mongo instance (installs and attaches it on first use); pgweb and RedisInsight not planned
 - [x] Dump now, scheduled dumps to local disk as an editable cron job, retention, restore into any database, download
 - [x] Dumps reach S3-compatible storage through backup plans (database sources are dumped into the restic repository)
@@ -195,7 +195,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
 - [x] Multiple domains per app (comma separated, first is primary)
 - [x] Deploy events wired into notifications (started, deployed, failed with the last 30 log lines)
-- [ ] Sample repos for each recipe so users can try a deploy before connecting their own code
+- [x] Sample apps in `examples/` with a "Try a sample" picker in New app
 
 **Runners**
 - [x] Ephemeral GitHub Actions runners in Docker, registered per repo or org through the GitHub App or a personal access token (unverified against GitHub until credentials exist)
@@ -313,8 +313,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] Command transparency: every command Islet ran, copyable (Settings)
 
 **Guides and content**
-- [ ] Inline "Why this matters" on every security and infra toggle
-- [ ] Teaching empty states across the app
+- [x] Inline "Why this matters" on every security and infra toggle (each check carries its reason)
+- [x] Teaching empty states across the app
 - [ ] 15 recipes total, docs site generated from the repo, screencasts for the top five flows
 - [x] Weekly "your server this week" email report
 

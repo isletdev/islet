@@ -41,7 +41,8 @@ Everything host-level was written for Ubuntu and Debian but could only be exerci
 
 Listed as open items in `docs/ROADMAP.md`. The ones most worth your opinion:
 
-- Railpack/Nixpacks buildpacks (deploys use generated Dockerfiles for Node, Python, Go and static sites; PHP, Ruby, Java and .NET repos need their own Dockerfile today).
-- Forward-auth "protect this app with Islet login" on routes (needs a cookie shared across subdomains; design question).
-- Plugin host, i18n, PWA offline shell, docs site, email reports.
+- Railpack/Nixpacks buildpacks: deploys use generated Dockerfiles for Node, Python, Go, PHP/Laravel, Ruby/Rails, Rust, Java and .NET, plus static sites. Anything else needs its own Dockerfile. I would keep it that way.
+- Roles scoped to projects, the WASM plugin host and i18n are the three big remaining pieces; each is a week of work and a design call. Say which one matters first.
+- **Catalog in its own repo** (`isletdev/catalog`, MIT) needs you to create the repo; the daemon can then fetch it at runtime. Until then the catalog is embedded.
+- **Docs site:** enable GitHub Pages on `isletdev/islet` (Settings → Pages → Source: GitHub Actions) and I will add the workflow that publishes `docs/` as a site.
 - Traefik's file watcher does not fire on Docker Desktop bind mounts on Windows, so local testing restarts the proxy after route changes. Linux inotify works; nothing to do on a real server.
