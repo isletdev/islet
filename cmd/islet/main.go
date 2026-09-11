@@ -143,6 +143,7 @@ Usage:
 Environment:
   ISLET_URL         daemon address (default https://127.0.0.1:9443)
   ISLET_TOKEN       API token, instead of the saved login
+  ISLET_SOCKET      daemon Unix socket; used automatically when run as root on the server
   ISLET_CONFIG      config file (default ~/.config/islet/config.json)
   ISLET_DATA_DIR    where the daemon keeps its certificate (default /var/lib/islet)
 `)

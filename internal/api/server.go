@@ -205,6 +205,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/backups/destinations", requireJSON(s.requireAuth(s.handleDestinationSave)))
 	mux.HandleFunc("PUT /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationSave)))
 	mux.HandleFunc("DELETE /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationDelete)))
+	mux.HandleFunc("POST /api/v1/backups/destinations/{id}/restore-test", requireJSON(s.requireAuth(s.handleDestinationRestoreTest)))
 	mux.HandleFunc("POST /api/v1/backups/destinations/{id}/verify", requireJSON(s.requireAuth(s.handleDestinationVerify)))
 	mux.HandleFunc("GET /api/v1/backups/destinations/{id}/snapshots", s.requireAuth(s.handleSnapshots))
 	mux.HandleFunc("GET /api/v1/backups/destinations/{id}/snapshots/{snapshot}/ls", s.requireAuth(s.handleSnapshotLs))

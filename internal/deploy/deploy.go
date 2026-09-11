@@ -988,7 +988,7 @@ func (s *Service) healthy(ctx context.Context, lg *logger, container string, por
 		if err != nil || strings.TrimSpace(out.Stdout) != "running" {
 			return fmt.Errorf("container is %s", strings.TrimSpace(out.Stdout))
 		}
-		res, err := s.run.Run(ctx, "deploy", "docker", "run", "--rm", "--network", proxy.NetworkName, "alpine:3", "sh", "-c", "wget -q -T 5 -O /dev/null --server-response "+shellQuote(url)+" 2>&1 | grep -m1 HTTP/ || exit 1")
+		res, err := s.run.Run(ctx, "deploy", "docker", "run", "--rm", "--name", "islet-probe-"+randHex(3), "--network", proxy.NetworkName, "alpine:3", "sh", "-c", "wget -q -T 5 -O /dev/null --server-response "+shellQuote(url)+" 2>&1 | grep -m1 HTTP/ || exit 1")
 		if err == nil {
 			status := strings.TrimSpace(res.Stdout)
 			if strings.Contains(status, " 2") || strings.Contains(status, " 3") {

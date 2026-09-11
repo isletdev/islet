@@ -23,6 +23,7 @@ const (
 	ctxSession ctxKey = iota
 	ctxUser
 	ctxToken
+	ctxLocal
 )
 
 // sessionFrom returns the verified session of the request, if any.
@@ -60,6 +61,9 @@ func (s *Server) newLoginIP(ctx context.Context, username, ip string) bool {
 	return v != ""
 }
 
+// LocalConn marks a connection context as coming from the Unix socket.
+func LocalConn(ctx context.Context) context.Context { return context.WithValue(ctx, ctxLocal, true) }
+
 func userFrom(ctx context.Context) *auth.User {
 	u, _ := ctx.Value(ctxUser).(*auth.User)
 	return u
@@ -69,6 +73,20 @@ func userFrom(ctx context.Context) *auth.User {
 // user in the context. It does not reject anything; requireAuth does.
 func (s *Server) withSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if local, _ := r.Context().Value(ctxLocal).(bool); local {
+			// A connection on the root-only Unix socket acts as the first admin.
+			if users, err := s.auth.Users(r.Context()); err == nil {
+				for _, u := range users {
+					if u.Role == "admin" {
+						uu := u
+						ctx := context.WithValue(r.Context(), ctxUser, &uu)
+						ctx = context.WithValue(ctx, ctxSession, &auth.Session{ID: "socket", UserID: u.ID})
+						next.ServeHTTP(w, r.WithContext(ctx))
+						return
+					}
+				}
+			}
+		}
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			u, t, err := s.auth.UserByToken(r.Context(), strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
 			if err != nil {

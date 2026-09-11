@@ -828,7 +828,7 @@ func (s *Service) ScanImage(ctx context.Context, actor, image string) (*Scan, er
 	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	out, err := s.sh(cctx, actor, "docker", "run", "--rm", "-v", sock+":/var/run/docker.sock", "-v", "islet-trivy-cache:/root/.cache", "aquasec/trivy:0.65.0", "image", "--quiet", "--format", "json", "--scanners", "vuln", "--severity", "LOW,MEDIUM,HIGH,CRITICAL", image)
+	out, err := s.sh(cctx, actor, "docker", "run", "--rm", "--name", "islet-trivy-"+strconv.FormatInt(time.Now().UnixNano()%1000000, 36), "-v", sock+":/var/run/docker.sock", "-v", "islet-trivy-cache:/root/.cache", "aquasec/trivy:0.65.0", "image", "--quiet", "--format", "json", "--scanners", "vuln", "--severity", "LOW,MEDIUM,HIGH,CRITICAL", image)
 	sc := Scan{Target: image, At: time.Now().UTC().Format(time.RFC3339), Findings: []Finding{}}
 	if err != nil {
 		sc.Error = err.Error()

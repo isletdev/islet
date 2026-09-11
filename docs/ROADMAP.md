@@ -201,7 +201,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Ephemeral GitHub Actions runners in Docker, registered per repo or org through the GitHub App or a personal access token (unverified against GitHub until credentials exist)
 - [x] Autoscale from workflow_job webhook events with an idle floor and a maximum, labels, a work cache volume, exited-container sweep
 - [x] Workflow generator that writes a `deploy.yml` calling the daemon API with a scoped token
-- [ ] Unix socket auth for runners on the same box
+- [x] Root-only Unix socket: the local CLI needs no token on the server; runners can mount it
 - [x] GitLab Runner and Gitea act_runner registration (long-lived, one container per pool; unverified)
 - [x] Runner dashboard: pools, idle/busy runners, job history from webhooks, container logs
 
@@ -259,7 +259,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Recovery kit download (repositories, keys, credentials, restore instructions)
 - [x] Recovery kit banner until downloaded, daily reminder event while missing, quarterly reminder after
 - [x] Retention in plain English with the maximum snapshot count
-- [ ] Size and monthly cost estimate
+- [x] Repository size after every run with a rough monthly cost
 - [x] Consistency: automatic pre-snapshot database dumps
 - [ ] Per-app pre and post hooks, pause-during-snapshot toggle
 - [x] Progress and dedup stats (bytes added vs processed), per-run logs, resumable uploads (restic)
@@ -270,7 +270,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [ ] Database into a new instance, whole app, dry run
 - [ ] Full server restore from a fresh install using the recovery kit, also the migration path between providers
 - [x] Weekly integrity check (restic check with a data sample) and a "last verified" date
-- [ ] Monthly automated restore test
+- [x] Monthly automated restore test (pulls Islet state or a dump out of the latest snapshot into a scratch folder), with a manual button
 - [ ] Write-only credentials and object lock or append-only mode set up automatically for B2, R2 and S3
 - [ ] Provider snapshot before risky operations where the provider API is configured
 - [x] `islet backup list|run|snapshots|verify|restore` in the CLI

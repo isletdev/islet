@@ -220,6 +220,19 @@ func run() error {
 			errc <- srv.Serve(ln)
 		}
 	}()
+	// Root-only Unix socket for the local CLI: no token, no TLS, same handler.
+	if sockPath := socketPath(*dataDir); sockPath != "" {
+		_ = os.Remove(sockPath)
+		if uln, err := net.Listen("unix", sockPath); err == nil {
+			_ = os.Chmod(sockPath, 0o600)
+			usrv := &http.Server{Handler: srv.Handler, ReadHeaderTimeout: 10 * time.Second, ConnContext: func(ctx context.Context, c net.Conn) context.Context { return api.LocalConn(ctx) }}
+			go func() { _ = usrv.Serve(uln) }()
+			defer func() { _ = usrv.Close(); _ = os.Remove(sockPath) }()
+			log.Info("local socket ready", "path", sockPath)
+		} else {
+			log.Warn("local socket unavailable", "err", err)
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -248,6 +261,21 @@ func panelHasTrustedCert(ctx context.Context, px *proxy.Manager) bool {
 		}
 	}
 	return false
+}
+
+// socketPath is where the local CLI socket lives: /run/islet/isletd.sock on
+// Linux, <data>/isletd.sock elsewhere, or ISLET_SOCKET; empty disables it.
+func socketPath(dataDir string) string {
+	if v, ok := os.LookupEnv("ISLET_SOCKET"); ok {
+		return v
+	}
+	if runtime.GOOS == "linux" {
+		if err := os.MkdirAll("/run/islet", 0o700); err == nil {
+			return "/run/islet/isletd.sock"
+		}
+	}
+	abs, _ := filepath.Abs(dataDir)
+	return filepath.Join(abs, "isletd.sock")
 }
 
 func displayAddr(addr string) string {

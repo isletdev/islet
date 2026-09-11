@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,7 +44,12 @@ func loadConfig() (config, error) {
 	}
 	b, err := os.ReadFile(configPath())
 	if err != nil {
-		return c, errors.New("not logged in: run `islet login --url https://your-server:9443 --token islet_…` (create a token in Settings → API tokens)")
+		if sock := localSocket(); sock != "" {
+			c.URL = "http://islet"
+			c.Token = "socket:" + sock
+			return c, nil
+		}
+		return c, errors.New("not logged in: run `islet login --url https://your-server:9443 --token islet_…` (create a token in Settings → API tokens), or run as root on the server itself")
 	}
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, err
@@ -66,7 +73,27 @@ func newClient() (*client, error) {
 	}
 	h := httpClient()
 	h.Timeout = 0
+	if sock, ok := strings.CutPrefix(cfg.Token, "socket:"); ok {
+		h.Transport = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		}}
+		cfg.Token = ""
+	}
 	return &client{cfg: cfg, http: h}, nil
+}
+
+// localSocket returns the daemon's Unix socket when this process can use it.
+func localSocket() string {
+	candidates := []string{os.Getenv("ISLET_SOCKET"), "/run/islet/isletd.sock", filepath.Join(dataDir(), "isletd.sock")}
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if st, err := os.Stat(p); err == nil && st.Mode()&os.ModeSocket != 0 {
+			return p
+		}
+	}
+	return ""
 }
 
 func (c *client) do(method, path string, body any) (*http.Response, error) {
@@ -79,7 +106,9 @@ func (c *client) do(method, path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	if c.cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if body != nil || method == "POST" || method == "DELETE" {
 		req.Header.Set("Content-Type", "application/json")

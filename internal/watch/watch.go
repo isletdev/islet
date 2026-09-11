@@ -52,6 +52,10 @@ func Docker(ctx context.Context, run *cmdrun.Runner, bus *notify.Bus, log *slog.
 			if name == proxy.ContainerName && ev.Action != "die" && ev.Action != "oom" {
 				continue
 			}
+			// Islet's own throwaway containers (restic, Trivy, health probes) exit non-zero on purpose.
+			if strings.HasPrefix(name, "islet-restic-") || strings.HasPrefix(name, "islet-trivy-") || strings.HasPrefix(name, "islet-probe-") {
+				continue
+			}
 			switch ev.Action {
 			case "oom":
 				bus.Emit(ctx, notify.Event{Category: "container", Severity: notify.Critical, Title: "Container out of memory: " + name, Message: "The kernel killed a process in " + name + " for exceeding its memory limit.", Link: "/containers"})

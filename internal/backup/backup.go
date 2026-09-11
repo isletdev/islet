@@ -44,6 +44,9 @@ type Destination struct {
 	Password  string            `json:"password,omitempty"`
 	LastCheck string            `json:"lastCheck"`
 	CheckOK   bool              `json:"checkOk"`
+	Size      int64             `json:"size"`            // repository size in bytes, updated after each run
+	RestoreAt string            `json:"lastRestoreTest"` // last automated restore test
+	RestoreOK bool              `json:"restoreTestOk"`
 	CreatedAt string            `json:"createdAt"`
 	Repo      string            `json:"repo"` // display form, secrets removed
 }
@@ -184,8 +187,19 @@ func (s *Service) tick(ctx context.Context) {
 			_ = s.st.SetSetting(ctx, "backup.kit_nag_at", time.Now().UTC().Format(time.RFC3339))
 		}
 	}
-	// Weekly repository checks.
 	dests, _ := s.Destinations(ctx)
+	// Monthly restore tests: pull a small path out of the latest snapshot.
+	for _, d := range dests {
+		v, _, _ := s.st.Setting(ctx, "backup.restoretest."+d.ID)
+		at, _, _ := strings.Cut(v, " ")
+		if t, err := time.Parse(time.RFC3339, at); v == "" || err != nil || time.Since(t) > 30*24*time.Hour {
+			if d.LastCheck == "" {
+				continue // no successful backup yet
+			}
+			go func(id string) { _, _ = s.RestoreTest(context.Background(), "system", id) }(d.ID)
+		}
+	}
+	// Weekly repository checks.
 	for _, d := range dests {
 		if last, err := time.Parse(time.RFC3339, d.LastCheck); d.LastCheck == "" || err != nil || time.Since(last) > 7*24*time.Hour {
 			if d.LastCheck == "" && time.Since(mustTime(d.CreatedAt)) < time.Hour {
@@ -262,6 +276,11 @@ func (d *Destination) display() string {
 	return ""
 }
 
+// stSetting is a tiny shim so scanDest can read settings without a context.
+func (s *Service) stSetting(key string) (string, bool, error) {
+	return s.st.Setting(context.Background(), key)
+}
+
 func (s *Service) scanDest(sc interface{ Scan(...any) error }) (Destination, error) {
 	var d Destination
 	var cfg, pw []byte
@@ -277,6 +296,13 @@ func (s *Service) scanDest(sc interface{ Scan(...any) error }) (Destination, err
 		d.Password = string(b)
 	}
 	d.Repo = d.display()
+	if v, _, _ := s.stSetting("backup.size." + d.ID); v != "" {
+		d.Size, _ = strconv.ParseInt(v, 10, 64)
+	}
+	if v, _, _ := s.stSetting("backup.restoretest." + d.ID); v != "" {
+		at, ok, _ := strings.Cut(v, " ")
+		d.RestoreAt, d.RestoreOK = at, ok == "ok"
+	}
 	return d, nil
 }
 
@@ -698,7 +724,7 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		if s.bus != nil {
 			if status == "failed" {
 				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Warning, Title: "Backup failed: " + p.Name, Message: errMsg, Link: "/backups"})
-			} else if sum != nil {
+			} else if sum != nil && p.LastStatus == "failed" {
 				s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Info, Title: "Backup failed: " + p.Name, Message: fmt.Sprintf("Recovered: snapshot %s, %s added.", snapshot, human(sum.DataAdded)), Link: "/backups"})
 			}
 		}
@@ -824,6 +850,15 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		say("[islet] forget failed (snapshot is safe): " + lastLine(out))
 	}
 	finish("success", snap, "", sum)
+	if out, err := s.restic(rctx, "backup", d, nil, "stats", "--json", "--mode", "raw-data"); err == nil {
+		var st struct {
+			TotalSize int64 `json:"total_size"`
+		}
+		if i := strings.Index(out, "{"); i >= 0 && json.Unmarshal([]byte(out[i:]), &st) == nil {
+			_ = s.st.SetSetting(context.Background(), "backup.size."+d.ID, strconv.FormatInt(st.TotalSize, 10))
+			say(fmt.Sprintf("[islet] repository now holds %s", human(st.TotalSize)))
+		}
+	}
 	say(fmt.Sprintf("[islet] done in %s", time.Since(start).Round(time.Second)))
 	return nil
 }
@@ -1000,6 +1035,84 @@ func (s *Service) Verify(ctx context.Context, actor, destID string) (string, err
 	return out, nil
 }
 
+// RestoreTest restores the smallest useful path from the latest snapshot
+// into a scratch directory, checks that files came back, and records the
+// result. It proves the repository, the key and the credentials all work.
+func (s *Service) RestoreTest(ctx context.Context, actor, destID string) (string, error) {
+	d, err := s.Destination(ctx, destID)
+	if err != nil {
+		return "", err
+	}
+	record := func(ok bool, msg string) {
+		state := "failed"
+		if ok {
+			state = "ok"
+		}
+		_ = s.st.SetSetting(context.Background(), "backup.restoretest."+d.ID, time.Now().UTC().Format(time.RFC3339)+" "+state)
+		if !ok && s.bus != nil {
+			s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Critical, Title: "Restore test failed: " + d.Name, Message: msg, Link: "/backups"})
+		}
+	}
+	snaps, err := s.Snapshots(ctx, actor, destID, "")
+	if err != nil {
+		record(false, err.Error())
+		return "", err
+	}
+	if len(snaps) == 0 {
+		return "no snapshots yet", nil
+	}
+	// Prefer Islet state, then database dumps, then whatever the snapshot holds.
+	include := ""
+	for _, cand := range []string{"/data/islet/islet.db", "/data/databases", "/data/islet"} {
+		if entries, err := s.Ls(ctx, actor, destID, "latest", filepath.ToSlash(filepath.Dir(cand))); err == nil {
+			for _, e := range entries {
+				if p, _ := e["path"].(string); p == cand {
+					include = cand
+					break
+				}
+			}
+		}
+		if include != "" {
+			break
+		}
+	}
+	if include == "" && len(snaps[0].Paths) > 0 {
+		include = snaps[0].Paths[0]
+	}
+	if include == "" {
+		return "nothing to test", nil
+	}
+	dir := filepath.Join(s.dataDir, "restore-test")
+	_ = os.RemoveAll(dir)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	inc := strings.TrimRight(include, "/")
+	parent := inc[:strings.LastIndex(inc, "/")]
+	out, err := s.restic(cctx, actor, d, []string{dir + ":/restore"}, "restore", "latest:"+parent, "--include", "/"+inc[strings.LastIndex(inc, "/")+1:], "--target", "/restore")
+	if err != nil {
+		record(false, lastLine(out))
+		return out, errors.New(lastLine(out))
+	}
+	var files int
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			files++
+		}
+		return nil
+	})
+	if files == 0 {
+		record(false, "restore produced no files for "+include)
+		return out, errors.New("restore produced no files")
+	}
+	record(true, "")
+	_ = s.st.Audit(ctx, actor, "backup.restoretest", d.ID, fmt.Sprintf("%s: %d files", include, files))
+	return fmt.Sprintf("restored %d file(s) from %s", files, include), nil
+}
+
 // RecoveryKit is everything needed to restore without this server.
 func (s *Service) RecoveryKit(ctx context.Context) ([]byte, error) {
 	dests, err := s.Destinations(ctx)
@@ -1067,13 +1180,18 @@ func (s *Service) Health(ctx context.Context) map[string]any {
 			failed++
 		}
 	}
-	verified := ""
+	verified, restored := "", ""
+	var size int64
 	for _, d := range dests {
 		if d.CheckOK && d.LastCheck > verified {
 			verified = d.LastCheck
 		}
+		if d.RestoreOK && d.RestoreAt > restored {
+			restored = d.RestoreAt
+		}
+		size += d.Size
 	}
-	return map[string]any{"plans": len(plans), "destinations": len(dests), "lastSuccess": last, "nextRun": next, "stale": stale, "failed": failed, "lastVerified": verified}
+	return map[string]any{"plans": len(plans), "destinations": len(dests), "lastSuccess": last, "nextRun": next, "stale": stale, "failed": failed, "lastVerified": verified, "lastRestoreTest": restored, "size": size}
 }
 
 func human(n int64) string {

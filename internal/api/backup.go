@@ -98,6 +98,18 @@ func (s *Server) handleDestinationVerify(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
 }
 
+func (s *Server) handleDestinationRestoreTest(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	out, err := s.backup.RestoreTest(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "restore_test", Message: err.Error() + "\n" + out})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"output": out})
+}
+
 func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 	list, err := s.backup.Snapshots(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"), r.URL.Query().Get("plan"))
 	if err != nil {
