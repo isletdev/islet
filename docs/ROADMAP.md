@@ -174,7 +174,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] GitHub App: repository picker, installation tokens for private clones, one webhook for pushes and CI jobs (code complete; needs the app registered to exercise)
 - [ ] Drag-and-drop folder or zip
 - [x] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, Gatsby, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask, uv, Poetry), Go, Dockerfile, Compose
-- [ ] Detection for Rust, PHP and Laravel, Rails, Spring Boot, .NET
+- [x] Detection for Rust, PHP and Laravel, Rails, Spring Boot, .NET
 - [x] Build strategies chosen automatically: Static, generated Dockerfile (Node, Python, Go), Dockerfile, Compose, Image
 - [ ] Railpack/Nixpacks as the buildpack for languages without a generated Dockerfile
 - [x] Static apps: SPA fallback, `_redirects` file, hashed-asset caching, gzip, custom 404, password via the domain's basic auth
@@ -210,7 +210,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Scoped API tokens (Settings → API tokens) with bearer auth
 - [x] REST API described in `docs/openapi.yaml`
 - [x] Recipes as guides: Next.js + Postgres + domain, Node API + Redis, Django, Go
-- [ ] Recipes: Rails, Laravel (need detection first)
+- [x] Recipes: Rails, Laravel
 
 **Not in this phase:** security suite, backups beyond database dumps.
 
@@ -281,7 +281,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Cloudflare Tunnel and Tailscale in the catalog
 - [x] Diagnostics: ping, traceroute, dig, port check (Security page)
 - [ ] Bandwidth per interface and container
-- [ ] "Protect this app with Islet login" forward-auth toggle on any route
+- [x] "Protect this app with Islet login" forward-auth toggle on any route
 
 **Not in this phase:** nothing paid; everything here stays free forever.
 
@@ -316,7 +316,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [ ] Inline "Why this matters" on every security and infra toggle
 - [ ] Teaching empty states across the app
 - [ ] 15 recipes total, docs site generated from the repo, screencasts for the top five flows
-- [ ] Weekly "your server this week" email report
+- [x] Weekly "your server this week" email report
 
 **Quality**
 - [ ] e2e suite on real VPSes for Ubuntu 22.04, 24.04, Debian 12, arm64

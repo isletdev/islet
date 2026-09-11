@@ -2,7 +2,8 @@ package api
 
 // SetupStatus is returned by GET /api/v1/setup.
 type SetupStatus struct {
-	NeedsSetup bool `json:"needsSetup"`
+	NeedsSetup   bool   `json:"needsSetup"`
+	CookieDomain string `json:"cookieDomain,omitempty"`
 }
 
 // SetupRequest creates the first admin. Token comes from the installer's

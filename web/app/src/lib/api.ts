@@ -82,7 +82,7 @@ export interface FileEntry { name: string; path: string; isDir: boolean; size: n
 export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
 
 export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string }
-export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; enabled: boolean; createdAt: string; updatedAt: string }
+export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; enabled: boolean; createdAt: string; updatedAt: string }
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
@@ -179,7 +179,7 @@ function post<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
-  setupStatus: () => request<{ needsSetup: boolean }>("/api/v1/setup"),
+  setupStatus: () => request<{ needsSetup: boolean; cookieDomain?: string }>("/api/v1/setup"),
   setup: (token: string, username: string, password: string) =>
     post<LoginResponse>("/api/v1/setup", { token, username, password }),
   login: (username: string, password: string) => post<LoginResponse>("/api/v1/auth/login", { username, password }),
@@ -196,6 +196,8 @@ export const api = {
   userDelete: (id: string) => post<void>(`/api/v1/users/${id}`, undefined, "DELETE"),
   attention: () => request<Attention>("/api/v1/attention"),
   portCheck: (host: string, port: number) => request<{ open: boolean; message: string }>(`/api/v1/diagnostics?tool=port&host=${encodeURIComponent(host)}&port=${port}`),
+  cookieDomain: () => request<{ cookieDomain: string }>("/api/v1/auth/cookie-domain"),
+  cookieDomainSet: (cookieDomain: string) => post<{ cookieDomain: string }>("/api/v1/auth/cookie-domain", { cookieDomain }),
   tokens: () => request<ApiToken[]>("/api/v1/auth/tokens"),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
@@ -237,6 +239,9 @@ export const api = {
   github: () => request<GitHubState>("/api/v1/github"),
   githubSave: (b: { appId: string; clientId: string; slug: string; privateKey: string; webhookSecret: string }) => post<void>("/api/v1/github", b),
   githubRepos: () => request<GitHubRepo[]>("/api/v1/github/repos"),
+  weeklyReport: () => request<{ enabled: boolean; lastSent: string }>("/api/v1/report/weekly"),
+  weeklyReportSet: (enabled: boolean) => post<{ enabled: boolean; lastSent: string }>("/api/v1/report/weekly", { enabled }),
+  weeklyReportSend: () => post<{ body: string }>("/api/v1/report/weekly/send"),
   mcp: () => request<{ enabled: boolean; url: string }>("/api/v1/mcp"),
   mcpSet: (enabled: boolean) => post<{ enabled: boolean }>("/api/v1/mcp", { enabled }),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),

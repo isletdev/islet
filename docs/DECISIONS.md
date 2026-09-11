@@ -70,3 +70,12 @@ restic runs from the pinned `restic/restic` image with sources mounted read-only
 
 ## 2026-09-11 — MCP: minimal JSON-RPC over HTTP, tools mirror the API scopes
 The MCP server is a stateless Streamable HTTP endpoint implemented in-house (a few hundred lines) rather than a dependency, exposing sixteen tools that call the same service methods as the HTTP API and are gated by the same scope table.
+
+## 2026-09-12 — "Protect with Islet login" through Traefik forwardAuth and a shared cookie domain
+Protected routes ask the daemon at `/_islet/auth`; a valid panel session passes with `X-Islet-User`, anything else is redirected to the panel login with a return address. The session cookie is scoped to an admin-chosen parent domain (say `example.com`) so one sign-in covers the panel and every protected app under it; with no cookie domain set, cookies stay host-only as before. No OAuth provider is needed and nothing is exposed that the panel does not already serve.
+
+## 2026-09-12 — Weekly report is a notification event, not a separate mailer
+The Monday summary is emitted as an event in the `report` category, so it reaches whatever channels accept that category (email, Telegram, webhook) and stays in the timeline. Existing digests and quiet hours apply; there is no second delivery path to maintain.
+
+## 2026-09-12 — More generated Dockerfiles rather than a buildpack
+PHP (serversideup/php with nginx and PHP-FPM), Ruby and Rails, Rust, Java (Maven or Gradle) and .NET join Node, Python and Go as generated multi-stage Dockerfiles. Each stays a few lines, is shown in the deploy log and can be replaced by the project's own Dockerfile at any time.

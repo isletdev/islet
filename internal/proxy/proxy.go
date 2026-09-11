@@ -304,6 +304,7 @@ type Domain struct {
 	RateLimit   int    `json:"rateLimit"`
 	Headers     string `json:"headers"`
 	Maintenance bool   `json:"maintenance"`
+	Protect     bool   `json:"protect"` // require a panel session (forward auth)
 	Enabled     bool   `json:"enabled"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
@@ -384,15 +385,15 @@ func splitList(s string) []string {
 	return out
 }
 
-const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, enabled, created_at, updated_at`
+const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, created_at, updated_at`
 
 func scan(sc interface{ Scan(...any) error }) (*Domain, error) {
 	var d Domain
-	var www, maint, en int
-	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &en, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	var www, maint, prot, en int
+	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &prot, &en, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return nil, err
 	}
-	d.RedirectWWW, d.Maintenance, d.Enabled = www == 1, maint == 1, en == 1
+	d.RedirectWWW, d.Maintenance, d.Protect, d.Enabled = www == 1, maint == 1, prot == 1, en == 1
 	return &d, nil
 }
 
@@ -436,9 +437,9 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 	}
 	if d.ID == "" {
 		d.ID = newID()
-		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, enabled)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Enabled))
+		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled))
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("that host is already routed")
@@ -446,9 +447,9 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 			return nil, err
 		}
 	} else {
-		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, enabled=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, enabled=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id = ? AND server_id = ?`,
-			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Enabled), d.ID, m.st.ServerID)
+			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), d.ID, m.st.ServerID)
 		if err != nil {
 			return nil, err
 		}
@@ -514,6 +515,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		"islet-compress":         map[string]any{"compress": map[string]any{}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
 		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
+		"islet-forward-auth":     map[string]any{"forwardAuth": map[string]any{"address": panelURL + "/_islet/auth", "trustForwardHeader": true, "authResponseHeaders": []string{"X-Islet-User", "X-Islet-Role"}, "tls": map[string]any{"insecureSkipVerify": true}}},
 	}
 	transports := map[string]any{"islet-insecure": map[string]any{"insecureSkipVerify": true}}
 
@@ -561,6 +563,9 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 				middlewares[name+"-headers"] = map[string]any{"headers": map[string]any{"customResponseHeaders": h}}
 				mws = append(mws, name+"-headers")
 			}
+		}
+		if d.Protect {
+			mws = append(mws, "islet-forward-auth")
 		}
 		router := map[string]any{"rule": rule, "entryPoints": []string{"websecure"}, "middlewares": mws}
 		switch d.TLS {

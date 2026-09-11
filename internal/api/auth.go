@@ -178,12 +178,12 @@ func isSecure(r *http.Request) bool {
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, exp time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: isSecure(r),
-		SameSite: http.SameSiteLaxMode, Expires: exp,
+		SameSite: http.SameSiteLaxMode, Expires: exp, Domain: currentCookieDomain(r),
 	})
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Domain: currentCookieDomain(r)})
 }
 
 func toAPIUser(u *auth.User) api.User {
@@ -218,7 +218,8 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		authError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: needs})
+	d, _ := cookieDomain.Load().(string)
+	writeJSON(w, http.StatusOK, api.SetupStatus{NeedsSetup: needs, CookieDomain: d})
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {

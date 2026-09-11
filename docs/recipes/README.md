@@ -9,6 +9,8 @@ Short, ordered guides for the setups people ask about most. Each one uses only w
 | [Node API with Redis](node-api-redis.md) | 10 min |
 | [Django with Postgres](django-postgres.md) | 10 min |
 | [Go service](go-service.md) | 5 min |
+| [Laravel with MySQL and a domain](laravel-mysql-domain.md) | 10 min |
+| [Rails with Postgres and a domain](rails-postgres-domain.md) | 10 min |
 | [Docker image with a domain](docker-image-with-a-domain.md) | 3 min |
 | [WordPress with a domain](wordpress-with-a-domain.md) | 5 min |
 | [Harden a fresh server](harden-a-fresh-server.md) | 10 min |

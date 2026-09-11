@@ -4,6 +4,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -89,6 +90,8 @@ type Server struct {
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s.loadCookieDomain()
+	s.StartWeeklyReport(context.Background())
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
 	if s.deploy != nil {
 		s.deploy.EnvGroup = s.EnvGroupLines
@@ -98,6 +101,9 @@ func New(d Deps) http.Handler {
 	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
+	mux.HandleFunc("/_islet/auth", s.handleForwardAuth)
+	mux.HandleFunc("GET /api/v1/auth/cookie-domain", s.requireAuth(s.handleCookieDomain))
+	mux.HandleFunc("POST /api/v1/auth/cookie-domain", requireJSON(s.requireAuth(s.handleCookieDomain)))
 	mux.HandleFunc("GET /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("POST /api/v1/hooks/deploy/{id}", s.handleDeployHook)
 	mux.HandleFunc("POST /api/v1/hooks/runner/{id}", s.handleRunnerHook)
@@ -126,6 +132,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/github", requireJSON(s.requireAuth(s.handleGitHubSave)))
 	mux.HandleFunc("GET /api/v1/github/repos", s.requireAuth(s.handleGitHubRepos))
 	mux.HandleFunc("GET /api/v1/mcp", s.requireAuth(s.handleMCPSetting))
+	mux.HandleFunc("GET /api/v1/report/weekly", s.requireAuth(s.handleReportSetting))
+	mux.HandleFunc("POST /api/v1/report/weekly", requireJSON(s.requireAuth(s.handleReportSetting)))
+	mux.HandleFunc("POST /api/v1/report/weekly/send", s.requireAuth(s.handleReportSend))
 	mux.HandleFunc("POST /api/v1/mcp", requireJSON(s.requireAuth(s.handleMCPSetting)))
 	mux.HandleFunc("/mcp", s.requireAuth(s.handleMCP))
 	mux.HandleFunc("GET /api/v1/diagnostics", s.requireAuth(s.handleDiagnostics))

@@ -32,6 +32,12 @@ var exposeRe = regexp.MustCompile(`(?mi)^\s*EXPOSE\s+(\d+)`)
 func Detect(dir string) Detection {
 	exists := func(names ...string) string {
 		for _, n := range names {
+			if strings.ContainsAny(n, "*?") {
+				if m, _ := filepath.Glob(filepath.Join(dir, n)); len(m) > 0 {
+					return filepath.Base(m[0])
+				}
+				continue
+			}
 			if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
 				return n
 			}
@@ -59,6 +65,59 @@ func Detect(dir string) Detection {
 	}
 	if f := exists("pyproject.toml", "requirements.txt", "Pipfile"); f != "" {
 		return detectPython(dir, d, f)
+	}
+	if exists("composer.json") != "" {
+		d.Strategy, d.Framework, d.Port = "php", "PHP", 8080
+		d.InstallCmd = "composer install --no-dev --optimize-autoloader --no-interaction"
+		d.Summary = "PHP app. Served by nginx and PHP-FPM on port 8080 from the public/ folder (or the repository root)."
+		if exists("artisan") != "" {
+			d.Framework = "Laravel"
+			d.Summary = "Laravel app. Served by nginx and PHP-FPM on port 8080. Add a pre-deploy command like php artisan migrate --force and set APP_KEY in the environment."
+		}
+		return d
+	}
+	if exists("Gemfile") != "" {
+		d.Strategy, d.Framework, d.Port = "ruby", "Ruby", 3000
+		d.InstallCmd = "bundle install"
+		d.StartCmd = "bundle exec ruby app.rb -o 0.0.0.0 -p 3000"
+		if exists("config.ru") != "" {
+			d.StartCmd = "bundle exec rackup --host 0.0.0.0 --port 3000"
+		}
+		if exists("bin/rails") != "" {
+			d.Framework = "Rails"
+			d.BuildCmd = "SECRET_KEY_BASE_DUMMY=1 bundle exec rails assets:precompile"
+			d.StartCmd = "bundle exec rails server -b 0.0.0.0 -p 3000"
+			d.Summary = "Rails app. Assets precompiled at build time, served by Puma on port 3000. Set SECRET_KEY_BASE and RAILS_ENV=production; add a pre-deploy command like bin/rails db:migrate."
+		} else {
+			d.Summary = "Ruby app. Started with " + d.StartCmd + "."
+		}
+		return d
+	}
+	if exists("Cargo.toml") != "" {
+		d.Strategy, d.Framework, d.Port = "rust", "Rust", 8080
+		d.BuildCmd = "cargo build --release"
+		d.StartCmd = "/app/server"
+		d.Summary = "Rust binary. Built in release mode with the official image and copied into a small runtime container; listens on PORT (8080)."
+		return d
+	}
+	if f := exists("pom.xml", "build.gradle", "build.gradle.kts"); f != "" {
+		d.Strategy, d.Framework, d.Port = "java", "Java", 8080
+		if f == "pom.xml" {
+			d.BuildCmd = "mvn -q -DskipTests package"
+			d.StartCmd = "java -jar target/*.jar"
+		} else {
+			d.BuildCmd = "gradle bootJar --no-daemon -q || gradle build --no-daemon -q -x test"
+			d.StartCmd = "java -jar build/libs/*.jar"
+		}
+		d.Summary = "Java service (" + f + "). Built with JDK 21 and run on a JRE image; Spring Boot picks up PORT through SERVER_PORT."
+		return d
+	}
+	if f := exists("*.csproj", "*.sln"); f != "" {
+		d.Strategy, d.Framework, d.Port = "dotnet", ".NET", 8080
+		d.BuildCmd = "dotnet publish -c Release -o /app/out"
+		d.StartCmd = "dotnet /app/out/" + strings.TrimSuffix(filepath.Base(f), filepath.Ext(f)) + ".dll"
+		d.Summary = ".NET app (" + filepath.Base(f) + "). Published with the SDK image and run on the ASP.NET runtime, listening on 8080."
+		return d
 	}
 	if exists("go.mod") != "" {
 		d.Strategy, d.Framework, d.Port = "go", "Go", 8080
@@ -327,6 +386,41 @@ func Dockerfile(a *App, buildEnv []string) string {
 			fmt.Fprintf(&b, "RUN %s\n", a.BuildCmd)
 		}
 		fmt.Fprintf(&b, "ENV PORT=%d\nEXPOSE %d\nCMD %s\n", a.Port, a.Port, shellCmd(a.StartCmd))
+	case "php":
+		b.WriteString("FROM serversideup/php:8.3-fpm-nginx\nUSER root\nWORKDIR /var/www/html\nCOPY --chown=www-data:www-data . .\n")
+		if _, err := os.Stat(filepath.Join(a.RootDir, "public")); err != nil {
+			b.WriteString("ENV NGINX_WEBROOT=/var/www/html\n")
+		}
+		args()
+		fmt.Fprintf(&b, "RUN su www-data -s /bin/sh -c %q\n", a.InstallCmd)
+		if a.BuildCmd != "" {
+			fmt.Fprintf(&b, "RUN su www-data -s /bin/sh -c %q\n", a.BuildCmd)
+		}
+		b.WriteString("USER www-data\nEXPOSE 8080\n")
+	case "ruby":
+		b.WriteString("FROM ruby:3.3-slim\nRUN apt-get update -qq && apt-get install -y --no-install-recommends build-essential libpq-dev libsqlite3-dev libyaml-dev git curl nodejs npm && rm -rf /var/lib/apt/lists/*\nWORKDIR /app\nENV RAILS_ENV=production RACK_ENV=production BUNDLE_WITHOUT=development:test\nCOPY Gemfile Gemfile.lock* ./\n")
+		fmt.Fprintf(&b, "RUN %s\nCOPY . .\n", a.InstallCmd)
+		args()
+		if a.BuildCmd != "" {
+			fmt.Fprintf(&b, "RUN %s\n", a.BuildCmd)
+		}
+		fmt.Fprintf(&b, "ENV PORT=%d\nEXPOSE %d\nCMD %s\n", a.Port, a.Port, shellCmd(a.StartCmd))
+	case "rust":
+		b.WriteString("FROM rust:1-slim AS build\nRUN apt-get update -qq && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*\nWORKDIR /src\nCOPY . .\n")
+		args()
+		fmt.Fprintf(&b, "RUN %s && mkdir -p /app && cp $(find target/release -maxdepth 1 -type f -perm -u+x ! -name '*.d' | head -n1) /app/server\n\nFROM debian:bookworm-slim\nRUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*\nWORKDIR /app\nCOPY --from=build /app/server /app/server\nENV PORT=%d\nEXPOSE %d\nCMD %s\n", a.BuildCmd, a.Port, a.Port, shellCmd(a.StartCmd))
+	case "java":
+		image := "maven:3-eclipse-temurin-21"
+		if strings.HasPrefix(a.BuildCmd, "gradle") {
+			image = "gradle:8-jdk21"
+		}
+		fmt.Fprintf(&b, "FROM %s AS build\nWORKDIR /src\nCOPY . .\n", image)
+		args()
+		fmt.Fprintf(&b, "RUN %s\n\nFROM eclipse-temurin:21-jre\nWORKDIR /app\nCOPY --from=build /src /app\nENV PORT=%d SERVER_PORT=%d\nEXPOSE %d\nCMD %s\n", a.BuildCmd, a.Port, a.Port, a.Port, shellCmd(a.StartCmd))
+	case "dotnet":
+		b.WriteString("FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\n")
+		args()
+		fmt.Fprintf(&b, "RUN %s\n\nFROM mcr.microsoft.com/dotnet/aspnet:8.0\nWORKDIR /app\nCOPY --from=build /app/out /app/out\nENV PORT=%d ASPNETCORE_URLS=http://+:%d\nEXPOSE %d\nCMD %s\n", a.BuildCmd, a.Port, a.Port, a.Port, shellCmd(a.StartCmd))
 	case "go":
 		b.WriteString("FROM golang:1.24-alpine AS build\nWORKDIR /src\nCOPY go.mod go.sum* ./\nRUN go mod download\nCOPY . .\n")
 		args()

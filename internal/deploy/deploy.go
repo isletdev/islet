@@ -103,7 +103,7 @@ var ErrBusy = errors.New("a deploy is already running for this app")
 const sqlTime = "2006-01-02T15:04:05.000Z"
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-var validStrategies = map[string]bool{"auto": true, "static": true, "node": true, "python": true, "go": true, "dockerfile": true, "compose": true, "image": true}
+var validStrategies = map[string]bool{"auto": true, "static": true, "node": true, "python": true, "go": true, "php": true, "ruby": true, "rust": true, "java": true, "dotnet": true, "dockerfile": true, "compose": true, "image": true}
 
 // Service is the deploy engine.
 type Service struct {

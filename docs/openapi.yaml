@@ -140,7 +140,7 @@ components:
       properties: { id: { type: string }, name: { type: string }, type: { type: string, enum: [http, tcp, keyword] }, target: { type: string }, keyword: { type: string }, intervalSec: { type: integer }, timeoutSec: { type: integer }, expectStatus: { type: integer }, enabled: { type: boolean }, status: { type: string }, uptime24h: { type: number }, uptime30d: { type: number } }
     Domain:
       type: object
-      properties: { id: { type: string }, host: { type: string }, targetType: { type: string, enum: [container, panel, url] }, target: { type: string }, port: { type: integer }, pathPrefix: { type: string }, tls: { type: string, enum: [letsencrypt, self, none] }, redirectWww: { type: boolean }, basicAuth: { type: string }, ipAllowlist: { type: string }, rateLimit: { type: integer }, headers: { type: string }, maintenance: { type: boolean }, enabled: { type: boolean } }
+      properties: { id: { type: string }, host: { type: string }, targetType: { type: string, enum: [container, panel, url] }, target: { type: string }, port: { type: integer }, pathPrefix: { type: string }, tls: { type: string, enum: [letsencrypt, self, none] }, redirectWww: { type: boolean }, basicAuth: { type: string }, ipAllowlist: { type: string }, rateLimit: { type: integer }, headers: { type: string }, maintenance: { type: boolean }, protect: { type: boolean, description: "Require a panel session (forward auth)" }, enabled: { type: boolean } }
     DBInstance:
       type: object
       properties: { name: { type: string }, engine: { type: string, enum: [postgres, mysql, redis, mongo] }, container: { type: string }, state: { type: string }, port: { type: integer }, internalUrl: { type: string }, publicUrl: { type: string }, public: { type: string } }
@@ -356,3 +356,11 @@ paths:
     get: { tags: [Logs], summary: Journals, files and containers that can be tailed, responses: { "200": { description: OK } } }
   /api/v1/logs/stream:
     get: { tags: [Logs], summary: Tail a source (`?source=&tail=&follow=`), responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/auth/cookie-domain:
+    get: { tags: [Auth], summary: Session cookie domain used for "Protect with Islet login", responses: { "200": { description: OK } } }
+    post: { tags: [Auth], summary: Set the session cookie domain (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { cookieDomain: { type: string } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/report/weekly:
+    get: { tags: [Notifications], summary: Weekly report setting and last send time, responses: { "200": { description: OK } } }
+    post: { tags: [Notifications], summary: Turn the weekly report on or off (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/report/weekly/send:
+    post: { tags: [Notifications], summary: Send the weekly report now and return its text (admin), responses: { "200": { description: OK } } }

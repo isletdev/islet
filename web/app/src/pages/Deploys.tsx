@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
 const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
-const STRATEGIES: Record<string, string> = { auto: "Detect automatically", static: "Static site (build, then serve files)", node: "Node service", python: "Python service", go: "Go service", dockerfile: "Your Dockerfile", compose: "Your Compose file", image: "Docker image" };
+const STRATEGIES: Record<string, string> = { auto: "Detect automatically", static: "Static site (build, then serve files)", node: "Node service", python: "Python service", go: "Go service", php: "PHP (nginx + PHP-FPM)", ruby: "Ruby / Rails", rust: "Rust binary", java: "Java (Maven or Gradle)", dotnet: ".NET", dockerfile: "Your Dockerfile", compose: "Your Compose file", image: "Docker image" };
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function dur(ms: number) { return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(0)} s` : `${(ms / 60000).toFixed(1)} min`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }

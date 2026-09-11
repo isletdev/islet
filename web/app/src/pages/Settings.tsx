@@ -23,6 +23,8 @@ export default function Settings() {
       <Tokens />
       {me.user.role === "admin" && <Users meId={me.user.id} />}
       <Updates />
+      {me.user.role === "admin" && <WeeklyReport />}
+      {me.user.role === "admin" && <SSO />}
       {me.user.role === "admin" && <GitHubApp />}
       {me.user.role === "admin" && <MCP />}
       <CommandLog />
@@ -239,6 +241,39 @@ function Users({ meId }: { meId: string }) {
         <select value={role} onChange={(e) => setRole(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
         <Button type="submit" className="h-9">Add user</Button>
         {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
+      </form>
+    </Card>
+  );
+}
+
+function WeeklyReport() {
+  const [st, setSt] = useState<{ enabled: boolean; lastSent: string } | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => { void api.weeklyReport().then(setSt).catch(() => {}); }, []);
+  if (!st) return null;
+  return (
+    <Card title="Weekly report" description="Every Monday morning Islet sends a short summary: disk, security score, deploys, uptime, cron, backups. Goes to channels that accept the report category (email fits best) and always to the timeline.">
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={st.enabled} onChange={async (e) => setSt(await api.weeklyReportSet(e.target.checked))} />Send the weekly report</label>
+      <div className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
+        <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={async () => { const r = await api.weeklyReportSend(); setPreview(r.body); }}>Send one now</Button>
+        {st.lastSent && <span>Last sent {new Date(st.lastSent).toLocaleString()}</span>}
+      </div>
+      {preview !== null && <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md border border-border bg-bg p-2 font-mono text-xs">{preview || "Nothing to report yet."}</pre>}
+    </Card>
+  );
+}
+
+function SSO() {
+  const [d, setD] = useState<string | null>(null); const [v, setV] = useState(""); const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.cookieDomain().then((r) => { setD(r.cookieDomain); setV(r.cookieDomain); }).catch(() => {}); }, []);
+  if (d === null) return null;
+  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Sessions now cover *.${r.cookieDomain}. Sign out and back in, then tick "Protect with Islet login" on a domain.` : "Sessions are scoped to the panel host again."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  return (
+    <Card title="Protect apps with Islet login" description="Route the panel to a domain (say panel.example.com), set the parent domain here, and any domain marked &quot;Protect with Islet login&quot; only opens for people signed in to this panel.">
+      <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+        <Field label="Session cookie domain" hint="The parent of the panel and the protected apps, for example example.com."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-64 font-mono" placeholder="example.com" /></Field>
+        <Button type="submit" className="h-9">Save</Button>
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
       </form>
     </Card>
   );

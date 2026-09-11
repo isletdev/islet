@@ -3,6 +3,18 @@ import { api, RequestError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, AuthFrame, Button, Field, Input } from "@/components/ui";
 
+/** After forward-auth sends someone here, go back to the app they wanted, but only within the session cookie domain. */
+async function followNext() {
+  const next = new URLSearchParams(location.search).get("next");
+  if (!next) return;
+  try {
+    const target = new URL(next);
+    const st = await api.setupStatus();
+    const dom = st.cookieDomain;
+    if (dom && (target.hostname === dom || target.hostname.endsWith("." + dom)) && (target.protocol === "https:" || target.protocol === "http:")) location.replace(target.toString());
+  } catch { /* stay on the panel */ }
+}
+
 export default function Login({ mfa = false }: { mfa?: boolean }) {
   const { refresh, signOut } = useAuth();
   const [username, setUsername] = useState("");
@@ -17,6 +29,7 @@ export default function Login({ mfa = false }: { mfa?: boolean }) {
     try {
       await api.login(username.trim(), password);
       await refresh();
+      followNext();
     } catch (err) {
       if (err instanceof RequestError && err.status === 429) setError("Too many attempts. Wait a few minutes and try again.");
       else setError(err instanceof RequestError ? err.message : "Sign-in failed.");
@@ -29,6 +42,7 @@ export default function Login({ mfa = false }: { mfa?: boolean }) {
     try {
       await api.mfa(code);
       await refresh();
+      followNext();
     } catch (err) {
       setError(err instanceof RequestError ? err.message : "Verification failed.");
     } finally { setBusy(false); }

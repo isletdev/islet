@@ -3,7 +3,7 @@ import { api, RequestError, type Container, type Domain, type ProxyStatus } from
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
-const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, enabled: true, createdAt: "", updatedAt: "" };
+const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, createdAt: "", updatedAt: "" };
 
 export default function Domains() {
   const { state } = useAuth();
@@ -101,7 +101,7 @@ export default function Domains() {
               const c = dns[d.id]; const cert = certFor(d.host);
               return (
                 <tr key={d.id} className={d.enabled ? "" : "opacity-60"}>
-                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
+                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
                   <td className="py-2 font-mono text-xs text-ink-muted">{d.targetType === "container" ? `${d.target}:${d.port}` : d.targetType === "panel" ? "Islet panel" : d.target}</td>
                   <td className="py-2 text-xs"><span className={`inline-flex items-center gap-1.5 ${c ? (c.ok ? "text-success" : "text-warning") : "text-ink-muted"}`}><span className={`h-1.5 w-1.5 rounded-full ${c ? (c.ok ? "bg-success" : "bg-warning") : "bg-ink-faint"}`} />{c ? (c.ok ? "Points here" : "Not yet") : "Checking…"}</span>{c && !c.ok && <div className="mt-0.5 max-w-[32ch] text-ink-muted">{c.suggestion}</div>}</td>
                   <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - Date.now() < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {new Date(cert.notAfter).toLocaleDateString()}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
@@ -144,6 +144,7 @@ export default function Domains() {
             <div className="flex flex-wrap gap-4 text-sm md:col-span-2">
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.redirectWww} onChange={(e) => setEditing({ ...editing, redirectWww: e.target.checked })} />Redirect www to this host</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.maintenance} onChange={(e) => setEditing({ ...editing, maintenance: e.target.checked })} />Maintenance page</label>
+              <label className="flex items-center gap-1.5" title="Visitors must be signed in to the Islet panel. Set the session cookie domain in Settings first."><input type="checkbox" checked={!!editing.protect} onChange={(e) => setEditing({ ...editing, protect: e.target.checked })} />Protect with Islet login</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />Enabled</label>
             </div>
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>

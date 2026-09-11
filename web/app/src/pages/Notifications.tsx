@@ -13,7 +13,7 @@ const TYPES: Record<string, { label: string; fields: { key: string; label: strin
   pushover: { label: "Pushover", help: "Create an application at pushover.net.", fields: [{ key: "appToken", label: "App token", secret: true }, { key: "userKey", label: "User key", secret: true }] },
   webhook: { label: "Webhook", help: "Islet POSTs JSON and signs it with HMAC-SHA256 in X-Islet-Signature when a secret is set.", fields: [{ key: "url", label: "URL" }, { key: "secret", label: "Signing secret (optional)", secret: true }] },
 };
-const CATEGORIES = ["system", "security", "deploy", "container", "database", "domain", "cron", "backup", "runner", "uptime", "custom"];
+const CATEGORIES = ["system", "security", "deploy", "container", "database", "domain", "cron", "backup", "runner", "uptime", "report", "custom"];
 
 export default function Notifications() {
   const { state } = useAuth();
