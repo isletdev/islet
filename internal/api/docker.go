@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/isletdev/islet/internal/docker"
+	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/terminal"
 	"github.com/isletdev/islet/pkg/api"
 )
@@ -148,7 +149,37 @@ func (s *Server) handleStackImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = s.store.Audit(r.Context(), u.Username, "stack.import", st.Name, path)
-		writeJSON(w, http.StatusOK, map[string]string{"name": st.Name, "from": path, "note": "Imported. The running containers keep working; the next up/down from Islet uses the managed copy, so remove the old file from your own automation."})
+		// Domains the stack already serves through Traefik labels become
+		// Islet domains pointing at the same containers.
+		var added []string
+		if routes := docker.ExtractRoutes(string(compose)); len(routes) > 0 && s.proxy != nil {
+			existing := map[string]bool{}
+			if doms, err := s.proxy.Domains(r.Context()); err == nil {
+				for _, d := range doms {
+					existing[d.Host+d.PathPrefix] = true
+				}
+			}
+			for _, rt := range routes {
+				if existing[rt.Host+rt.Prefix] {
+					continue
+				}
+				container := st.Name + "-" + rt.Service + "-1"
+				_ = s.proxy.Connect(r.Context(), u.Username, container)
+				tls := "letsencrypt"
+				if !rt.TLS {
+					tls = "none"
+				}
+				d := &proxy.Domain{Host: rt.Host, PathPrefix: rt.Prefix, TargetType: "container", Target: container, Port: rt.Port, TLS: tls, Enabled: true}
+				if _, err := s.proxy.Save(r.Context(), u.Username, d); err == nil {
+					added = append(added, rt.Host+rt.Prefix)
+				}
+			}
+		}
+		note := "Imported. The running containers keep working; the next up/down from Islet uses the managed copy, so remove the old file from your own automation."
+		if len(added) > 0 {
+			note += " Domains found in Traefik labels were added: " + strings.Join(added, ", ") + "; check their TLS setting."
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"name": st.Name, "from": path, "note": note, "domains": added})
 		return
 	}
 	writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no Compose project with that name"})

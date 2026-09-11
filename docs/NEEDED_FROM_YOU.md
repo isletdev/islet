@@ -30,6 +30,8 @@ Everything host-level was written for Ubuntu and Debian but could only be exerci
 - [ ] **Runners:** create a GitHub personal access token (classic, `repo`) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`. I could only verify the pool logic, webhooks and the workflow generator without credentials. Same for GitLab and Gitea if you use them.
 - [ ] **Backups off-site:** add an S3 (R2 or B2) or SFTP (Storage Box) destination and run a plan; local-path repositories are verified, remote ones are not.
 - [ ] **Hetzner API token** (read/write, project-scoped) if you want the e2e job in CI to create and destroy throwaway servers automatically.
+- [ ] **Load test on the small box:** `hack/loadtest.sh -n 30 -k admin '<password>'` on a 1 vCPU / 2 GB VPS and paste the table. Target: every p95 under 500 ms.
+- [ ] **First tagged release:** `git tag v0.1.0 && git push --tags` once the signing secret is in place; the workflow also produces a cosign bundle and SLSA attestations, so check the release page shows `checksums.txt.cosign.bundle`.
 
 ## Legal and billing (not urgent)
 

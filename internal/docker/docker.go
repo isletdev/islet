@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isletdev/islet/internal/cmdrun"
@@ -39,6 +40,45 @@ func checkName(n string) error {
 type Service struct {
 	run       *cmdrun.Runner
 	stacksDir string
+
+	// docker stats --no-stream takes about two seconds (it samples twice);
+	// the list view serves the last reading and refreshes it in the background.
+	statsMu   sync.Mutex
+	statsAt   time.Time
+	statsRows map[string]statsRow
+	statsBusy bool
+}
+
+const statsMaxAge = 10 * time.Second
+
+// cachedStats returns the last stats reading and refreshes it when stale.
+func (s *Service) cachedStats(actor string) map[string]statsRow {
+	s.statsMu.Lock()
+	rows := s.statsRows
+	stale := time.Since(s.statsAt) > statsMaxAge && !s.statsBusy
+	if stale {
+		s.statsBusy = true
+	}
+	s.statsMu.Unlock()
+	if stale {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			fresh := map[string]statsRow{}
+			if r2, err := s.run.Run(ctx, actor, "docker", "stats", "--no-stream", "--format", "{{json .}}"); err == nil {
+				for _, line := range lines(r2.Stdout) {
+					var st statsRow
+					if json.Unmarshal([]byte(line), &st) == nil {
+						fresh[st.Name] = st
+					}
+				}
+			}
+			s.statsMu.Lock()
+			s.statsRows, s.statsAt, s.statsBusy = fresh, time.Now(), false
+			s.statsMu.Unlock()
+		}()
+	}
+	return rows
 }
 
 // New builds the service. stacksDir holds Compose files for managed stacks.
@@ -103,15 +143,7 @@ func (s *Service) Containers(ctx context.Context, actor string) ([]Container, er
 	if err != nil {
 		return nil, err
 	}
-	stats := map[string]statsRow{}
-	if r2, err := s.run.Run(ctx, actor, "docker", "stats", "--no-stream", "--format", "{{json .}}"); err == nil {
-		for _, line := range lines(r2.Stdout) {
-			var st statsRow
-			if json.Unmarshal([]byte(line), &st) == nil {
-				stats[st.Name] = st
-			}
-		}
-	}
+	stats := s.cachedStats(actor)
 	out := []Container{}
 	for _, line := range lines(res.Stdout) {
 		var p psRow
@@ -572,20 +604,50 @@ func (s *Service) Stacks(ctx context.Context, actor string) ([]Stack, error) {
 			byName[e.Name()] = sk
 		}
 	}
-	if res, err := s.run.Run(ctx, actor, "docker", "compose", "ls", "-a", "--format", "json"); err == nil {
-		var rows []struct{ Name, Status, ConfigFiles string }
-		if json.Unmarshal([]byte(res.Stdout), &rows) == nil {
-			for _, r := range rows {
-				st, ok := byName[r.Name]
-				if !ok {
-					st = &Stack{Name: r.Name, Path: r.ConfigFiles}
-					byName[r.Name] = st
-				}
-				st.Status = r.Status
-				if n, ok := strings.CutPrefix(r.Status, "running("); ok {
-					st.Services = atoi(strings.TrimSuffix(n, ")"))
-				}
+	// One docker ps instead of docker compose ls: the same information
+	// (project, state, config files) from labels, in a tenth of the time.
+	if res, err := s.run.Run(ctx, actor, "docker", "ps", "-a", "--filter", "label=com.docker.compose.project", "--format", `{{.Label "com.docker.compose.project"}}|{{.State}}|{{.Label "com.docker.compose.project.config_files"}}`); err == nil {
+		type agg struct {
+			running, total int
+			files          string
+		}
+		projects := map[string]*agg{}
+		order := []string{}
+		for _, line := range lines(res.Stdout) {
+			parts := strings.SplitN(line, "|", 3)
+			if len(parts) != 3 || parts[0] == "" {
+				continue
 			}
+			a, ok := projects[parts[0]]
+			if !ok {
+				a = &agg{}
+				projects[parts[0]] = a
+				order = append(order, parts[0])
+			}
+			a.total++
+			if parts[1] == "running" {
+				a.running++
+			}
+			if a.files == "" {
+				a.files = parts[2]
+			}
+		}
+		for _, name := range order {
+			a := projects[name]
+			st, ok := byName[name]
+			if !ok {
+				st = &Stack{Name: name, Path: a.files}
+				byName[name] = st
+			}
+			switch {
+			case a.running == a.total:
+				st.Status = fmt.Sprintf("running(%d)", a.total)
+			case a.running > 0:
+				st.Status = fmt.Sprintf("running(%d), exited(%d)", a.running, a.total-a.running)
+			default:
+				st.Status = fmt.Sprintf("exited(%d)", a.total)
+			}
+			st.Services = a.running
 		}
 	}
 	out := make([]Stack, 0, len(byName))

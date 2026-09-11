@@ -115,3 +115,9 @@ A dump from a snapshot is restored to disk, a fresh engine is installed from the
 
 ## 2026-09-12 — Peer backups use restic's rest-server, append-only, private repos
 "Host backups for another Islet server" runs `restic/rest-server` as a stack with a bcrypt htpasswd, `--append-only` (a compromised peer cannot delete its history) and `--private-repos` (each user only sees its own path). The credentials are shown once in the panel and the endpoint is an ordinary routed domain.
+
+## 2026-09-12 — Container stats are cached, stack status comes from docker ps
+`docker stats --no-stream` waits for two samples and took two seconds per list request; `docker compose ls` took three. The list now serves the last stats reading (refreshed in the background, at most every ten seconds) and derives stack status from one `docker ps` over Compose labels. Measured with 38 containers: 2.0 s to 175 ms and 3.2 s to 100 ms.
+
+## 2026-09-12 — DCO instead of a CLA, two signatures on releases
+Contributors keep their copyright and sign off commits (Developer Certificate of Origin), checked by a small workflow rather than a bot that needs installing. Releases carry Islet's own Ed25519 signature (what the updater checks) plus a keyless cosign signature and SLSA provenance, so anyone can verify a download with standard tools even if they distrust the embedded key.

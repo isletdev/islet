@@ -14,8 +14,9 @@ builds:
     goos: [linux]
     goarch: [amd64, arm64]
     flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
-      - -s -w
+      - -s -w -buildid=
       - -X github.com/isletdev/islet/internal/version.Version={{ .Version }}
       - -X github.com/isletdev/islet/internal/version.Commit={{ .ShortCommit }}
       - -X github.com/isletdev/islet/internal/version.Date={{ .Date }}

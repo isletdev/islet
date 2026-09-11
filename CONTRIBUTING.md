@@ -25,6 +25,10 @@ The UI is embedded at build time: `pnpm build` in `web/app`, then copy `web/app/
 - Keep dependencies minimal. The daemon must stay a single static binary that runs on a 1 vCPU, 1 GB server.
 - No attribution trailers in commits.
 
+## Certifying your contribution
+
+Islet uses the Developer Certificate of Origin (developercertificate.org) instead of a CLA: you keep your copyright and certify that you have the right to submit the change. Sign each commit with `git commit -s`, which adds a `Signed-off-by: Name <email>` line; the `dco` check on every pull request looks for it. Forgot? `git rebase --signoff main` and force-push your branch.
+
 ## Licence
 
-Contributions are licensed under the repository licence (AGPL-3.0 for the core). By submitting a pull request you agree to that.
+Contributions are licensed under the repository licence (AGPL-3.0 for the core). By submitting a pull request you agree to that. The name and logo are covered by `TRADEMARK.md`.

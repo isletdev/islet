@@ -49,7 +49,7 @@ export interface Session {
 export interface Sample {
   ts: string; cpuPct: number; load1: number; load5: number; load15: number;
   memUsed: number; memTotal: number; swapUsed: number; swapTotal: number;
-  diskUsed: number; diskTotal: number; netRx: number; netTx: number;
+  diskUsed: number; diskTotal: number; netRx: number; netTx: number; ifaces?: { name: string; rx: number; tx: number }[];
 }
 
 export interface Point {

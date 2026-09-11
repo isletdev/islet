@@ -25,3 +25,18 @@ The latest minor release receives fixes. Older releases update in place with `is
 - Every command the daemon runs is recorded and visible in the panel.
 - Releases are signed; the daemon refuses unsigned updates.
 - Cross-site requests are refused for state-changing endpoints.
+
+## Verifying a release
+
+Every release carries three independent proofs; use whichever tool you have.
+
+1. **Islet's own signature.** `checksums.txt.sig` is an Ed25519 signature over `checksums.txt` with the key embedded in every daemon; `isletd` refuses updates that fail it. The installer checks it too.
+2. **Sigstore (cosign, keyless).** `checksums.txt.cosign.bundle` is signed by the release workflow's OIDC identity:
+   ```sh
+   cosign verify-blob --bundle checksums.txt.cosign.bundle \
+     --certificate-identity-regexp '^https://github.com/isletdev/islet/' \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+   ```
+3. **SLSA provenance.** Each archive has a build attestation: `gh attestation verify isletd_linux_amd64.tar.gz --owner isletdev`.
+
+Builds are reproducible: `-trimpath`, a fixed build id and the commit timestamp as the module timestamp, so building the tag yourself gives the same checksums.

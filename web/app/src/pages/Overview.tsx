@@ -107,6 +107,7 @@ export default function Overview() {
         </Tile>
         <Tile label="Network" value={latest ? rate(latest.netRx + latest.netTx) : "–"} sub={latest ? `↓ ${rate(latest.netRx)} · ↑ ${rate(latest.netTx)}` : ""}>
           <Sparkline points={series.net} format={rate} />
+          {latest?.ifaces && latest.ifaces.length > 1 && <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-ink-muted">{latest.ifaces.map((i) => <li key={i.name} className="flex justify-between"><span>{i.name}</span><span>↓ {rate(i.rx)} · ↑ {rate(i.tx)}</span></li>)}</ul>}
         </Tile>
       </div>
 

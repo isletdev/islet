@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,14 @@ type Sample struct {
 	DiskTotal uint64    `json:"diskTotal"`
 	NetRx     uint64    `json:"netRx"` // bytes per second
 	NetTx     uint64    `json:"netTx"`
+	Ifaces    []Iface   `json:"ifaces,omitempty"` // per interface, busiest first; not stored in history
+}
+
+// Iface is one network interface's current throughput.
+type Iface struct {
+	Name string `json:"name"`
+	Rx   uint64 `json:"rx"` // bytes per second
+	Tx   uint64 `json:"tx"`
 }
 
 // Collector reads the host. It is safe for concurrent use.
@@ -44,6 +53,7 @@ type Collector struct {
 	rootPath string
 	lastNet  *gnet.IOCountersStat
 	lastAt   time.Time
+	lastPer  map[string]gnet.IOCountersStat
 }
 
 // NewCollector prepares a collector. The first CPU and network readings need
@@ -66,6 +76,7 @@ func (c *Collector) Collect(ctx context.Context) Sample {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
+	prevAt := c.lastAt
 	s := Sample{TS: now.UTC().Truncate(time.Second)}
 
 	if pct, err := cpu.PercentWithContext(ctx, 0, false); err == nil && len(pct) > 0 {
@@ -93,6 +104,26 @@ func (c *Collector) Collect(ctx context.Context) Sample {
 			}
 		}
 		c.lastNet, c.lastAt = &cur, now
+	}
+	if per, err := gnet.IOCountersWithContext(ctx, true); err == nil {
+		dt := now.Sub(prevAt).Seconds()
+		next := make(map[string]gnet.IOCountersStat, len(per))
+		for _, p := range per {
+			next[p.Name] = p
+			if p.Name == "lo" || strings.HasPrefix(p.Name, "veth") || strings.HasPrefix(p.Name, "br-") || p.Name == "docker0" {
+				continue
+			}
+			prev, ok := c.lastPer[p.Name]
+			if !ok || dt <= 0 || (p.BytesRecv == 0 && p.BytesSent == 0) {
+				continue
+			}
+			s.Ifaces = append(s.Ifaces, Iface{Name: p.Name, Rx: uint64(float64(p.BytesRecv-prev.BytesRecv) / dt), Tx: uint64(float64(p.BytesSent-prev.BytesSent) / dt)})
+		}
+		c.lastPer = next
+		sort.Slice(s.Ifaces, func(i, j int) bool { return s.Ifaces[i].Rx+s.Ifaces[i].Tx > s.Ifaces[j].Rx+s.Ifaces[j].Tx })
+		if len(s.Ifaces) > 6 {
+			s.Ifaces = s.Ifaces[:6]
+		}
 	}
 	return s
 }

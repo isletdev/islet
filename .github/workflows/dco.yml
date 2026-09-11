@@ -1,0 +1,36 @@
+name: dco
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    name: Developer Certificate of Origin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every commit carries a Signed-off-by line
+        run: |
+          set -eu
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for sha in $(git rev-list "$base".."$head"); do
+            if ! git log -1 --format=%B "$sha" | grep -qi '^Signed-off-by: .\+<.\+@.\+>'; then
+              echo "::error::commit $(git log -1 --format='%h %s' "$sha") has no Signed-off-by line"
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo
+            echo 'Sign your commits with `git commit -s` (see CONTRIBUTING.md, "Certifying your contribution").'
+            echo 'To fix existing commits: `git rebase --signoff <base>` and force-push the branch.'
+            exit 1
+          fi
+          echo "All commits are signed off."

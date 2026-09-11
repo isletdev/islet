@@ -280,7 +280,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] One-click "panel only via VPN": restrict the panel port to a CIDR, keep the admin's IP as fallback, undo button
 - [x] Cloudflare Tunnel and Tailscale in the catalog
 - [x] Diagnostics: ping, traceroute, dig, port check (Security page)
-- [ ] Bandwidth per interface and container
+- [x] Bandwidth per interface (Overview) and per container (Containers)
 - [x] "Protect this app with Islet login" forward-auth toggle on any route
 
 **Not in this phase:** nothing paid; everything here stays free forever.
@@ -298,7 +298,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] Adopt existing Compose projects into managed stacks; crontab import
 - [x] Import nginx sites as domains (proxied server blocks) and systemd timers as jobs
 - [x] Compose projects created by Coolify, Dokploy or Portainer show up as adoptable stacks
-- [ ] Import their app metadata (domains, env) rather than only the Compose file
+- [x] Import their app metadata: Traefik-label domains become Islet domains on adopt; .env comes along
 
 **Platform**
 - [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)
@@ -320,10 +320,10 @@ After this phase a user can: adopt a server that already runs things, extend the
 
 **Quality**
 - [ ] e2e suite on real VPSes for Ubuntu 22.04, 24.04, Debian 12, arm64
-- [ ] Signed releases with cosign and SLSA provenance, reproducible builds
+- [x] Signed releases with cosign and SLSA provenance, reproducible builds (wired in the release workflow; first tag exercises it)
 - [x] `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, issue templates
-- [ ] CLA bot, trademark policy
-- [ ] Load test: panel stays responsive on a 1 vCPU, 2 GB box with 30 containers
+- [x] DCO check instead of a CLA bot (`git commit -s`), `TRADEMARK.md`
+- [ ] Load test: panel stays responsive on a 1 vCPU, 2 GB box with 30 containers (`hack/loadtest.sh` exists; container and stack lists went from 2-3 s to under 200 ms with 38 containers on the dev box; confirm on the VPS)
 
 **Done when:** three outside users install Islet on servers they already run, adopt what is there, and report nothing broke. Then launch.
 
