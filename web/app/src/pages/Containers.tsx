@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
-import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack } from "@/lib/api";
+import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack, type Registry } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import TermView from "@/components/TermView";
@@ -311,6 +311,27 @@ function Stacks() {
 
 // ---- images, volumes, networks ----
 
+function Registries() {
+  const [list, setList] = useState<Registry[]>([]);
+  const [f, setF] = useState({ host: "ghcr.io", username: "", password: "" });
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () => api.registries().then(setList).catch(() => {});
+  useEffect(() => { void load(); }, []);
+  const login = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.registryLogin(f); setF({ ...f, password: "" }); setMsg(`Logged in to ${f.host}.`); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  return (
+    <Card title="Registry logins" description="For private images on Docker Hub, GHCR, GitLab or your own registry. Applied with docker login, so pulls and deploys use them automatically.">
+      <ul className="divide-y divide-border text-sm">{list.map((r) => <li key={r.host} className="flex items-center justify-between py-1.5"><span><span className="font-mono">{r.host}</span> <span className="text-xs text-ink-muted">as {r.username}</span></span><button type="button" onClick={async () => { await api.registryLogout(r.host); await load(); }} className="text-xs text-danger hover:underline">Log out</button></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No logins yet.</li>}</ul>
+      <form onSubmit={login} className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <Input value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} className="w-44 font-mono" placeholder="ghcr.io" />
+        <Input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} className="w-40" placeholder="username" required autoComplete="off" />
+        <Input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} className="w-56" placeholder="password or token" required autoComplete="off" />
+        <Button type="submit" className="h-9 text-xs">Log in</Button>
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      </form>
+    </Card>
+  );
+}
+
 function Images() {
   const { rows, err, refresh } = useList<DockerImage>(api.images, 15000);
   const [ref, setRef] = useState("");
@@ -328,6 +349,7 @@ function Images() {
       {err && <Alert>{err}</Alert>}
       <form onSubmit={pull} className="flex gap-2"><Input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="ghcr.io/org/image:tag" className="max-w-md" required /><Button type="submit" disabled={busy}>Pull</Button></form>
       {out && <pre className="max-h-48 overflow-auto rounded-lg border border-border bg-code-bg p-3 font-mono text-xs text-code-fg">{out.join("\n") || "…"}</pre>}
+      <Registries />
       <div className="rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2.5 font-medium">Image</th><th className="py-2.5 font-medium">Tag</th><th className="py-2.5 font-medium">Size</th><th className="py-2.5 font-medium">Created</th><th className="py-2.5 pr-4 text-right"></th></tr></thead>
@@ -382,7 +404,7 @@ function Volumes() {
         <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2.5 font-medium">Name</th><th className="py-2.5 font-medium">Stack</th><th className="py-2.5 font-medium">Size</th><th className="py-2.5 font-medium">Mountpoint</th><th className="py-2.5 pr-4 text-right"></th></tr></thead>
         <tbody className="divide-y divide-border">
           {rows.map((v) => (
-            <tr key={v.name}><td className="px-4 py-2 font-mono text-xs">{v.name}{!v.inUse && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">unused</span>}</td><td className="py-2 text-ink-muted">{v.stack}</td><td className="py-2 font-mono text-xs tabular-nums">{v.size}</td><td className="max-w-[30ch] truncate py-2 font-mono text-xs text-ink-muted">{v.mountpoint}</td><td className="py-2 pr-4 text-right">{!v.inUse && <Act onClick={() => remove(v.name)} danger>Delete</Act>}</td></tr>
+            <tr key={v.name}><td className="px-4 py-2 font-mono text-xs">{v.name}{!v.inUse && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">unused</span>}</td><td className="py-2 text-ink-muted">{v.stack}</td><td className="py-2 font-mono text-xs tabular-nums">{v.size}</td><td className="max-w-[30ch] truncate py-2 font-mono text-xs text-ink-muted">{v.mountpoint.startsWith("/") ? <Link to={`/files?path=${encodeURIComponent(v.mountpoint)}`} className="hover:text-ink hover:underline" title="Browse in Files">{v.mountpoint}</Link> : v.mountpoint}</td><td className="py-2 pr-4 text-right">{!v.inUse && <Act onClick={() => remove(v.name)} danger>Delete</Act>}</td></tr>
           ))}
           {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-ink-muted">No volumes.</td></tr>}
         </tbody>

@@ -54,7 +54,7 @@ After this phase a user can: manage every container, paste a Compose file and ru
 - [x] Exec terminal into any container
 - [x] Images: list, pull, remove, dangling detection; volumes and networks: list, inspect, remove
 - [x] Compose stacks: create from pasted YAML, validate, up, down, pull and redeploy, edit in place
-- [ ] Registry logins (Docker Hub, GHCR, GitLab, private)
+- [x] Registry logins (Docker Hub, GHCR, GitLab, private), stored encrypted and applied with docker login
 - [x] Resource limits and restart policy editor
 - [x] Prune with a disk-usage preview of what is reclaimable
 
@@ -67,7 +67,7 @@ After this phase a user can: manage every container, paste a Compose file and ru
 - [x] CodeMirror editor with syntax highlighting and Ctrl+S (diff on save and config validation pending); chosen over Monaco for bundle size
 - [x] Image preview and tail view for large files (PDF, Markdown and CSV previews pending)
 - [x] Search by name and by content
-- [ ] Docker volumes shown as browsable folders
+- [x] Docker volumes link into the file explorer at their mount point
 - [x] Protected paths need typed confirmation, every write audited
 
 **Disk Doctor**
@@ -125,7 +125,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [ ] PgBouncer toggle
 - [ ] Embedded Adminer, pgweb and RedisInsight sessions (Adminer is in the catalog; deep links pending)
 - [x] Dump now, scheduled dumps to local disk as an editable cron job, retention, restore into any database, download
-- [ ] Dumps to S3-compatible storage (with backups, v0.6)
+- [x] Dumps reach S3-compatible storage through backup plans (database sources are dumped into the restic repository)
 - [x] Connection count, size, uptime and slow query view (pg_stat_statements)
 
 **Cron and task runner**
@@ -152,7 +152,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 **Alerts and uptime**
 - [x] Default alert rules: disk over 85%, memory pressure, CPU saturation, container exit/OOM/crash loop, cert expiring, failed logins, update available
 - [x] Alert rules for cron failed and heartbeat missed, with recovery
-- [ ] Alert rule for backup failed (wired when backups land)
+- [x] Alert rules for backup failed and backup stale
 - [x] HTTP, TCP and keyword uptime checks from the server, with latency history and down/recovery events
 
 **Not in this phase:** git deploys, runners, security suite.
@@ -236,14 +236,15 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Listening ports correlated to the container publishing them
 
 **Audit and scanning**
-- [ ] Lynis audit on a schedule with score trend
+- [x] Lynis audit on demand with the hardening index in the Security Score and a stored history
+- [ ] Lynis on a schedule
 - [x] Trivy image scanning (in a container), stored results with critical and high findings, events on criticals
 - [ ] Filesystem scans, findings on the container page
 - [ ] rkhunter, file integrity monitoring on `/etc`, SUID and world-writable audits
 - [x] Auth log viewer (Logs → SSH logins)
 - [ ] Login-from-new-country alert
 - [x] Pending security updates and reboot-required in the score
-- [ ] Kernel livepatch status
+- [x] Kernel livepatch status (when canonical-livepatch is installed)
 - [x] Panic button: block all inbound except the current IP, revoke every other session and all API tokens
 
 **Backups** (full spec in `VISION.md` section 3.16)
@@ -252,7 +253,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [ ] "Another Islet server" as a one-click destination (rest-server hosted by Islet)
 - [x] Presets ("Everything nightly", "Databases hourly", "Config weekly") and a nudge while no plan exists
 - [x] Recovery kit download (repositories, keys, credentials, restore instructions)
-- [ ] Forced download on first setup and quarterly reminders
+- [x] Recovery kit banner until downloaded, daily reminder event while missing, quarterly reminder after
 - [x] Retention in plain English with the maximum snapshot count
 - [ ] Size and monthly cost estimate
 - [x] Consistency: automatic pre-snapshot database dumps
@@ -272,7 +273,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 
 **Networking and access**
 - [x] WireGuard (wg-easy) in the catalog with QR onboarding; "panel only via VPN" via a firewall rule (documented in the app notes)
-- [ ] One-click "panel only via VPN" toggle
+- [x] One-click "panel only via VPN": restrict the panel port to a CIDR, keep the admin's IP as fallback, undo button
 - [x] Cloudflare Tunnel and Tailscale in the catalog
 - [x] Diagnostics: ping, traceroute, dig, port check (Security page)
 - [ ] Bandwidth per interface and container

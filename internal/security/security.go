@@ -261,6 +261,21 @@ func (s *Service) Report(ctx context.Context) Report {
 			st, detail = "warn", "A kernel or core library update is waiting for a reboot."
 		}
 		add(Check{ID: "reboot", Title: "No reboot pending", Detail: detail, Weight: 2, Status: st})
+		if has("canonical-livepatch") {
+			st, detail := "warn", "Livepatch is installed but not enabled."
+			if out, _ := s.sh(ctx, "system", "canonical-livepatch", "status"); strings.Contains(out, "running: true") || strings.Contains(out, "state: applied") || strings.Contains(out, "checkState: checked") {
+				st, detail = "pass", "Kernel livepatch is active; kernel fixes apply without a reboot."
+			}
+			add(Check{ID: "livepatch", Title: "Kernel livepatch", Detail: detail, Weight: 1, Status: st})
+		}
+		if v, _, _ := s.st.Setting(ctx, "security.lynis_score"); v != "" {
+			st := "warn"
+			n, _ := strconv.Atoi(v)
+			if n >= 70 {
+				st = "pass"
+			}
+			add(Check{ID: "lynis", Title: "Lynis hardening index", Detail: "Last audit scored " + v + "/100.", Weight: 3, Status: st, FixNote: "Security → Run Lynis audit"})
+		}
 		// Sudo user
 		st = "fail"
 		if out, err := os.ReadFile("/etc/group"); err == nil {
@@ -680,6 +695,81 @@ func (s *Service) restoreSSHD(prev []byte) {
 		return
 	}
 	_ = os.WriteFile(s.sshdPath, prev, 0o644)
+}
+
+// RestrictPanel allows the panel port only from a CIDR (a VPN range),
+// dropping the public rule. An empty cidr restores public access.
+func (s *Service) RestrictPanel(ctx context.Context, actor, cidr, clientIP string) error {
+	if runtime.GOOS != "linux" || !has("ufw") {
+		return errors.New("needs ufw on a Linux server")
+	}
+	if cidr != "" {
+		if !regexp.MustCompile(`^[0-9a-fA-F.:]+/\d{1,3}$`).MatchString(cidr) {
+			return errors.New("cidr must look like 10.8.0.0/24 or 100.64.0.0/10")
+		}
+		if _, err := s.sh(ctx, actor, "ufw", "allow", "from", cidr, "to", "any", "port", "9443", "proto", "tcp", "comment", "Islet panel via VPN"); err != nil {
+			return err
+		}
+		if clientIP != "" {
+			_, _ = s.sh(ctx, actor, "ufw", "allow", "from", clientIP, "to", "any", "port", "9443", "proto", "tcp", "comment", "Islet panel current admin")
+		}
+		_, _ = s.sh(ctx, actor, "ufw", "delete", "allow", "9443/tcp")
+		_ = s.st.SetSetting(ctx, "security.panel_cidr", cidr)
+	} else {
+		if _, err := s.sh(ctx, actor, "ufw", "allow", "9443/tcp", "comment", "Islet panel"); err != nil {
+			return err
+		}
+		if prev, _, _ := s.st.Setting(ctx, "security.panel_cidr"); prev != "" {
+			_, _ = s.sh(ctx, actor, "ufw", "delete", "allow", "from", prev, "to", "any", "port", "9443", "proto", "tcp")
+		}
+		_ = s.st.SetSetting(ctx, "security.panel_cidr", "")
+	}
+	_ = s.st.Audit(ctx, actor, "firewall.panel", cidr, "")
+	return nil
+}
+
+// PanelCIDR returns the VPN range the panel is restricted to, if any.
+func (s *Service) PanelCIDR(ctx context.Context) string {
+	v, _, _ := s.st.Setting(ctx, "security.panel_cidr")
+	return v
+}
+
+// Lynis installs lynis if needed, runs a quick system audit and records
+// the hardening index. Returns the report tail.
+func (s *Service) Lynis(ctx context.Context, actor string) (string, int, error) {
+	if runtime.GOOS != "linux" {
+		return "", 0, errors.New("Lynis runs on Linux servers only")
+	}
+	if !has("lynis") {
+		if _, err := s.aptInstall(ctx, actor, "lynis"); err != nil {
+			return "", 0, err
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	out, err := s.sh(cctx, actor, "lynis", "audit", "system", "--quick", "--no-colors", "--quiet")
+	if err != nil && out == "" {
+		return "", 0, err
+	}
+	score := 0
+	if m := regexp.MustCompile(`Hardening index : (\d+)`).FindStringSubmatch(out); m != nil {
+		score, _ = strconv.Atoi(m[1])
+	} else if b, err := os.ReadFile("/var/log/lynis.log"); err == nil {
+		if m := regexp.MustCompile(`Hardening index : \[(\d+)\]`).FindSubmatch(b); m != nil {
+			score, _ = strconv.Atoi(string(m[1]))
+		}
+	}
+	if score > 0 {
+		prev, _, _ := s.st.Setting(ctx, "security.lynis_history")
+		_ = s.st.SetSetting(ctx, "security.lynis_score", strconv.Itoa(score))
+		_ = s.st.SetSetting(ctx, "security.lynis_history", strings.TrimLeft(prev+","+time.Now().UTC().Format("2006-01-02")+":"+strconv.Itoa(score), ","))
+	}
+	_ = s.st.Audit(ctx, actor, "security.lynis", strconv.Itoa(score), "")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) > 80 {
+		lines = lines[len(lines)-80:]
+	}
+	return strings.Join(lines, "\n"), score, nil
 }
 
 // ---- Trivy ----

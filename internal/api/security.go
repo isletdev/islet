@@ -28,6 +28,7 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request) {
 		"banned":      s.security.BannedIPs(r.Context()),
 		"scans":       s.security.Scans(),
 		"clientIp":    clientIP(r),
+		"panelCidr":   s.security.PanelCIDR(r.Context()),
 	})
 }
 
@@ -127,6 +128,34 @@ func (s *Server) handleScanImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, sc)
+}
+
+func (s *Server) handlePanelRestrict(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	var req struct{ CIDR string }
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	if err := s.security.RestrictPanel(r.Context(), userFrom(r.Context()).Username, req.CIDR, clientIP(r)); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "firewall", Message: err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleLynis(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	out, score, err := s.security.Lynis(r.Context(), userFrom(r.Context()).Username)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "lynis", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"score": score, "output": out})
 }
 
 // handlePanic locks the server down to the caller's IP and rotates every

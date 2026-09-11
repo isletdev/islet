@@ -129,14 +129,15 @@ export interface SecReport { score: number; max: number; checks: SecCheck[]; lin
 export interface FirewallRule { port: string; proto: string; from: string; comment: string }
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
 export interface Scan { target: string; at: string; critical: number; high: number; medium: number; low: number; findings: { id: string; package: string; version: string; fixed: string; severity: string; title: string }[]; error?: string; truncated?: boolean }
-export interface SecurityState { report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
+export interface SecurityState { panelCidr?: string; report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
 
 export interface BackupDestination { id: string; name: string; type: "s3" | "sftp" | "local" | "rest"; config: Record<string, string>; password?: string; lastCheck: string; checkOk: boolean; createdAt: string; repo: string }
 export interface BackupSource { type: "volume" | "path" | "database" | "islet"; value: string }
 export interface BackupPlan { id: string; name: string; destinationId: string; sources: BackupSource[]; schedule: string; keepDaily: number; keepWeekly: number; keepMonthly: number; keepYearly: number; enabled: boolean; nextRunAt: string; lastRunAt: string; lastStatus: string; createdAt: string; described: string; running: boolean; stale: boolean }
 export interface BackupRun { id: number; planId: string; trigger: string; status: string; snapshot: string; filesNew: number; filesChanged: number; bytesAdded: number; bytesTotal: number; log?: string; error: string; startedAt: string; finishedAt: string; durationMs: number }
 export interface Snapshot { id: string; time: string; paths: string[]; tags: string[]; size: number }
-export interface BackupOverview { destinations: BackupDestination[]; plans: BackupPlan[]; health: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; volumes: string[]; databases?: string[] }
+export interface Registry { host: string; username: string }
+export interface BackupOverview { kitDownloadedAt?: string; destinations: BackupDestination[]; plans: BackupPlan[]; health: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; volumes: string[]; databases?: string[] }
 
 export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
 
@@ -258,6 +259,11 @@ export const api = {
   planCancel: (id: string) => post<void>(`/api/v1/backups/plans/${id}/cancel`),
   planRuns: (id: string) => request<BackupRun[]>(`/api/v1/backups/plans/${id}/runs`),
   planRun: (id: string, run: number) => request<BackupRun>(`/api/v1/backups/plans/${id}/runs/${run}`),
+  registries: () => request<Registry[]>("/api/v1/docker/registries"),
+  registryLogin: (b: { host: string; username: string; password: string }) => post<void>("/api/v1/docker/registries", b),
+  registryLogout: (host: string) => post<void>(`/api/v1/docker/registries/${host}`, undefined, "DELETE"),
+  panelRestrict: (cidr: string) => post<void>("/api/v1/security/firewall/panel", { cidr }),
+  lynis: () => post<{ score: number; output: string }>("/api/v1/security/lynis"),
   security: () => request<SecurityState>("/api/v1/security"),
   securityFix: (id: string) => post<{ output: string }>(`/api/v1/security/fix/${id}`),
   firewallAllow: (b: { port: string; proto: string; from: string; comment: string }) => post<void>("/api/v1/security/firewall/rules", b),

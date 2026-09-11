@@ -45,6 +45,7 @@ export default function Backups() {
         </div>
         {isAdmin && o.destinations.length > 0 && <a href="/api/v1/backups/kit" className="text-sm text-ink-muted hover:text-ink">Download recovery kit</a>}
       </div>
+      {o.plans.length > 0 && !o.kitDownloadedAt && isAdmin && <Alert tone="warning">The recovery kit has never been downloaded. Without it, these encrypted backups are unreadable once this server is gone. <a href="/api/v1/backups/kit" className="underline">Download it now</a> and keep it somewhere else.</Alert>}
       {o.plans.length === 0 && <Alert tone="warning">No backup plan yet. Add a destination, then a plan. "Everything nightly" takes two minutes.</Alert>}
       {o.plans.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-4">

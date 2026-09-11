@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/isletdev/islet/internal/backup"
 	"github.com/isletdev/islet/pkg/api"
@@ -41,7 +42,8 @@ func (s *Server) handleBackupOverview(w http.ResponseWriter, r *http.Request) {
 	if plans == nil {
 		plans = []backup.Plan{}
 	}
-	out := map[string]any{"destinations": dests, "plans": plans, "health": s.backup.Health(r.Context()), "volumes": s.backup.VolumeNames(r.Context())}
+	kitAt, _, _ := s.store.Setting(r.Context(), "backup.kit_downloaded_at")
+	out := map[string]any{"destinations": dests, "plans": plans, "health": s.backup.Health(r.Context()), "volumes": s.backup.VolumeNames(r.Context()), "kitDownloadedAt": kitAt}
 	if s.db != nil {
 		if inst, err := s.db.List(r.Context(), userFrom(r.Context()).Username); err == nil {
 			names := []string{}
@@ -220,6 +222,7 @@ func (s *Server) handleRecoveryKit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit(r.Context(), userFrom(r.Context()).Username, "backup.kit", "", "downloaded")
+	_ = s.store.SetSetting(r.Context(), "backup.kit_downloaded_at", time.Now().UTC().Format(time.RFC3339))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=\"islet-recovery-kit.json\"")
 	_, _ = w.Write(kit)

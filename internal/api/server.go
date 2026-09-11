@@ -37,6 +37,7 @@ import (
 // Deps are the services the API exposes.
 type Deps struct {
 	Store    *store.Store
+	Keys     *auth.Keys
 	Auth     *auth.Service
 	Metrics  *metrics.Collector
 	Sampler  *metrics.Sampler
@@ -61,6 +62,7 @@ type Deps struct {
 // Server holds the dependencies handlers need.
 type Server struct {
 	store    *store.Store
+	keys     *auth.Keys
 	auth     *auth.Service
 	metrics  *metrics.Collector
 	sampler  *metrics.Sampler
@@ -86,7 +88,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
 	mux := http.NewServeMux()
 
@@ -216,6 +218,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/security/ssh", requireJSON(s.requireAuth(s.handleSSHApply)))
 	mux.HandleFunc("POST /api/v1/security/ssh/confirm", requireJSON(s.requireAuth(s.handleSSHConfirm)))
 	mux.HandleFunc("POST /api/v1/security/scan", requireJSON(s.requireAuth(s.handleScanImage)))
+	mux.HandleFunc("POST /api/v1/security/firewall/panel", requireJSON(s.requireAuth(s.handlePanelRestrict)))
+	mux.HandleFunc("POST /api/v1/security/lynis", requireJSON(s.requireAuth(s.handleLynis)))
 	mux.HandleFunc("POST /api/v1/security/panic", requireJSON(s.requireAuth(s.handlePanic)))
 
 	// Runners
@@ -289,6 +293,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/docker/containers/{id}/limits", requireJSON(s.requireAuth(s.handleContainerLimits)))
 	mux.HandleFunc("POST /api/v1/docker/containers/{id}/{action}", requireJSON(s.requireAuth(s.handleContainerAction)))
 	mux.HandleFunc("GET /api/v1/docker/images", s.requireAuth(s.handleImages))
+	mux.HandleFunc("GET /api/v1/docker/registries", s.requireAuth(s.handleRegistries))
+	mux.HandleFunc("POST /api/v1/docker/registries", requireJSON(s.requireAuth(s.handleRegistryLogin)))
+	mux.HandleFunc("DELETE /api/v1/docker/registries/{host}", requireJSON(s.requireAuth(s.handleRegistryLogout)))
 	mux.HandleFunc("POST /api/v1/docker/images/pull", requireJSON(s.requireAuth(s.handleImagePull)))
 	mux.HandleFunc("DELETE /api/v1/docker/images/{id}", requireJSON(s.requireAuth(s.handleImageRemove)))
 	mux.HandleFunc("GET /api/v1/docker/volumes", s.requireAuth(s.handleVolumes))

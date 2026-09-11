@@ -77,8 +77,20 @@ export default function Security() {
         </Card>
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
+      {isAdmin && r.linux && <LynisCard onChanged={load} />}
       <Diagnostics />
     </div>
+  );
+}
+
+function LynisCard({ onChanged }: { onChanged: () => Promise<void> }) {
+  const [out, setOut] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [score, setScore] = useState<number | null>(null);
+  const run = async () => { setBusy(true); setOut(null); try { const r = await api.lynis(); setScore(r.score); setOut(r.output); await onChanged(); } catch (e) { setOut(err(e)); } finally { setBusy(false); } };
+  return (
+    <Card title="Lynis audit" description="A full system audit by Lynis (installed on first run, takes a minute or two). The hardening index joins the Security Score.">
+      <div className="flex items-center gap-3"><Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void run()}>{busy ? "Auditing…" : "Run Lynis audit"}</Button>{score !== null && <span className="text-sm">Hardening index <span className="font-mono font-semibold">{score}</span>/100</span>}</div>
+      {out && <pre className="mt-3 max-h-72 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{out}</pre>}
+    </Card>
   );
 }
 
@@ -116,6 +128,7 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, busy }: { s: SecurityState
           <table className="w-full text-xs"><tbody className="divide-y divide-border">
             {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (confirm(`Remove the rule for ${r.port}?`)) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
           </tbody></table>
+          {isAdmin && <PanelRestrict cidr={s.panelCidr ?? ""} onChanged={onChanged} />}
           {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
             <Field label="Port"><Input value={port} onChange={(e) => setPort(e.target.value)} className="w-24 font-mono" placeholder="5432" required /></Field>
             <Field label="Proto"><select value={proto} onChange={(e) => setProto(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option>tcp</option><option>udp</option></select></Field>
@@ -127,6 +140,19 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, busy }: { s: SecurityState
         </>
       )}
     </Card>
+  );
+}
+
+function PanelRestrict({ cidr, onChanged }: { cidr: string; onChanged: () => Promise<void> }) {
+  const [v, setV] = useState(cidr); const [msg, setMsg] = useState<string | null>(null);
+  const apply = async (c: string) => { if (c && !confirm(`Allow the panel port only from ${c}? Make sure you are connected through that range first, or you lock yourself out (your current IP is kept as a fallback).`)) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+      <Field label="Panel only via VPN" hint="CIDR of your VPN: 10.8.0.0/24 for wg-easy, 100.64.0.0/10 for Tailscale."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>
+      <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply(v)} disabled={!v}>Restrict</Button>
+      {cidr && <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply("")}>Make public again</Button>}
+      {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+    </div>
   );
 }
 

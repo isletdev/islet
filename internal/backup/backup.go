@@ -163,6 +163,27 @@ func (s *Service) tick(ctx context.Context) {
 			s.bus.Emit(ctx, notify.Event{Category: "backup", Severity: notify.Warning, Title: "Backup stale: " + p.Name, Message: "The last successful backup is older than expected. Last: " + p.LastRunAt, Link: "/backups"})
 		}
 	}
+	// Recovery kit: nag once a day while it was never downloaded, and quarterly after.
+	if len(plans) > 0 {
+		kitAt, _, _ := s.st.Setting(ctx, "backup.kit_downloaded_at")
+		lastNag, _, _ := s.st.Setting(ctx, "backup.kit_nag_at")
+		due := kitAt == "" || func() bool {
+			t, err := time.Parse(time.RFC3339, kitAt)
+			return err == nil && time.Since(t) > 90*24*time.Hour
+		}()
+		nagged := func() bool {
+			t, err := time.Parse(time.RFC3339, lastNag)
+			return err == nil && time.Since(t) < 24*time.Hour
+		}()
+		if due && !nagged && s.bus != nil {
+			msg := "Download the recovery kit from the Backups page and keep it off this server; without it the encrypted backups cannot be read after the server is gone."
+			if kitAt != "" {
+				msg = "It has been three months since you saved the recovery kit. Download a fresh copy and check the old one still exists."
+			}
+			s.bus.Emit(ctx, notify.Event{Category: "backup", Severity: notify.Warning, Title: "Recovery kit reminder", Message: msg, Link: "/backups"})
+			_ = s.st.SetSetting(ctx, "backup.kit_nag_at", time.Now().UTC().Format(time.RFC3339))
+		}
+	}
 	// Weekly repository checks.
 	dests, _ := s.Destinations(ctx)
 	for _, d := range dests {
