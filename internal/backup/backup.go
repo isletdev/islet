@@ -69,6 +69,9 @@ type Plan struct {
 	KeepMonthly   int      `json:"keepMonthly"`
 	KeepYearly    int      `json:"keepYearly"`
 	Enabled       bool     `json:"enabled"`
+	PreCmd        string   `json:"preCmd"`  // host shell command before the snapshot
+	PostCmd       string   `json:"postCmd"` // host shell command after (ISLET_BACKUP_STATUS)
+	Pause         bool     `json:"pause"`   // stop containers using the volumes during the snapshot
 	NextRunAt     string   `json:"nextRunAt"`
 	LastRunAt     string   `json:"lastRunAt"`
 	LastStatus    string   `json:"lastStatus"`
@@ -445,15 +448,19 @@ func (p *Plan) Validate() error {
 	if p.KeepDaily < 0 || p.KeepWeekly < 0 || p.KeepMonthly < 0 || p.KeepYearly < 0 || p.KeepDaily+p.KeepWeekly+p.KeepMonthly+p.KeepYearly == 0 {
 		return errors.New("retention must keep at least one snapshot")
 	}
+	p.PreCmd, p.PostCmd = strings.TrimSpace(p.PreCmd), strings.TrimSpace(p.PostCmd)
+	if len(p.PreCmd) > 2000 || len(p.PostCmd) > 2000 {
+		return errors.New("hooks must be under 2000 characters; put longer logic in a script")
+	}
 	return nil
 }
 
-const planCols = `id, name, destination_id, sources, schedule, keep_daily, keep_weekly, keep_monthly, keep_yearly, enabled, next_run_at, last_run_at, last_status, created_at`
+const planCols = `id, name, destination_id, sources, schedule, keep_daily, keep_weekly, keep_monthly, keep_yearly, enabled, pre_cmd, post_cmd, pause, next_run_at, last_run_at, last_status, created_at`
 
 func scanPlan(sc interface{ Scan(...any) error }) (Plan, error) {
 	var p Plan
 	var src string
-	err := sc.Scan(&p.ID, &p.Name, &p.DestinationID, &src, &p.Schedule, &p.KeepDaily, &p.KeepWeekly, &p.KeepMonthly, &p.KeepYearly, &p.Enabled, &p.NextRunAt, &p.LastRunAt, &p.LastStatus, &p.CreatedAt)
+	err := sc.Scan(&p.ID, &p.Name, &p.DestinationID, &src, &p.Schedule, &p.KeepDaily, &p.KeepWeekly, &p.KeepMonthly, &p.KeepYearly, &p.Enabled, &p.PreCmd, &p.PostCmd, &p.Pause, &p.NextRunAt, &p.LastRunAt, &p.LastStatus, &p.CreatedAt)
 	if err != nil {
 		return p, err
 	}
@@ -533,8 +540,8 @@ func (s *Service) SavePlan(ctx context.Context, actor string, p *Plan) (*Plan, e
 	}
 	if p.ID == "" {
 		p.ID = randHex(6)
-		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO backup_plans (id, server_id, name, destination_id, sources, schedule, keep_daily, keep_weekly, keep_monthly, keep_yearly, enabled, next_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			p.ID, s.st.ServerID, p.Name, p.DestinationID, string(src), p.Schedule, p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly, p.Enabled, next)
+		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO backup_plans (id, server_id, name, destination_id, sources, schedule, keep_daily, keep_weekly, keep_monthly, keep_yearly, enabled, pre_cmd, post_cmd, pause, next_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.ID, s.st.ServerID, p.Name, p.DestinationID, string(src), p.Schedule, p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly, p.Enabled, p.PreCmd, p.PostCmd, p.Pause, next)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("a plan with that name already exists")
@@ -545,8 +552,8 @@ func (s *Service) SavePlan(ctx context.Context, actor string, p *Plan) (*Plan, e
 		if _, err := s.Plan(ctx, p.ID); err != nil {
 			return nil, err
 		}
-		if _, err := s.st.DB.ExecContext(ctx, `UPDATE backup_plans SET name = ?, destination_id = ?, sources = ?, schedule = ?, keep_daily = ?, keep_weekly = ?, keep_monthly = ?, keep_yearly = ?, enabled = ?, next_run_at = ? WHERE id = ?`,
-			p.Name, p.DestinationID, string(src), p.Schedule, p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly, p.Enabled, next, p.ID); err != nil {
+		if _, err := s.st.DB.ExecContext(ctx, `UPDATE backup_plans SET name = ?, destination_id = ?, sources = ?, schedule = ?, keep_daily = ?, keep_weekly = ?, keep_monthly = ?, keep_yearly = ?, enabled = ?, pre_cmd = ?, post_cmd = ?, pause = ?, next_run_at = ? WHERE id = ?`,
+			p.Name, p.DestinationID, string(src), p.Schedule, p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly, p.Enabled, p.PreCmd, p.PostCmd, p.Pause, next, p.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -707,7 +714,7 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 			fmt.Fprintln(w, l)
 		}
 	}
-	finish := func(status, snapshot, errMsg string, sum *summary) {
+	store := func(status, snapshot, errMsg string, sum *summary) {
 		var fn, fc, ba, bt int64
 		if sum != nil {
 			fn, fc, ba, bt = sum.FilesNew, sum.FilesChanged, sum.DataAdded, sum.TotalBytes
@@ -730,6 +737,21 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		}
 	}
 
+	var paused []string
+	finish := func(status, snapshot, errMsg string, sum *summary) {
+		for _, c := range paused {
+			say("[islet] starting " + c)
+			_, _ = s.run.Run(context.Background(), "backup", "docker", "start", c)
+		}
+		paused = nil
+		if p.PostCmd != "" {
+			say("[islet] post-hook: " + p.PostCmd)
+			if out, err := s.hook(context.Background(), p.PostCmd, "ISLET_BACKUP_STATUS="+status, "ISLET_BACKUP_PLAN="+p.Name, "ISLET_BACKUP_SNAPSHOT="+snapshot); err != nil {
+				say("  post-hook failed: " + lastLine(out))
+			}
+		}
+		store(status, snapshot, errMsg, sum)
+	}
 	say(fmt.Sprintf("[islet] backup plan %s → %s", p.Name, d.Repo))
 	// Stage: mounts for each source. Everything lands under /data inside the container.
 	var mounts []string
@@ -781,6 +803,18 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 	if len(mounts) == 0 {
 		finish("failed", "", "nothing to back up", nil)
 		return errors.New("nothing to back up")
+	}
+	if p.PreCmd != "" {
+		say("[islet] pre-hook: " + p.PreCmd)
+		if out, err := s.hook(rctx, p.PreCmd, "ISLET_BACKUP_PLAN="+p.Name); err != nil {
+			msg := "pre-hook failed: " + lastLine(out+" "+err.Error())
+			say("[islet] " + msg)
+			finish("failed", "", msg, nil)
+			return errors.New(msg)
+		}
+	}
+	if p.Pause {
+		paused = s.pause(rctx, p, say)
 	}
 	// Backup with JSON progress; the summary line carries the stats.
 	args, cleanup, err := s.resticArgs(d, mounts, nil)
@@ -967,7 +1001,7 @@ func (s *Service) Ls(ctx context.Context, actor, destID, snapshot, path string) 
 
 // Restore extracts part of a snapshot. Volume targets restore into a new
 // Docker volume; everything else lands under <data>/restore/<time>/.
-func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include, newVolume string) (string, error) {
+func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include, newVolume string, dryRun bool) (string, error) {
 	d, err := s.Destination(ctx, destID)
 	if err != nil {
 		return "", err
@@ -980,7 +1014,9 @@ func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include,
 	}
 	var mounts []string
 	target := ""
-	if newVolume != "" {
+	if dryRun {
+		target = "(dry run)"
+	} else if newVolume != "" {
 		if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`).MatchString(newVolume) {
 			return "", errors.New("invalid volume name")
 		}
@@ -1007,9 +1043,19 @@ func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include,
 		parent := inc[:strings.LastIndex(inc, "/")]
 		args = []string{"restore", snapshot + ":" + parent, "--include", "/" + inc[strings.LastIndex(inc, "/")+1:], "--target", "/restore"}
 	}
+	if dryRun {
+		args = append(args, "--dry-run", "--verbose=2")
+	}
 	out, err := s.restic(ctx, actor, d, mounts, args...)
 	if err != nil {
 		return "", errors.New(lastLine(out))
+	}
+	if dryRun {
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		if len(lines) > 200 {
+			lines = append(lines[:200], fmt.Sprintf("… %d more lines", len(lines)-200))
+		}
+		return strings.Join(lines, "\n"), nil
 	}
 	_ = s.st.Audit(ctx, actor, "backup.restore", snapshot, include+" → "+target)
 	return target, nil

@@ -254,20 +254,20 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 **Backups** (full spec in `VISION.md` section 3.16)
 - [x] restic-based backup plans: sources (volumes, host paths, database dumps, Islet state), destinations, schedule, retention; restic runs in a container
 - [x] Destinations: S3-compatible (AWS, R2, B2, Wasabi, Hetzner Object Storage, MinIO), SFTP and Hetzner Storage Box, local disk, restic REST server
-- [ ] "Another Islet server" as a one-click destination (rest-server hosted by Islet)
+- [x] "Another Islet server" as a one-click destination (rest-server hosted by Islet, append-only)
 - [x] Presets ("Everything nightly", "Databases hourly", "Config weekly") and a nudge while no plan exists
 - [x] Recovery kit download (repositories, keys, credentials, restore instructions)
 - [x] Recovery kit banner until downloaded, daily reminder event while missing, quarterly reminder after
 - [x] Retention in plain English with the maximum snapshot count
 - [x] Repository size after every run with a rough monthly cost
 - [x] Consistency: automatic pre-snapshot database dumps
-- [ ] Per-app pre and post hooks, pause-during-snapshot toggle
+- [x] Per-plan pre and post hooks, pause-during-snapshot toggle
 - [x] Progress and dedup stats (bytes added vs processed), per-run logs, resumable uploads (restic)
 - [ ] Bandwidth and IO limits
 - [x] Backup health summary on the Backups page, stale-backup and failure events through notifications, backup plan counted in the Security Score
 - [x] Backup health in the dashboard's attention strip
 - [x] Restore browser: single file or folder to disk, volume into a new volume
-- [ ] Database into a new instance, whole app, dry run
+- [x] Database into a new instance, dry run (whole app = restore its volume, then redeploy)
 - [ ] Full server restore from a fresh install using the recovery kit, also the migration path between providers
 - [x] Weekly integrity check (restic check with a data sample) and a "last verified" date
 - [x] Monthly automated restore test (pulls Islet state or a dump out of the latest snapshot into a scratch folder), with a manual button

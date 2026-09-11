@@ -133,10 +133,11 @@ export interface SecurityState { panelCidr?: string; report: SecReport; firewall
 
 export interface BackupDestination { id: string; name: string; type: "s3" | "sftp" | "local" | "rest"; config: Record<string, string>; password?: string; lastCheck: string; checkOk: boolean; size: number; lastRestoreTest: string; restoreTestOk: boolean; createdAt: string; repo: string }
 export interface BackupSource { type: "volume" | "path" | "database" | "islet"; value: string }
-export interface BackupPlan { id: string; name: string; destinationId: string; sources: BackupSource[]; schedule: string; keepDaily: number; keepWeekly: number; keepMonthly: number; keepYearly: number; enabled: boolean; nextRunAt: string; lastRunAt: string; lastStatus: string; createdAt: string; described: string; running: boolean; stale: boolean }
+export interface BackupPlan { id: string; name: string; destinationId: string; sources: BackupSource[]; schedule: string; keepDaily: number; keepWeekly: number; keepMonthly: number; keepYearly: number; enabled: boolean; preCmd?: string; postCmd?: string; pause?: boolean; nextRunAt: string; lastRunAt: string; lastStatus: string; createdAt: string; described: string; running: boolean; stale: boolean }
 export interface BackupRun { id: number; planId: string; trigger: string; status: string; snapshot: string; filesNew: number; filesChanged: number; bytesAdded: number; bytesTotal: number; log?: string; error: string; startedAt: string; finishedAt: string; durationMs: number }
 export interface Snapshot { id: string; time: string; paths: string[]; tags: string[]; size: number }
 export interface Registry { host: string; username: string }
+export interface BackupHost { domain: string; tls: string; user: string; password?: string; url: string }
 export interface BackupOverview { kitDownloadedAt?: string; destinations: BackupDestination[]; plans: BackupPlan[]; health: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string; lastRestoreTest: string; size: number }; volumes: string[]; databases?: string[] }
 
 export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
@@ -269,7 +270,11 @@ export const api = {
   destinationVerify: (id: string) => post<{ output: string }>(`/api/v1/backups/destinations/${id}/verify`),
   snapshots: (id: string, plan?: string) => request<Snapshot[]>(`/api/v1/backups/destinations/${id}/snapshots${plan ? `?plan=${encodeURIComponent(plan)}` : ""}`),
   snapshotLs: (id: string, snap: string, path: string) => request<{ path: string; name: string; type: string; size?: number; mtime?: string }[]>(`/api/v1/backups/destinations/${id}/snapshots/${snap}/ls?path=${encodeURIComponent(path)}`),
-  restore: (id: string, b: { snapshot: string; include: string; newVolume: string }) => post<{ target: string }>(`/api/v1/backups/destinations/${id}/restore`, b),
+  restore: (id: string, b: { snapshot: string; include: string; newVolume: string; dryRun?: boolean }) => post<{ target: string; dryRun: boolean }>(`/api/v1/backups/destinations/${id}/restore`, b),
+  restoreDatabase: (id: string, b: { snapshot: string; path: string; slug?: string; newInstance?: string }) => post<{ instance: string; database: string; internalUrl: string }>(`/api/v1/backups/destinations/${id}/restore-database`, b),
+  backupHost: () => request<BackupHost>("/api/v1/backups/host"),
+  backupHostSet: (domain: string, tls: string) => post<BackupHost>("/api/v1/backups/host", { domain, tls }),
+  backupHostRemove: () => post<void>("/api/v1/backups/host", undefined, "DELETE"),
   planSave: (p: Partial<BackupPlan>) => p.id ? post<BackupPlan>(`/api/v1/backups/plans/${p.id}`, p, "PUT") : post<BackupPlan>("/api/v1/backups/plans", p),
   planDelete: (id: string) => post<void>(`/api/v1/backups/plans/${id}`, undefined, "DELETE"),
   planCancel: (id: string) => post<void>(`/api/v1/backups/plans/${id}/cancel`),

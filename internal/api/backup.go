@@ -132,17 +132,20 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	if !s.adminOnly(w, r) {
 		return
 	}
-	var req struct{ Snapshot, Include, NewVolume string }
+	var req struct {
+		Snapshot, Include, NewVolume string
+		DryRun                       bool
+	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
-	target, err := s.backup.Restore(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"), req.Snapshot, req.Include, req.NewVolume)
+	target, err := s.backup.Restore(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"), req.Snapshot, req.Include, req.NewVolume, req.DryRun)
 	if err != nil {
 		s.backupErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"target": target})
+	writeJSON(w, http.StatusOK, map[string]any{"target": target, "dryRun": req.DryRun})
 }
 
 func (s *Server) handlePlanSave(w http.ResponseWriter, r *http.Request) {

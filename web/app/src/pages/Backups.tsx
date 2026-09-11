@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { api, RequestError, type BackupDestination, type BackupOverview, type BackupPlan, type BackupRun, type BackupSource, type Snapshot } from "@/lib/api";
+import { api, RequestError, type BackupDestination, type BackupHost, type BackupOverview, type BackupPlan, type BackupRun, type BackupSource, type Snapshot } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
@@ -81,9 +81,37 @@ export default function Backups() {
           {editPlan && <PlanForm initial={editPlan} o={o} onClose={() => setEditPlan(null)} onSaved={async (p) => { setEditPlan(null); await load(); setSelPlan(p.id); }} />}
         </Card>
       </div>
+      {isAdmin && <HostCard />}
       {plan && <PlanDetail plan={plan} isAdmin={isAdmin} onChanged={load} onEdit={() => setEditPlan({ ...plan })} />}
       {browse && <SnapshotBrowser destId={browse} isAdmin={isAdmin} volumes={o.volumes} />}
     </div>
+  );
+}
+
+function HostCard() {
+  const [h, setH] = useState<BackupHost | null>(null);
+  const [domain, setDomain] = useState(""); const [tls, setTls] = useState("letsencrypt"); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [show, setShow] = useState(false);
+  useEffect(() => { void api.backupHost().then(setH).catch(() => setH({ domain: "", tls: "", user: "", url: "" })); }, []);
+  if (!h) return null;
+  const setup = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { setH(await api.backupHostSet(domain, tls)); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
+  const remove = async () => { if (!confirm("Stop hosting backups here? The stored repositories stay in the islet-rest-server_data volume.")) return; await api.backupHostRemove(); setH({ domain: "", tls: "", user: "", url: "" }); };
+  return (
+    <Card title="Host backups for another Islet server" description="Runs restic's rest-server here, append-only, so a second server can back up to this one (and this one to it). No cloud account needed.">
+      {h.domain ? (
+        <div className="text-sm">
+          <p>Serving at <span className="font-mono">{h.url}</span>. On the other server: Backups → Add destination → type REST.</p>
+          <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{`URL: ${h.url}\nUser: ${h.user}\nPassword: ${show ? h.password : "••••••••••••"}`}</pre>
+          <div className="mt-2 flex gap-3 text-xs"><button type="button" onClick={() => setShow(!show)} className="text-ink-muted hover:text-ink">{show ? "Hide password" : "Show password"}</button><button type="button" onClick={() => void remove()} className="text-danger hover:underline">Stop hosting</button></div>
+        </div>
+      ) : (
+        <form onSubmit={setup} className="flex flex-wrap items-end gap-2">
+          <Field label="Host name for the endpoint" hint="An A record to this server, e.g. backups.example.com."><Input value={domain} onChange={(e) => setDomain(e.target.value)} className="w-64 font-mono" required /></Field>
+          <Field label="TLS"><select value={tls} onChange={(e) => setTls(e.target.value)} className={SELECT}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None</option></select></Field>
+          <Button type="submit" className="h-9" disabled={busy}>{busy ? "Setting up…" : "Set up"}</Button>
+          {msg && <span className="text-xs text-danger">{msg}</span>}
+        </form>
+      )}
+    </Card>
   );
 }
 
@@ -128,6 +156,9 @@ function PlanForm({ initial, o, onClose, onSaved }: { initial: Partial<BackupPla
       <Field label="Schedule" hint="Cron fields, server time."><Input value={p.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" /></Field>
       <div className="grid grid-cols-4 gap-2 sm:col-span-2">{(["keepDaily", "keepWeekly", "keepMonthly", "keepYearly"] as const).map((k) => <Field key={k} label={`Keep ${k.replace("keep", "").toLowerCase()}`}><Input type="number" min={0} value={p[k] ?? 0} onChange={(e) => set({ [k]: +e.target.value })} /></Field>)}</div>
       <p className="text-xs text-ink-muted sm:col-span-2">Keeps the last {p.keepDaily} daily, {p.keepWeekly} weekly, {p.keepMonthly} monthly and {p.keepYearly} yearly snapshots: at most {(p.keepDaily ?? 0) + (p.keepWeekly ?? 0) + (p.keepMonthly ?? 0) + (p.keepYearly ?? 0)} snapshots. Deduplication means unchanged data is stored once.</p>
+      <Field label="Before the snapshot (optional)" hint="Shell command on the host, e.g. a maintenance-mode toggle. A failure aborts the run."><Input value={p.preCmd ?? ""} onChange={(e) => set({ preCmd: e.target.value })} className="font-mono" placeholder="docker exec shop-web-1 php artisan down" /></Field>
+      <Field label="After the snapshot (optional)" hint="Runs whatever the outcome; ISLET_BACKUP_STATUS is success or failed."><Input value={p.postCmd ?? ""} onChange={(e) => set({ postCmd: e.target.value })} className="font-mono" placeholder="docker exec shop-web-1 php artisan up" /></Field>
+      <label className="flex items-center gap-1.5 text-sm sm:col-span-2" title="Consistent snapshots for apps that write constantly (SQLite, queues); a few seconds of downtime per run."><input type="checkbox" checked={p.pause ?? false} onChange={(e) => set({ pause: e.target.checked })} />Pause containers that use these volumes while the snapshot runs</label>
       <label className="flex items-center gap-1.5 text-sm sm:col-span-2"><input type="checkbox" checked={p.enabled ?? true} onChange={(e) => set({ enabled: e.target.checked })} />Enabled</label>
       <div className="flex items-center gap-2 sm:col-span-2"><Button type="submit">{p.id ? "Save" : "Create plan"}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-sm text-danger">{msg}</span>}</div>
     </form>
@@ -169,6 +200,17 @@ function SnapshotBrowser({ destId, isAdmin, volumes }: { destId: string; isAdmin
   const [entries, setEntries] = useState<{ path: string; name: string; type: string; size?: number }[]>([]);
   useEffect(() => { setSnaps(null); setMsg("Listing snapshots…"); api.snapshots(destId).then((s) => { setSnaps(s); setMsg(null); }).catch((e) => setMsg(err(e))); }, [destId]);
   useEffect(() => { if (!sel) return; api.snapshotLs(destId, sel, path).then(setEntries).catch((e) => setMsg(err(e))); }, [destId, sel, path]);
+  const [preview, setPreview] = useState<string | null>(null);
+  const dry = async (include: string) => {
+    setMsg("Previewing…"); setPreview(null);
+    try { const r = await api.restore(destId, { snapshot: sel!, include, newVolume: "", dryRun: true }); setPreview(r.target); setMsg(null); } catch (e) { setMsg(err(e)); }
+  };
+  const restoreDb = async (path: string) => {
+    const name = prompt(`Restore ${path} into a NEW database instance named:`, path.split("/")[3] + "-restored");
+    if (!name) return;
+    setMsg(`Restoring into a new instance ${name}: installing the engine, waiting for it, loading the dump…`);
+    try { const r = await api.restoreDatabase(destId, { snapshot: sel!, path, newInstance: name }); setMsg(`Restored database ${r.database} into ${r.instance}. Connection URL is on the Databases page.`); } catch (e) { setMsg(err(e)); }
+  };
   const restore = async (include: string) => {
     const isVol = include.startsWith("/data/volumes/") && include.split("/").length === 4;
     const vol = isVol ? prompt(`Restore ${include} into a NEW Docker volume named:`, include.split("/")[3] + "-restored") : "";
@@ -184,7 +226,8 @@ function SnapshotBrowser({ destId, isAdmin, volumes }: { destId: string; isAdmin
         <ul className="max-h-72 divide-y divide-border overflow-auto text-xs">{(snaps ?? []).map((s) => <li key={s.id}><button type="button" onClick={() => { setSel(s.id); setPath("/data"); }} className={`w-full py-1.5 text-left ${sel === s.id ? "text-ink" : "text-ink-muted hover:text-ink"}`}><span className="font-mono">{s.id}</span> · {fmt(s.time)}{s.size > 0 && ` · ${bytes(s.size)}`}<div className="text-ink-faint">{s.tags.filter((t) => t.startsWith("plan:")).join(" ")}</div></button></li>)}{snaps && snaps.length === 0 && <li className="py-2 text-ink-muted">Empty repository.</li>}</ul>
         <div className="text-xs">
           {sel && <div className="mb-1 flex items-center gap-2 font-mono"><button type="button" onClick={() => setPath(path.split("/").slice(0, -1).join("/") || "/data")} disabled={path === "/data"} className="text-ink-muted hover:text-ink disabled:opacity-40">↑</button>{path}</div>}
-          <ul className="divide-y divide-border">{entries.map((e) => <li key={e.path} className="flex items-center justify-between py-1"><button type="button" onClick={() => e.type === "dir" && setPath(e.path)} className={e.type === "dir" ? "hover:underline" : "cursor-default"}>{e.type === "dir" ? "📁 " : ""}{e.name}</button><span className="flex gap-3 text-ink-muted">{e.size !== undefined && e.type !== "dir" && bytes(e.size)}{isAdmin && <button type="button" onClick={() => void restore(e.path)} className="hover:text-ink">Restore</button>}</span></li>)}{sel && entries.length === 0 && <li className="py-1 text-ink-muted">Empty.</li>}{!sel && <li className="py-1 text-ink-muted">Pick a snapshot.</li>}</ul>
+          <ul className="divide-y divide-border">{entries.map((e) => <li key={e.path} className="flex items-center justify-between py-1"><button type="button" onClick={() => e.type === "dir" && setPath(e.path)} className={e.type === "dir" ? "hover:underline" : "cursor-default"}>{e.type === "dir" ? "📁 " : ""}{e.name}</button><span className="flex gap-3 text-ink-muted">{e.size !== undefined && e.type !== "dir" && bytes(e.size)}{isAdmin && <button type="button" onClick={() => void dry(e.path)} className="hover:text-ink" title="List what would be restored without writing anything">Preview</button>}{isAdmin && e.type !== "dir" && e.path.startsWith("/data/databases/") && e.path.split("/").length === 5 && <button type="button" onClick={() => void restoreDb(e.path)} className="hover:text-ink">New instance</button>}{isAdmin && <button type="button" onClick={() => void restore(e.path)} className="hover:text-ink">Restore</button>}</span></li>)}{sel && entries.length === 0 && <li className="py-1 text-ink-muted">Empty.</li>}{!sel && <li className="py-1 text-ink-muted">Pick a snapshot.</li>}</ul>
+          {preview !== null && <pre className="mt-2 max-h-60 overflow-auto rounded-md border border-border bg-bg p-2 font-mono text-[11px]">{preview || "(nothing listed)"}</pre>}
           {volumes.length === 0 && null}
         </div>
       </div>

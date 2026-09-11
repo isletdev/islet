@@ -106,3 +106,12 @@ The pooler rides in the Postgres stack's Compose file as a `pgbouncer` service (
 
 ## 2026-09-12 — Sample apps live in the main repo
 `examples/` holds one tiny app per framework, deployable with the repository URL plus a root directory. Keeping them in the same repo means detection changes are tested against them in CI and there is no second repository to keep in sync.
+
+## 2026-09-12 — Backup hooks are host shell commands; pausing stops containers by volume
+Pre and post hooks run `sh -c` on the host (recorded in the command log) rather than inside a container, because the common cases are `docker exec … artisan down` and touching a maintenance flag. "Pause during snapshot" finds running containers that mount the plan's volumes and stops them for the snapshot only; the post-hook and restart run before the run is stored, so a failed snapshot never leaves an app down.
+
+## 2026-09-12 — Restore into a new instance instead of over the live one
+A dump from a snapshot is restored to disk, a fresh engine is installed from the catalog and the dump is loaded there. The user then switches apps to the new URL when satisfied. Overwriting a live database from the backup UI stays impossible by design.
+
+## 2026-09-12 — Peer backups use restic's rest-server, append-only, private repos
+"Host backups for another Islet server" runs `restic/rest-server` as a stack with a bcrypt htpasswd, `--append-only` (a compromised peer cannot delete its history) and `--private-repos` (each user only sees its own path). The credentials are shown once in the panel and the endpoint is an ordinary routed domain.
