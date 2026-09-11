@@ -227,17 +227,26 @@ func (s *Server) handleCronImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
-		Save bool   `json:"save"`
+		Text   string `json:"text"`
+		Save   bool   `json:"save"`
+		Source string `json:"source"` // crontab (default) | systemd
 	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
-	if req.Text == "" {
-		req.Text = cron.ReadSystemCrontabs(r.Context())
+	var jobs []cron.Job
+	if req.Source == "systemd" {
+		jobs = cron.ReadSystemdTimers()
+	} else {
+		if req.Text == "" {
+			req.Text = cron.ReadSystemCrontabs(r.Context())
+		}
+		jobs = cron.ParseCrontab(req.Text)
 	}
-	jobs := cron.ParseCrontab(req.Text)
+	if jobs == nil {
+		jobs = []cron.Job{}
+	}
 	if !req.Save {
 		writeJSON(w, http.StatusOK, jobs)
 		return

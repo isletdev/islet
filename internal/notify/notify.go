@@ -60,6 +60,7 @@ type Channel struct {
 	MinSeverity string            `json:"minSeverity"`
 	QuietFrom   string            `json:"quietFrom"`
 	QuietTo     string            `json:"quietTo"`
+	Digest      string            `json:"digest"` // "" | hourly | daily: batch non-critical events
 	Enabled     bool              `json:"enabled"`
 	CreatedAt   string            `json:"createdAt"`
 }
@@ -121,7 +122,11 @@ func (b *Bus) Emit(ctx context.Context, e Event) {
 		if !c.Enabled || !c.accepts(e, now) {
 			continue
 		}
-		_, _ = b.st.DB.ExecContext(ctx, `INSERT INTO deliveries (event_id, channel_id) VALUES (?, ?)`, id, c.ID)
+		status := "pending"
+		if c.Digest != "" && e.Severity != Critical {
+			status = "digest"
+		}
+		_, _ = b.st.DB.ExecContext(ctx, `INSERT INTO deliveries (event_id, channel_id, status) VALUES (?, ?, ?)`, id, c.ID, status)
 	}
 	select {
 	case b.wake <- struct{}{}:
@@ -176,6 +181,7 @@ func (b *Bus) Run(ctx context.Context) {
 	defer t.Stop()
 	for {
 		b.deliverPending(ctx)
+		b.sendDigests(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -229,6 +235,75 @@ func (b *Bus) deliverPending(ctx context.Context) {
 	}
 }
 
+// sendDigests flushes batched events for channels whose interval elapsed.
+func (b *Bus) sendDigests(ctx context.Context) {
+	chans, err := b.Channels(ctx, true)
+	if err != nil {
+		return
+	}
+	for _, c := range chans {
+		if c.Digest == "" || !c.Enabled {
+			continue
+		}
+		interval := time.Hour
+		if c.Digest == "daily" {
+			interval = 24 * time.Hour
+		}
+		key := "notify.digest." + c.ID
+		last, _, _ := b.st.Setting(ctx, key)
+		if last == "" {
+			_ = b.st.SetSetting(ctx, key, time.Now().UTC().Format(time.RFC3339))
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, last); err == nil && time.Since(t) < interval {
+			continue
+		}
+		rows, err := b.st.DB.QueryContext(ctx, `SELECT d.id, e.severity, e.title, e.message, e.created_at FROM deliveries d JOIN events e ON e.id = d.event_id WHERE d.channel_id = ? AND d.status = 'digest' ORDER BY e.id LIMIT 200`, c.ID)
+		if err != nil {
+			continue
+		}
+		var ids []any
+		var lines []string
+		for rows.Next() {
+			var id int
+			var sev, title, msg, at string
+			if rows.Scan(&id, &sev, &title, &msg, &at) == nil {
+				ids = append(ids, id)
+				t := ParseTime(at).Local().Format("15:04")
+				if c.Digest == "daily" {
+					t = ParseTime(at).Local().Format("Jan 2 15:04")
+				}
+				line := t + " [" + sev + "] " + title
+				if msg != "" {
+					first := strings.SplitN(msg, "\n", 2)[0]
+					if len(first) > 120 {
+						first = first[:120] + "…"
+					}
+					line += " — " + first
+				}
+				lines = append(lines, line)
+			}
+		}
+		rows.Close()
+		_ = b.st.SetSetting(ctx, key, time.Now().UTC().Format(time.RFC3339))
+		if len(ids) == 0 {
+			continue
+		}
+		msg := Message{Severity: Info, Server: b.hostname, Title: fmt.Sprintf("%s digest: %d events", strings.ToUpper(c.Digest[:1])+c.Digest[1:], len(ids)), Body: strings.Join(lines, "\n"), Category: "digest", Time: time.Now(), Link: b.panelURL + "/notifications"}
+		sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err = Send(sendCtx, c, msg)
+		cancel()
+		status, errText := "sent", ""
+		if err != nil {
+			status, errText = "failed", err.Error()
+			b.log.Warn("digest failed", "channel", c.Name, "err", err)
+		}
+		for _, id := range ids {
+			_, _ = b.st.DB.ExecContext(ctx, `UPDATE deliveries SET status = ?, attempts = attempts + 1, error = ?, sent_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`, status, errText, id)
+		}
+	}
+}
+
 // Message is what a channel sends: one shape for every channel.
 type Message struct {
 	Severity string
@@ -253,7 +328,7 @@ func (b *Bus) render(e Event) Message {
 
 // Channels lists channels; withConfig decrypts the secrets.
 func (b *Bus) Channels(ctx context.Context, withConfig bool) ([]Channel, error) {
-	rows, err := b.st.DB.QueryContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, enabled, created_at FROM channels WHERE server_id = ? ORDER BY name`, b.st.ServerID)
+	rows, err := b.st.DB.QueryContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled, created_at FROM channels WHERE server_id = ? ORDER BY name`, b.st.ServerID)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +346,7 @@ func (b *Bus) Channels(ctx context.Context, withConfig bool) ([]Channel, error) 
 
 // Channel loads one channel.
 func (b *Bus) Channel(ctx context.Context, id string, withConfig bool) (*Channel, error) {
-	row := b.st.DB.QueryRowContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, enabled, created_at FROM channels WHERE id = ? AND server_id = ?`, id, b.st.ServerID)
+	row := b.st.DB.QueryRowContext(ctx, `SELECT id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled, created_at FROM channels WHERE id = ? AND server_id = ?`, id, b.st.ServerID)
 	return b.scanChannel(row, withConfig)
 }
 
@@ -279,7 +354,7 @@ func (b *Bus) scanChannel(sc interface{ Scan(...any) error }, withConfig bool) (
 	var c Channel
 	var enc []byte
 	var en int
-	if err := sc.Scan(&c.ID, &c.Type, &c.Name, &enc, &c.Categories, &c.MinSeverity, &c.QuietFrom, &c.QuietTo, &en, &c.CreatedAt); err != nil {
+	if err := sc.Scan(&c.ID, &c.Type, &c.Name, &enc, &c.Categories, &c.MinSeverity, &c.QuietFrom, &c.QuietTo, &c.Digest, &en, &c.CreatedAt); err != nil {
 		return nil, err
 	}
 	c.Enabled = en == 1
@@ -302,6 +377,9 @@ func (b *Bus) SaveChannel(ctx context.Context, c *Channel) (*Channel, error) {
 	if _, ok := sevRank[c.MinSeverity]; !ok {
 		c.MinSeverity = Warning
 	}
+	if c.Digest != "" && c.Digest != "hourly" && c.Digest != "daily" {
+		return nil, errors.New("digest must be empty, hourly or daily")
+	}
 	if err := ValidateConfig(c.Type, c.Config); err != nil {
 		return nil, err
 	}
@@ -316,11 +394,11 @@ func (b *Bus) SaveChannel(ctx context.Context, c *Channel) (*Channel, error) {
 	}
 	if c.ID == "" {
 		c.ID = newID()
-		_, err = b.st.DB.ExecContext(ctx, `INSERT INTO channels (id, server_id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			c.ID, b.st.ServerID, c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, en)
+		_, err = b.st.DB.ExecContext(ctx, `INSERT INTO channels (id, server_id, type, name, config_enc, categories, min_severity, quiet_from, quiet_to, digest, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			c.ID, b.st.ServerID, c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, en)
 	} else {
-		_, err = b.st.DB.ExecContext(ctx, `UPDATE channels SET type=?, name=?, config_enc=?, categories=?, min_severity=?, quiet_from=?, quiet_to=?, enabled=? WHERE id=? AND server_id=?`,
-			c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, en, c.ID, b.st.ServerID)
+		_, err = b.st.DB.ExecContext(ctx, `UPDATE channels SET type=?, name=?, config_enc=?, categories=?, min_severity=?, quiet_from=?, quiet_to=?, digest=?, enabled=? WHERE id=? AND server_id=?`,
+			c.Type, c.Name, enc, c.Categories, c.MinSeverity, c.QuietFrom, c.QuietTo, c.Digest, en, c.ID, b.st.ServerID)
 	}
 	if err != nil {
 		return nil, err

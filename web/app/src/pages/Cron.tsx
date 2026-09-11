@@ -167,6 +167,7 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
   const [containers, setContainers] = useState<string[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
+  const [builder, setBuilder] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (p: Partial<Job>) => setJ((c) => ({ ...c, ...p }));
 
@@ -195,7 +196,8 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
 
         <div className="md:col-span-2 grid gap-3 rounded-md border border-border p-3 md:grid-cols-[1fr_1fr_200px]">
           <Field label={j.type === "heartbeat" ? "Expected schedule" : "Schedule"} hint="Five cron fields, or @hourly, @daily, @weekly. Leave empty for manual only.">
-            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className={`${SELECT} w-36`}><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</select></div>
+            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className={`${SELECT} w-36`}><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
+            {builder && <ScheduleBuilder onPick={(s) => { set({ schedule: s }); setBuilder(false); }} />}
           </Field>
           <Field label="Timezone" hint="IANA name, empty means server time."><Input value={j.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Skopje" /></Field>
           <div className="text-xs">
@@ -256,15 +258,37 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
   );
 }
 
+function ScheduleBuilder({ onPick }: { onPick: (s: string) => void }) {
+  const [mode, setMode] = useState("daily");
+  const [n, setN] = useState(15); const [hour, setHour] = useState(3); const [minute, setMinute] = useState(0);
+  const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]); const [dom, setDom] = useState(1);
+  const expr = mode === "minutes" ? `*/${n} * * * *` : mode === "hourly" ? `${minute} * * * *` : mode === "daily" ? `${minute} ${hour} * * *` : mode === "weekly" ? `${minute} ${hour} * * ${[...days].sort().join(",") || "*"}` : `${minute} ${hour} ${dom} * *`;
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const num = (v: number, set: (x: number) => void, min: number, max: number, w = "w-16") => <Input type="number" min={min} max={max} value={v} onChange={(e) => set(+e.target.value)} className={`${w} font-mono`} />;
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border border-border bg-surface-2 p-2 text-xs">
+      <select value={mode} onChange={(e) => setMode(e.target.value)} className="h-8 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="minutes">Every N minutes</option><option value="hourly">Every hour</option><option value="daily">Every day</option><option value="weekly">On certain days</option><option value="monthly">Once a month</option></select>
+      {mode === "minutes" && <span className="flex items-center gap-1">every {num(n, setN, 1, 59)} min</span>}
+      {mode !== "minutes" && <span className="flex items-center gap-1">at {mode !== "hourly" && num(hour, setHour, 0, 23)}{mode !== "hourly" && ":"}{num(minute, setMinute, 0, 59)}{mode === "hourly" && " minutes past"}</span>}
+      {mode === "weekly" && <span className="flex gap-1">{DOW.map((d, i) => <button key={d} type="button" onClick={() => setDays(days.includes(i) ? days.filter((x) => x !== i) : [...days, i])} className={`rounded-sm border px-1.5 py-0.5 ${days.includes(i) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{d}</button>)}</span>}
+      {mode === "monthly" && <span className="flex items-center gap-1">on day {num(dom, setDom, 1, 28)}</span>}
+      <span className="font-mono text-ink-muted">{expr}</span>
+      <Button type="button" className="h-8 text-xs" onClick={() => onPick(expr)}>Use</Button>
+    </div>
+  );
+}
+
 function ImportPanel({ onClose, onDone }: { onClose: () => void; onDone: () => Promise<void> }) {
   const [text, setText] = useState("");
   const [found, setFound] = useState<Job[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const preview = async () => { setMsg(null); try { const j = await api.cronImport(text, false); setFound(j); if (j.length === 0) setMsg(text ? "No valid entries found." : "No system crontab entries found. Paste one below."); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
-  const save = async () => { await api.cronImport(text, true); await onDone(); };
+  const [source, setSource] = useState("crontab");
+  const preview = async () => { setMsg(null); try { const j = await api.cronImport(text, false, source); setFound(j); if (j.length === 0) setMsg(source === "systemd" ? "No systemd timers with an OnCalendar schedule found under /etc/systemd/system." : text ? "No valid entries found." : "No system crontab entries found. Paste one below."); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
+  const save = async () => { await api.cronImport(text, true, source); await onDone(); };
   return (
-    <Card title="Import crontab" description="Reads root's crontab and /etc/cron.d, or paste any crontab text. Imported jobs start paused so nothing runs twice; remove them from the old crontab, then resume them here.">
-      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder="0 3 * * * /usr/local/bin/backup.sh" />
+    <Card title="Import jobs" description="Reads root's crontab and /etc/cron.d, systemd timers under /etc/systemd/system, or paste crontab text. Imported jobs start paused so nothing runs twice; disable the originals, then resume them here.">
+      <div className="mb-2 flex gap-1 text-xs">{[["crontab", "Crontab"], ["systemd", "systemd timers"]].map(([k, l]) => <button key={k} type="button" onClick={() => { setSource(k); setFound(null); }} className={`rounded-sm border px-2 py-0.5 ${source === k ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{l}</button>)}</div>
+      {source === "crontab" && <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder="0 3 * * * /usr/local/bin/backup.sh" />}
       <div className="mt-2 flex items-center gap-2"><Button variant="secondary" className="h-8 text-xs" onClick={() => void preview()}>Preview</Button>{found && found.length > 0 && <Button className="h-8 text-xs" onClick={() => void save()}>Import {found.length} job{found.length === 1 ? "" : "s"}</Button>}<Button variant="secondary" className="h-8 text-xs" onClick={onClose}>Cancel</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>
       {found && found.length > 0 && <ul className="mt-3 divide-y divide-border text-xs">{found.map((j, i) => <li key={i} className="py-1.5"><span className="font-mono">{j.schedule}</span> <span className="text-ink-muted">{j.command}</span></li>)}</ul>}
     </Card>

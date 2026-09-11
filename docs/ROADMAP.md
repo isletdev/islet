@@ -131,20 +131,21 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 **Cron and task runner**
 - [x] Job types: command, inline script, existing file, container exec, one-off container, HTTP request, chain, heartbeat
 - [x] Schedule builder with presets, raw cron field, English translation, next five runs, timezone, jitter
-- [ ] Visual schedule picker
+- [x] Visual schedule builder (every N minutes, hourly, daily, chosen weekdays, monthly)
 - [x] Script editor with ShellCheck (when installed), shebang selector, templates, version history and revert
 - [x] Managed script storage with correct ownership and executable bit
 - [x] Run-as user, working directory, timeout, overlap policy, retries, nice level
 - [x] Run now with live output, per-run history, duration chart, dead man's switch (heartbeat jobs with a ping URL)
 - [x] Import existing crontabs (root crontab and /etc/cron.d), export any job as a crontab line
-- [ ] Import systemd timers
+- [x] Import systemd timers (OnCalendar converted to cron, jobs start paused)
 - [x] Template library (DB dump to S3, MySQL dump, Docker prune, log cleanup, cert check, rclone sync, security updates)
 
 **Notifications and events**
 - [x] Event bus with a catalog of typed events and severities
 - [x] Channels: email (SMTP relay), Telegram with chat detection wizard, Discord webhook, Slack webhook, ntfy, Gotify, Pushover, generic signed webhook
 - [x] Routing matrix by category and severity, quiet hours, cooldowns, recovery messages
-- [ ] Per-app overrides and digests
+- [x] Hourly and daily digests per channel (criticals still go out at once)
+- [ ] Per-app overrides
 - [x] Message template with deep links, send-test button, delivery log
 - [x] In-app notification centre and event timeline
 - [ ] Outbound SMTP relay setup wizard with DKIM, SPF and DMARC helpers
@@ -292,7 +293,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 
 **Adoption and import**
 - [x] Adopt existing Compose projects into managed stacks; crontab import
-- [ ] Import Nginx sites and systemd units
+- [x] Import nginx sites as domains (proxied server blocks) and systemd timers as jobs
 - [ ] Import from Coolify, Dokploy and Portainer stacks
 
 **Platform**

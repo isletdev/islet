@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/isletdev/islet/internal/proxy"
@@ -51,6 +52,63 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
+}
+
+// handleNginxImport previews or imports nginx server blocks as domains.
+func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if u.Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins import sites"})
+		return
+	}
+	var req struct {
+		Text string `json:"text"`
+		Save bool   `json:"save"`
+	}
+	if err := decode(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	var sites []proxy.NginxSite
+	if req.Text != "" {
+		sites = proxy.ParseNginx(req.Text, "pasted")
+	} else {
+		sites = proxy.ReadNginxSites()
+	}
+	type proposal struct {
+		Host   string `json:"host"`
+		Target string `json:"target"`
+		Note   string `json:"note"`
+		Saved  bool   `json:"saved"`
+	}
+	out := []proposal{}
+	for _, site := range sites {
+		for _, h := range site.Hosts {
+			p := proposal{Host: h}
+			switch {
+			case site.Upstream != "":
+				p.Target = site.Upstream
+				p.Note = "proxied to the same upstream nginx used; the app keeps running, Traefik takes over the domain"
+			case site.Root != "":
+				p.Note = "static site under " + site.Root + ": deploy it as an app (New app, local path) or serve it from a container; not imported"
+			default:
+				p.Note = "no proxy_pass or root; not imported"
+			}
+			if req.Save && p.Target != "" {
+				tls := "letsencrypt"
+				if _, err := s.proxy.Save(r.Context(), u.Username, &proxy.Domain{Host: h, TargetType: "url", Target: p.Target, TLS: tls, Enabled: true}); err == nil {
+					p.Saved = true
+				} else {
+					p.Note = err.Error()
+				}
+			}
+			out = append(out, p)
+		}
+	}
+	if req.Save {
+		_ = s.store.Audit(r.Context(), u.Username, "domain.import", "nginx", strconv.Itoa(len(out)))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleProxyRemove(w http.ResponseWriter, r *http.Request) {

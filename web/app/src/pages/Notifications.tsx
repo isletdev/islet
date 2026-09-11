@@ -46,7 +46,7 @@ export default function Notifications() {
         <ul className="divide-y divide-border text-sm">
           {channels.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
-              <div><span className="font-medium">{c.name}</span> <span className="ml-2 text-xs text-ink-muted">{TYPES[c.type]?.label ?? c.type} · {c.minSeverity}+ · {c.categories === "*" ? "all categories" : c.categories}{c.quietFrom && ` · quiet ${c.quietFrom}–${c.quietTo}`}</span>{!c.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</div>
+              <div><span className="font-medium">{c.name}</span> <span className="ml-2 text-xs text-ink-muted">{TYPES[c.type]?.label ?? c.type} · {c.minSeverity}+ · {c.categories === "*" ? "all categories" : c.categories}{c.quietFrom && ` · quiet ${c.quietFrom}–${c.quietTo}`}{c.digest && ` · ${c.digest} digest`}</span>{!c.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</div>
               {isAdmin && <div className="flex gap-3 text-xs"><button type="button" onClick={() => void test(c)} className="text-ink-muted hover:text-ink">Send test</button><button type="button" onClick={() => setEditing({ ...c, config: {} })} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={() => void remove(c)} className="text-danger hover:underline">Remove</button></div>}
             </li>
           ))}
@@ -115,6 +115,9 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
         ))}
         <Field label="Minimum severity" hint="Criticals always go through.">
           <select value={c.minSeverity} onChange={(e) => setC({ ...c, minSeverity: e.target.value as Channel["minSeverity"] })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="info">Info and up (everything)</option><option value="warning">Warnings and criticals</option><option value="critical">Criticals only</option></select>
+        </Field>
+        <Field label="Digest" hint="Batch warnings and info into one message; criticals still go out at once.">
+          <select value={c.digest ?? ""} onChange={(e) => setC({ ...c, digest: e.target.value })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="">Send each event</option><option value="hourly">Hourly digest</option><option value="daily">Daily digest</option></select>
         </Field>
         <Field label="Quiet hours (optional)" hint="Local server time. Warnings and info wait; criticals do not.">
           <div className="flex items-center gap-2"><Input value={c.quietFrom} onChange={(e) => setC({ ...c, quietFrom: e.target.value })} placeholder="22:00" className="w-24" /><span className="text-ink-muted">to</span><Input value={c.quietTo} onChange={(e) => setC({ ...c, quietTo: e.target.value })} placeholder="07:00" className="w-24" /></div>

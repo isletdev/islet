@@ -18,6 +18,7 @@ export default function Domains() {
   const [err, setErr] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [providers, setProviders] = useState<Record<string, string[]>>({});
   const [dnsProvider, setDnsProvider] = useState("");
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
@@ -85,9 +86,12 @@ export default function Domains() {
         <p className="mt-3 text-xs text-ink-muted">Ports 80 and 443 belong to the proxy. Apps are reached by domain, not by published ports. Press "Reinstall / apply" after changing the DNS provider.</p>
       </Card>
 
+      {importing && <NginxImport onDone={async () => { setImporting(false); await load(); }} />}
+
       <div className="rounded-lg border border-border bg-surface">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <span className="font-semibold">Routed domains</span>
+          {isAdmin && <Button variant="secondary" className="h-8 text-xs" onClick={() => setImporting(!importing)}>Import from nginx</Button>}
           {isAdmin && <Button className="h-8 text-xs" onClick={() => { setEditing({ ...EMPTY }); setMsg(null); }}>Add domain</Button>}
         </div>
         <table className="w-full text-sm">
@@ -147,5 +151,20 @@ export default function Domains() {
         </Card>
       )}
     </div>
+  );
+}
+
+function NginxImport({ onDone }: { onDone: () => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [found, setFound] = useState<{ host: string; target: string; note: string; saved: boolean }[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const preview = async () => { setMsg(null); try { const r = await api.nginxImport(text, false); setFound(r); if (r.length === 0) setMsg(text ? "No server blocks with a server_name found." : "No nginx sites found under /etc/nginx; paste a config below."); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
+  const save = async () => { const r = await api.nginxImport(text, true); setFound(r); setMsg(`${r.filter((x) => x.saved).length} domain(s) added. Stop nginx (or move it off ports 80 and 443) so Traefik can answer.`); await onDone(); };
+  return (
+    <Card title="Import from nginx" description="Reads sites-enabled and conf.d, or paste a config. Proxied sites become domains pointing at the same upstream; static roots are listed so you can deploy them as apps.">
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder="server { server_name app.example.com; location / { proxy_pass http://127.0.0.1:3000; } }" />
+      <div className="mt-2 flex items-center gap-2"><Button variant="secondary" className="h-8 text-xs" onClick={() => void preview()}>Preview</Button>{found && found.some((f) => f.target) && <Button className="h-8 text-xs" onClick={() => void save()}>Import proxied sites</Button>}{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>
+      {found && found.length > 0 && <ul className="mt-3 divide-y divide-border text-xs">{found.map((f, i) => <li key={i} className="py-1.5"><span className="font-mono">{f.host}</span>{f.target && <span className="ml-2 font-mono text-ink-muted">→ {f.target}</span>}<div className="text-ink-muted">{f.saved ? "added" : f.note}</div></li>)}</ul>}
+    </Card>
   );
 }

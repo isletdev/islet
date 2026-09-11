@@ -88,7 +88,7 @@ export interface DNSCheck { host: string; expected: string; resolved: string[]; 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
 
-export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; enabled: boolean; createdAt: string }
+export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; digest?: string; enabled: boolean; createdAt: string }
 export interface IsletEvent { id: number; category: string; severity: "info" | "warning" | "critical"; title: string; message: string; link: string; createdAt: string }
 
 export interface JobRun { id: number; jobId: string; trigger: string; attempt: number; status: string; exitCode: number; output?: string; startedAt: string; finishedAt: string; durationMs: number }
@@ -308,7 +308,8 @@ export const api = {
   cronPreview: (schedule: string, timezone: string) => post<{ described: string; next: string[] }>("/api/v1/cron/preview", { schedule, timezone }),
   cronTemplates: () => request<JobTemplate[]>("/api/v1/cron/templates"),
   cronLint: (script: string) => post<{ available: boolean; output: string }>("/api/v1/cron/lint", { script }),
-  cronImport: (text: string, save: boolean) => post<Job[]>("/api/v1/cron/import", { text, save }),
+  cronImport: (text: string, save: boolean, source = "crontab") => post<Job[]>("/api/v1/cron/import", { text, save, source }),
+  nginxImport: (text: string, save: boolean) => post<{ host: string; target: string; note: string; saved: boolean }[]>("/api/v1/domains/import/nginx", { text, save }),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),

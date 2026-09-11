@@ -161,6 +161,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/proxy/install", requireJSON(s.requireAuth(s.handleProxyInstall)))
 	mux.HandleFunc("POST /api/v1/proxy/remove", requireJSON(s.requireAuth(s.handleProxyRemove)))
 	mux.HandleFunc("GET /api/v1/proxy/dns-providers", s.requireAuth(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, proxy.DNSProviders) }))
+	mux.HandleFunc("POST /api/v1/domains/import/nginx", requireJSON(s.requireAuth(s.handleNginxImport)))
 	mux.HandleFunc("GET /api/v1/proxy/certs", s.requireAuth(s.handleProxyCerts))
 	mux.HandleFunc("GET /api/v1/proxy/preview-host", s.requireAuth(s.handlePreviewHost))
 	mux.HandleFunc("GET /api/v1/domains", s.requireAuth(s.handleDomains))
