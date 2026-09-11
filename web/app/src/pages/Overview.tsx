@@ -6,6 +6,7 @@ import { Card } from "@/components/ui";
 import DiskDoctor from "@/components/DiskDoctor";
 import Attention from "@/components/Attention";
 import { useAuth } from "@/lib/auth";
+import { Link } from "react-router-dom";
 
 type Range = "1h" | "6h" | "24h" | "7d";
 
@@ -138,7 +139,7 @@ export default function Overview() {
                 <tr key={`${p.proto}-${p.address}-${p.port}`}>
                   <td className="py-1.5 font-mono tabular-nums">{p.port}<span className="ml-1 text-xs text-ink-faint">{p.proto}</span></td>
                   <td className="py-1.5 font-mono text-xs text-ink-muted">{p.address || "*"}</td>
-                  <td className="py-1.5">{p.process || <span className="text-ink-faint">pid {p.pid || "?"}</span>}</td>
+                  <td className="py-1.5">{p.container ? <Link to={`/containers?c=${p.container}`} className="text-accent hover:underline">{p.container}</Link> : p.process || <span className="text-ink-faint">pid {p.pid || "?"}</span>}</td>
                 </tr>
               ))}
               {ports.length === 0 && <tr><td colSpan={3} className="py-2 text-ink-muted">Reading sockets…</td></tr>}

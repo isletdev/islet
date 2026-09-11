@@ -77,6 +77,13 @@ function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: Deploy
     finally { setBusy(false); await loadRel(); await onChanged(); }
   };
   const cancel = async () => { try { await api.deployCancel(app.id); } catch (e) { setMsg(err(e)); } };
+  const addService = async (engine: string) => {
+    if (!confirm(`Install ${engine} next to ${app.name}, create a database for it and put the connection URL in the app's environment?`)) return;
+    setBusy(true); setLog([]); setOpen(null);
+    try { await postStream(`/api/v1/apps/${app.id}/services`, (l) => { setLog((p) => [...(p ?? []), l]); if (l.startsWith("error:")) throw new Error(l); }, { engine }); }
+    catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
+    finally { setBusy(false); await onChanged(); }
+  };
   const remove = async () => { if (!confirm(`Delete ${app.name}? Its containers, images, releases and route are removed. Volumes are kept.`)) return; await api.deployAppDelete(app.id); await onChanged(); };
   const show = async (r: Release) => { setLog(null); setOpen(await api.release(app.id, r.id)); };
   const hookUrl = `${location.origin}/api/v1/hooks/deploy/${app.id}`;
@@ -92,6 +99,7 @@ function AppDetail({ app, canEdit, canDeploy, onChanged, onEdit }: { app: Deploy
           {canDeploy && (busy || app.deploying) && <Button variant="danger" className="h-8 text-xs" onClick={() => void cancel()}>Cancel</Button>}
           {app.container && <Link to={`/containers?c=${app.container}`} className="text-xs text-ink-muted hover:text-ink">Logs and shell</Link>}
           {canEdit && <button type="button" onClick={onEdit} className="text-xs text-ink-muted hover:text-ink">Settings</button>}
+          {canEdit && <span className="flex items-center gap-1 text-xs text-ink-muted">Add {(["postgres", "mysql", "redis"] as const).map((e) => <button key={e} type="button" disabled={busy || app.deploying} onClick={() => void addService(e)} className="rounded-sm border border-border-strong px-1.5 py-0.5 hover:text-ink">{e}</button>)}</span>}
           {canEdit && <button type="button" onClick={() => setShowHook(!showHook)} className="text-xs text-ink-muted hover:text-ink">Auto-deploy</button>}
           {canEdit && <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Delete app</button>}
         </div>

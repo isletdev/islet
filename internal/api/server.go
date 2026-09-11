@@ -177,6 +177,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/apps/{id}", requireJSON(s.requireAuth(s.handleAppDelete)))
 	mux.HandleFunc("POST /api/v1/apps/{id}/deploy", requireJSON(s.requireAuth(s.handleAppDeploy)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/deploy/log", s.requireAuth(s.handleAppDeployLog))
+	mux.HandleFunc("POST /api/v1/apps/{id}/services", requireJSON(s.requireAuth(s.handleAppAddService)))
 	mux.HandleFunc("POST /api/v1/apps/{id}/cancel", requireJSON(s.requireAuth(s.handleAppCancel)))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases", s.requireAuth(s.handleAppReleases))
 	mux.HandleFunc("GET /api/v1/apps/{id}/releases/{release}", s.requireAuth(s.handleAppRelease))

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -15,6 +16,9 @@ type (
 	metricsPortAlias  = metrics.Port
 	metricsPointAlias = metrics.Point
 )
+
+// publishedRe matches "0.0.0.0:8080->80/tcp" in docker ps port strings.
+var publishedRe = regexp.MustCompile(`:(\d+)->\d+/(?:tcp|udp)`)
 
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.metrics.Host(r.Context()))
@@ -42,7 +46,28 @@ func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	if ports == nil {
 		ports = []metricsPortAlias{}
 	}
-	writeJSON(w, http.StatusOK, ports)
+	// Published container ports show the container instead of docker-proxy.
+	type portRow struct {
+		metricsPortAlias
+		Container string `json:"container,omitempty"`
+	}
+	byPort := map[uint32]string{}
+	if s.docker != nil {
+		if list, err := s.docker.Containers(r.Context(), userFrom(r.Context()).Username); err == nil {
+			for _, c := range list {
+				for _, m := range publishedRe.FindAllStringSubmatch(c.Ports, -1) {
+					if p, err := strconv.Atoi(m[1]); err == nil {
+						byPort[uint32(p)] = c.Name
+					}
+				}
+			}
+		}
+	}
+	rows := make([]portRow, 0, len(ports))
+	for _, p := range ports {
+		rows = append(rows, portRow{metricsPortAlias: p, Container: byPort[p.Port]})
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 // handleMetricsLatest returns the newest sample plus the last five minutes.

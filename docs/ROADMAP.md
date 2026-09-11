@@ -168,7 +168,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 
 **App deployments** (full spec in `VISION.md` section 3.17)
 - [x] "New app" flow: Source, Detect, Configure, Deploy, with a preview domain pre-filled
-- [ ] "Services" step (add a database from the app form)
+- [x] "Services" step: add Postgres, MySQL or Redis from the app page
 - [x] Sources: any git URL (public, or with a token stored encrypted), local path, Docker image
 - [ ] GitHub App repo picker (needs the app registered, see NEEDED_FROM_YOU), drag-and-drop folder or zip
 - [x] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, Gatsby, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask, uv, Poetry), Go, Dockerfile, Compose
@@ -181,7 +181,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [ ] Next.js standalone output detection
 - [x] Environment variables stored encrypted, `.env` paste, changes apply on the next deploy
 - [ ] Shared env groups
-- [ ] "Add Postgres / MySQL / Redis" buttons that create the service and inject its URL
+- [x] "Add Postgres / MySQL / Redis" buttons that install the instance, create a database and inject DATABASE_URL or REDIS_URL
 - [x] Pipeline: clone, layer-cached build, pre-deploy command, health check, zero-downtime switch, drain old
 - [x] Deploy history with commit, author, duration and log; instant rollback without rebuild
 - [x] Triggers: push webhook (GitHub, GitLab, Gitea signatures), manual deploy, redeploy, API; one deploy at a time per app, cancellable
@@ -232,7 +232,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Published database ports and Docker socket mounts flagged in the score
 - [x] fail2ban with sshd and recidive jails, live blocked-IP list with unban
 - [ ] CrowdSec community blocklists, geo-blocking
-- [ ] Open ports and listening sockets correlated to containers
+- [x] Listening ports correlated to the container publishing them
 
 **Audit and scanning**
 - [ ] Lynis audit on a schedule with score trend
@@ -300,7 +300,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
 - [ ] "Add to sidebar" embedding of any app UI behind Islet login
 - [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide
-- [ ] PWA install, mobile layouts for dashboard, logs, deploys, notifications and file explorer
+- [x] PWA install with a service worker for the app shell
+- [ ] Dedicated mobile layouts for logs, deploys, notifications and the file explorer
 - [ ] i18n framework with English complete and two community languages
 - [x] Command transparency: every command Islet ran, copyable (Settings)
 

@@ -63,7 +63,8 @@ export interface HostInfo {
 }
 
 export interface Process { pid: number; name: string; user: string; cpuPct: number; memRss: number; started: number }
-export interface Port { proto: string; address: string; port: number; pid: number; process: string }
+export interface Port {
+  container?: string; proto: string; address: string; port: number; pid: number; process: string }
 
 export interface AuditEntry { id: number; actor: string; action: string; target: string; detail: string; createdAt: string }
 export interface UpdateStatus { current: string; channel: string; latest: string; prerelease: boolean; publishedAt: string; updateAvailable: boolean; notes?: string }
