@@ -113,6 +113,11 @@ func detectNode(dir string, d Detection) Detection {
 		d.Strategy, d.Framework, d.Port = "node", "Next.js", 3000
 		d.BuildCmd, d.StartCmd = run("build"), run("start")
 		d.Summary = "Next.js app. Built with " + pm + " and started with next start on port 3000. NEXT_PUBLIC_* variables are baked in at build time."
+		if nextStandalone(dir) {
+			d.BuildCmd = run("build") + " && cp -r public .next/standalone/ 2>/dev/null; cp -r .next/static .next/standalone/.next/"
+			d.StartCmd = "node .next/standalone/server.js"
+			d.Summary = "Next.js app with output: standalone. Built with " + pm + ", served by node .next/standalone/server.js on port 3000."
+		}
 	case has("nuxt"):
 		d.Strategy, d.Framework, d.Port = "node", "Nuxt", 3000
 		d.BuildCmd, d.StartCmd = run("build"), "node .output/server/index.mjs"
@@ -182,6 +187,16 @@ func detectNode(dir string, d Detection) Detection {
 		d.StartCmd = strings.Replace(d.StartCmd, "npm run", "bun run", 1)
 	}
 	return d
+}
+
+// nextStandalone reports whether next.config sets output: "standalone".
+func nextStandalone(dir string) bool {
+	for _, n := range []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.cjs"} {
+		if b, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+			return regexp.MustCompile(`output\s*:\s*["']standalone["']`).Match(b)
+		}
+	}
+	return false
 }
 
 func detectPython(dir string, d Detection, marker string) Detection {
@@ -296,7 +311,7 @@ func Dockerfile(a *App, buildEnv []string) string {
 		if a.BuildCmd != "" {
 			fmt.Fprintf(&b, "RUN %s\n", a.BuildCmd)
 		}
-		fmt.Fprintf(&b, "ENV PORT=%d\nEXPOSE %d\nCMD %s\n", a.Port, a.Port, shellCmd(a.StartCmd))
+		fmt.Fprintf(&b, "ENV PORT=%d HOSTNAME=0.0.0.0\nEXPOSE %d\nCMD %s\n", a.Port, a.Port, shellCmd(a.StartCmd))
 	case "python":
 		fmt.Fprintf(&b, "FROM python:%s-slim\nWORKDIR /app\nENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1\n", py)
 		if strings.HasPrefix(a.InstallCmd, "uv ") {

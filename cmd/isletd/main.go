@@ -29,6 +29,7 @@ import (
 	"github.com/isletdev/islet/internal/deploy"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
+	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
@@ -113,11 +114,15 @@ func run() error {
 	dbs := db.New(cmds, dk, cat, *dataDir)
 	bus := notify.New(st, keys, log)
 	go bus.Run(ctx)
+	gh := github.New(st, keys)
 	dep := deploy.New(st, keys, cmds, dk, px, bus, *dataDir, log)
+	dep.CloneAuth = gh.CloneURL
 	if err := dep.Start(ctx); err != nil {
 		return fmt.Errorf("deploy: %w", err)
 	}
 	rn := runner.New(st, keys, cmds, bus, log)
+	rn.RegToken = gh.RunnerToken
+	rn.AppConfigured = gh.Configured
 	rn.Start(ctx)
 	bk := backup.New(st, keys, cmds, dbs, bus, *dataDir, log)
 	bk.Start(ctx)
@@ -166,7 +171,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Backup: bk, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

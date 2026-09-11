@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, RequestError, type Session, type ApiToken, type User } from "@/lib/api";
+import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
@@ -23,6 +23,7 @@ export default function Settings() {
       <Tokens />
       {me.user.role === "admin" && <Users meId={me.user.id} />}
       <Updates />
+      {me.user.role === "admin" && <GitHubApp />}
       {me.user.role === "admin" && <MCP />}
       <CommandLog />
       <AuditLog />
@@ -238,6 +239,38 @@ function Users({ meId }: { meId: string }) {
         <select value={role} onChange={(e) => setRole(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
         <Button type="submit" className="h-9">Add user</Button>
         {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
+      </form>
+    </Card>
+  );
+}
+
+function GitHubApp() {
+  const [st, setSt] = useState<GitHubState | null>(null);
+  const [form, setForm] = useState({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" });
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.github().then((s) => { setSt(s); setForm((f) => ({ ...f, appId: s.config.appId, clientId: s.config.clientId, slug: s.config.slug })); }).catch(() => {});
+  useEffect(() => { void load(); }, []);
+  const save = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { await api.githubSave(form); setForm((f) => ({ ...f, privateKey: "", webhookSecret: "" })); setMsg("Saved and verified with GitHub."); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
+  const clear = async () => { if (!confirm("Remove the GitHub App credentials? Apps and runners fall back to tokens.")) return; await api.githubSave({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" }); await load(); };
+  if (!st) return null;
+  return (
+    <Card title="GitHub App" description="Lets people pick repositories from a list, clones private repositories with short-lived tokens, registers runners without personal access tokens, and receives one webhook for pushes and CI jobs.">
+      {st.config.configured && (
+        <div className="mb-3 rounded-md border border-success/40 bg-success-soft p-3 text-sm">
+          <div className="text-success">Configured as App {st.config.appId}{st.installations && ` · installed on ${st.installations.map((i) => i.account).join(", ") || "nobody yet"}`}</div>
+          {st.error && <div className="mt-1 text-danger">{st.error}</div>}
+          <div className="mt-1 text-xs text-ink-muted">Webhook URL for the app: <span className="font-mono">{location.origin}{st.hookUrl}</span> (events: push, workflow_job). {st.config.slug && <>Install it on more accounts at <a className="underline" href={`https://github.com/apps/${st.config.slug}/installations/new`} target="_blank" rel="noreferrer">github.com/apps/{st.config.slug}</a>.</>}</div>
+          <button type="button" onClick={() => void clear()} className="mt-2 text-xs text-danger hover:underline">Remove</button>
+        </div>
+      )}
+      <form onSubmit={save} className="grid gap-3 sm:grid-cols-3">
+        <Field label="App ID"><Input value={form.appId} onChange={(e) => setForm({ ...form, appId: e.target.value })} className="font-mono" required /></Field>
+        <Field label="Client ID"><Input value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="font-mono" /></Field>
+        <Field label="App slug" hint="From the app URL, github.com/apps/<slug>"><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className="font-mono" /></Field>
+        <div className="sm:col-span-2"><Field label="Private key (.pem)" hint={st.config.configured ? "Leave empty to keep the stored key." : "Generate one at the bottom of the GitHub App page and paste the file contents."}><textarea value={form.privateKey} onChange={(e) => setForm({ ...form, privateKey: e.target.value })} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field></div>
+        <Field label="Webhook secret" hint={st.config.configured ? "Leave empty to keep it." : "The secret you typed on the GitHub App page."}><Input type="password" value={form.webhookSecret} onChange={(e) => setForm({ ...form, webhookSecret: e.target.value })} autoComplete="off" /></Field>
+        <div className="flex items-center gap-2 sm:col-span-3"><Button type="submit" className="h-9" disabled={busy}>{busy ? "Verifying…" : "Save"}</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
       </form>
     </Card>
   );

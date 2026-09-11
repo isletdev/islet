@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, RequestError, type DeployApp, type Detection, type Release } from "@/lib/api";
+import { api, RequestError, type DeployApp, type Detection, type GitHubRepo, type Release } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
@@ -149,6 +149,8 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [advanced, setAdvanced] = useState(!!initial.id);
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  useEffect(() => { void api.githubRepos().then(setRepos).catch(() => {}); }, []);
   const set = (p: Partial<DeployApp>) => setA((c) => ({ ...c, ...p }));
   const isNew = !a.id;
 
@@ -175,7 +177,10 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
         <Field label="Source"><select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image", strategy: e.target.value === "image" ? "image" : "auto" })} className={SELECT} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option></select></Field>
         {a.source === "git" ? (
           <>
-            <Field label="Repository URL" hint="Public https URL, or https://user:token@host/org/repo for private repos (stored encrypted)."><Input value={a.repoUrl ?? ""} onChange={(e) => set({ repoUrl: e.target.value })} className="font-mono" placeholder="https://github.com/org/repo" required /></Field>
+            <Field label="Repository URL" hint={repos.length ? "Pick one of the repositories the GitHub App can see, or paste any git URL." : "Public https URL, or https://user:token@host/org/repo for private repos (stored encrypted). Configure the GitHub App in Settings to pick from a list."}>
+              {repos.length > 0 && <select value="" onChange={(e) => { const r = repos.find((x) => x.url === e.target.value); if (r) set({ repoUrl: r.url, branch: r.defaultBranch, name: a.name || r.fullName.split("/")[1].toLowerCase().replace(/[^a-z0-9-]/g, "-") }); }} className={`${SELECT} mb-1`}><option value="">Pick from GitHub…</option>{repos.map((r) => <option key={r.fullName} value={r.url}>{r.fullName}{r.private ? " (private)" : ""}</option>)}</select>}
+              <Input value={a.repoUrl ?? ""} onChange={(e) => set({ repoUrl: e.target.value })} className="font-mono" placeholder="https://github.com/org/repo" required />
+            </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Branch"><Input value={a.branch ?? "main"} onChange={(e) => set({ branch: e.target.value })} className="font-mono" /></Field>
               <Field label="Root directory" hint="For monorepos."><Input value={a.rootDir ?? ""} onChange={(e) => set({ rootDir: e.target.value })} className="font-mono" placeholder="apps/web" /></Field>

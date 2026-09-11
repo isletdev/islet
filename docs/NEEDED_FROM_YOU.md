@@ -4,13 +4,13 @@ Things only the maintainer can do. Everything else keeps moving without them. Ti
 
 ## First: read what happened while you were away
 
-The roadmap is implemented through phase 6 with the exceptions listed at the bottom. 25 commits on `main`, nothing pushed. Start with `docs/ROADMAP.md` (118 items ticked, 68 open, most of them polish) and `docs/DECISIONS.md` (the calls I made, all reversible).
+The roadmap is implemented through phase 6 with the exceptions listed at the bottom. 26 commits on `main`, pushed to `isletdev/islet`. Start with `docs/ROADMAP.md` (118 items ticked, 68 open, most of them polish) and `docs/DECISIONS.md` (the calls I made, all reversible).
 
 ## Accounts and secrets
 
-- [ ] **Create the GitHub org `isletdev` and the repo `isletdev/islet`.** Then push `main` from this folder. Unblocks: CI, releases, the update check, the installer's download URL.
+- [x] **Create the GitHub org `isletdev` and the repo `isletdev/islet`.** Done 2026-09-11; `main` is pushed and CI runs on every push. The website lives in the private `isletdev/website` repo.
 - [ ] **Back up the release signing key** at `C:\Users\User1582\.islet\release-signing.key` somewhere offline (password manager or encrypted USB). If it is lost, no installed daemon can ever trust another update. Then add the file's contents as the GitHub Actions secret `ISLET_SIGNING_KEY` on `isletdev/islet`. Unblocks: tagged releases.
-- [ ] **Register a GitHub App** (Settings → Developer settings → GitHub Apps → New) so users can pick repositories without pasting tokens and runners can register without a personal access token. Not blocking: deploys work today with any git URL plus a push webhook, runners with a PAT. Settings: name `Islet`, homepage `https://islet.dev`, webhook active with a placeholder URL, permissions Repository → Contents (read), Metadata (read), Webhooks (read and write), Administration (read and write); Organization → Self-hosted runners (read and write); events `push` and `workflow_job`; installable on any account. Keep the App ID, client ID and private key; the daemon will take them as settings once the GitHub App code lands.
+- [ ] **Register a GitHub App** (Settings → Developer settings → GitHub Apps → New) so users can pick repositories without pasting tokens and runners can register without a personal access token. Not blocking: deploys work today with any git URL plus a push webhook, runners with a PAT. Settings: name `Islet`, homepage `https://islet.dev`, webhook active with a placeholder URL, permissions Repository → Contents (read), Metadata (read), Webhooks (read and write), Administration (read and write); Organization → Self-hosted runners (read and write); events `push` and `workflow_job`; installable on any account. Then paste the App ID, client ID, slug, private key and webhook secret into Settings → GitHub App; set the app's webhook URL to `https://<panel>/api/v1/hooks/github`. The code is in place and verified up to the point where GitHub must answer.
 
 ## Domains
 

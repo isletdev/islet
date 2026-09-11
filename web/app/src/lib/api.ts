@@ -140,6 +140,9 @@ export interface BackupOverview { destinations: BackupDestination[]; plans: Back
 
 export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
 
+export interface GitHubRepo { fullName: string; defaultBranch: string; private: boolean; url: string; installation: number }
+export interface GitHubState { config: { appId: string; clientId: string; slug: string; configured: boolean }; hookUrl: string; installations?: { id: number; account: string; type: string }[]; error?: string }
+
 export class RequestError extends Error {
   status: number;
   body: ApiError;
@@ -229,6 +232,9 @@ export const api = {
   catalogApp: (slug: string) => request<CatalogApp>(`/api/v1/catalog/${slug}`),
   installedUpdates: () => request<Record<string, string[]>>("/api/v1/catalog/installed/updates"),
   stackImport: (name: string) => post<{ name: string; from: string; note: string }>("/api/v1/docker/stacks/import", { name }),
+  github: () => request<GitHubState>("/api/v1/github"),
+  githubSave: (b: { appId: string; clientId: string; slug: string; privateKey: string; webhookSecret: string }) => post<void>("/api/v1/github", b),
+  githubRepos: () => request<GitHubRepo[]>("/api/v1/github/repos"),
   mcp: () => request<{ enabled: boolean; url: string }>("/api/v1/mcp"),
   mcpSet: (enabled: boolean) => post<{ enabled: boolean }>("/api/v1/mcp", { enabled }),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),

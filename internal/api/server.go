@@ -21,6 +21,7 @@ import (
 	"github.com/isletdev/islet/internal/deploy"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
+	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/mcp"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
@@ -52,6 +53,7 @@ type Deps struct {
 	Runners  *runner.Service
 	Security *security.Service
 	Backup   *backup.Service
+	GitHub   *github.Client
 	UI       http.Handler
 	Log      *slog.Logger
 }
@@ -75,6 +77,7 @@ type Server struct {
 	runners  *runner.Service
 	security *security.Service
 	backup   *backup.Service
+	github   *github.Client
 	mcp      *mcp.Server
 	ui       http.Handler
 	log      *slog.Logger
@@ -83,7 +86,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
 	mux := http.NewServeMux()
 
@@ -93,6 +96,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("POST /api/v1/hooks/deploy/{id}", s.handleDeployHook)
 	mux.HandleFunc("POST /api/v1/hooks/runner/{id}", s.handleRunnerHook)
+	mux.HandleFunc("POST /api/v1/hooks/github", s.handleGitHubHook)
 	mux.HandleFunc("POST /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("GET /api/v1/setup", s.handleSetupStatus)
 	mux.HandleFunc("POST /api/v1/setup", requireJSON(s.handleSetup))
@@ -113,6 +117,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/users/{id}", requireJSON(s.requireAuth(s.handleUserUpdate)))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", requireJSON(s.requireAuth(s.handleUserDelete)))
 	mux.HandleFunc("GET /api/v1/attention", s.requireAuth(s.handleAttention))
+	mux.HandleFunc("GET /api/v1/github", s.requireAuth(s.handleGitHubConfig))
+	mux.HandleFunc("POST /api/v1/github", requireJSON(s.requireAuth(s.handleGitHubSave)))
+	mux.HandleFunc("GET /api/v1/github/repos", s.requireAuth(s.handleGitHubRepos))
 	mux.HandleFunc("GET /api/v1/mcp", s.requireAuth(s.handleMCPSetting))
 	mux.HandleFunc("POST /api/v1/mcp", requireJSON(s.requireAuth(s.handleMCPSetting)))
 	mux.HandleFunc("/mcp", s.requireAuth(s.handleMCP))

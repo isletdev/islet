@@ -118,6 +118,9 @@ type Service struct {
 	mu      sync.Mutex
 	active  map[string]*run
 	dataDir string
+
+	// CloneAuth may return an authenticated clone URL for a repository (GitHub App).
+	CloneAuth func(ctx context.Context, repoURL string) (string, bool)
 }
 
 type run struct {
@@ -468,6 +471,12 @@ func (s *Service) Inspect(ctx context.Context, repoURL, branch, rootDir string) 
 func (s *Service) clone(ctx context.Context, repoURL, branch, dst string, out io.Writer) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
+	shown := repoURL
+	if s.CloneAuth != nil {
+		if u, ok := s.CloneAuth(ctx, repoURL); ok {
+			repoURL = u
+		}
+	}
 	cmd := exec.CommandContext(cctx, "git", "clone", "--depth", "1", "--branch", branch, "--single-branch", "--recurse-submodules", "--", repoURL, dst)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new")
 	var stderr strings.Builder
@@ -477,13 +486,14 @@ func (s *Service) clone(ctx context.Context, repoURL, branch, dst string, out io
 	}
 	start := time.Now()
 	err := cmd.Run()
-	s.run.Record(ctx, "deploy", "git clone --depth 1 --branch "+branch+" "+redact(repoURL), cmdrun.Result{ExitCode: code(err), Duration: time.Since(start), Stderr: stderr.String()})
+	s.run.Record(ctx, "deploy", "git clone --depth 1 --branch "+branch+" "+redact(shown), cmdrun.Result{ExitCode: code(err), Duration: time.Since(start), Stderr: stderr.String()})
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
 		}
-		return errors.New("git clone failed: " + strings.ReplaceAll(msg, repoURL, redact(repoURL)))
+		msg = strings.ReplaceAll(strings.ReplaceAll(msg, repoURL, redact(shown)), shown, redact(shown))
+		return errors.New("git clone failed: " + msg)
 	}
 	return nil
 }

@@ -97,6 +97,11 @@ type Service struct {
 	log  *slog.Logger
 	mu   sync.Mutex
 	seq  int
+
+	// RegToken may mint a GitHub runner registration token for a repo or org URL (GitHub App).
+	RegToken func(ctx context.Context, scopeURL string) (string, error)
+	// AppConfigured reports whether the GitHub App can stand in for a token.
+	AppConfigured func(ctx context.Context) bool
 }
 
 // New builds the service.
@@ -227,7 +232,7 @@ func (s *Service) Save(ctx context.Context, p *Pool) (*Pool, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	var tok []byte
+	tok := []byte{}
 	if p.Token != "" {
 		b, err := s.keys.Encrypt([]byte(p.Token))
 		if err != nil {
@@ -236,7 +241,7 @@ func (s *Service) Save(ctx context.Context, p *Pool) (*Pool, error) {
 		tok = b
 	}
 	if p.ID == "" {
-		if p.Token == "" {
+		if p.Token == "" && !(p.Provider == "github" && s.AppConfigured != nil && s.AppConfigured(ctx)) {
 			return nil, errors.New("a token is required: a GitHub personal access token (repo or admin:org), a GitLab runner authentication token, or a Gitea registration token")
 		}
 		p.ID = randHex(6)
@@ -258,7 +263,7 @@ func (s *Service) Save(ctx context.Context, p *Pool) (*Pool, error) {
 			return nil, errors.New("pools cannot be renamed")
 		}
 		if p.Token == "" {
-			tok = nil
+			tok = nil // keep the stored token
 		}
 		q := `UPDATE runner_pools SET url = ?, labels = ?, min_idle = ?, max_runners = ?, docker_access = ?, memory_mb = ?, cpus = ?, enabled = ?`
 		args := []any{p.URL, p.Labels, p.MinIdle, p.MaxRunners, p.DockerAccess, p.MemoryMB, p.CPUs, p.Enabled}
@@ -364,7 +369,18 @@ func (s *Service) startOne(ctx context.Context, p *Pool) error {
 	case "github":
 		u, _ := url.Parse(p.URL)
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		args = append(args, "--rm", "-e", "EPHEMERAL=true", "-e", "DISABLE_AUTO_UPDATE=true", "-e", "ACCESS_TOKEN="+p.Token, "-e", "RUNNER_NAME="+name, "-e", "RUNNER_WORKDIR=/tmp/work")
+		args = append(args, "--rm", "-e", "EPHEMERAL=true", "-e", "DISABLE_AUTO_UPDATE=true", "-e", "RUNNER_NAME="+name, "-e", "RUNNER_WORKDIR=/tmp/work")
+		if p.Token != "" {
+			args = append(args, "-e", "ACCESS_TOKEN="+p.Token)
+		} else if s.RegToken != nil {
+			reg, err := s.RegToken(ctx, p.URL)
+			if err != nil {
+				return fmt.Errorf("GitHub App could not mint a registration token: %w", err)
+			}
+			args = append(args, "-e", "RUNNER_TOKEN="+reg)
+		} else {
+			return errors.New("no token and no GitHub App configured")
+		}
 		if p.Labels != "" {
 			args = append(args, "-e", "LABELS="+p.Labels)
 		}
