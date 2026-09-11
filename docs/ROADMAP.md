@@ -191,7 +191,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [ ] Processes: web, worker, scheduler from the same build with instance counts and per-process logs
 - [ ] Root directory per app for monorepos; environments (production, staging) with promote-without-rebuild
 - [x] App page: status, releases, live deploy log, link to container logs and shell, crash-loop alert via container events, maintenance page via the domain
-- [ ] Multiple domains per app
+- [x] Multiple domains per app (comma separated, first is primary)
 - [x] Deploy events wired into notifications (started, deployed, failed with the last 30 log lines)
 - [ ] Sample repos for each recipe so users can try a deploy before connecting their own code
 

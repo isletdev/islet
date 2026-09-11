@@ -204,7 +204,20 @@ func (a *App) Validate() error {
 	default:
 		return errors.New("tls must be letsencrypt, self or none")
 	}
-	a.Domain = strings.ToLower(strings.TrimSpace(a.Domain))
+	var hosts []string
+	seen := map[string]bool{}
+	for _, h := range strings.Split(a.Domain, ",") {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" || seen[h] {
+			continue
+		}
+		if strings.ContainsAny(h, " /:") {
+			return fmt.Errorf("domain %q is not a host name", h)
+		}
+		seen[h] = true
+		hosts = append(hosts, h)
+	}
+	a.Domain = strings.Join(hosts, ",")
 	for _, kv := range strings.Split(a.Env, "\n") {
 		kv = strings.TrimSpace(kv)
 		if kv == "" || strings.HasPrefix(kv, "#") {
@@ -276,12 +289,12 @@ func (s *Service) open(b []byte) string {
 
 func (s *Service) decorate(ctx context.Context, a *App) {
 	a.Container = a.containerName(a.CurrentRelease)
-	if a.Domain != "" {
+	if hosts := a.Domains(); len(hosts) > 0 {
 		scheme := "https"
 		if a.TLS == "none" {
 			scheme = "http"
 		}
-		a.URL = scheme + "://" + a.Domain
+		a.URL = scheme + "://" + hosts[0]
 	}
 	s.mu.Lock()
 	_, a.Deploying = s.active[a.ID]
@@ -289,6 +302,14 @@ func (s *Service) decorate(ctx context.Context, a *App) {
 	if r, err := s.lastRelease(ctx, a.ID); err == nil {
 		a.Last = r
 	}
+}
+
+// Domains returns the app's hosts; the first is the primary one.
+func (a *App) Domains() []string {
+	if a.Domain == "" {
+		return nil
+	}
+	return strings.Split(a.Domain, ",")
 }
 
 func (a *App) containerName(release int64) string {
@@ -364,11 +385,17 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 			return nil, err
 		}
 		// A changed domain re-points the route to the live container.
-		if old.Domain != a.Domain && old.CurrentRelease != 0 {
-			if old.Domain != "" {
-				s.removeDomain(ctx, old.Domain)
+		if old.Domain != a.Domain {
+			keep := map[string]bool{}
+			for _, h := range a.Domains() {
+				keep[h] = true
 			}
-			if a.Domain != "" {
+			for _, h := range old.Domains() {
+				if !keep[h] {
+					s.removeDomain(ctx, h)
+				}
+			}
+			if a.Domain != "" && old.CurrentRelease != 0 {
 				_ = s.route(ctx, "system", a, old.containerName(old.CurrentRelease))
 			}
 		}
@@ -395,8 +422,8 @@ func (s *Service) Delete(ctx context.Context, actor, id string) error {
 	if a.Strategy == "compose" {
 		_ = s.dk.RemoveStack(ctx, actor, "app-"+a.Name, false)
 	}
-	if a.Domain != "" {
-		s.removeDomain(ctx, a.Domain)
+	for _, h := range a.Domains() {
+		s.removeDomain(ctx, h)
 	}
 	_ = os.RemoveAll(filepath.Join(s.dir, a.ID))
 	_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM releases WHERE app_id = ?`, id)
@@ -829,7 +856,7 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	lg.line("healthy")
 
 	if a.Domain != "" {
-		lg.step("route " + a.Domain + " → " + name)
+		lg.step("route " + strings.Join(a.Domains(), ", ") + " → " + name)
 		if err := s.route(ctx, "deploy", a, name); err != nil {
 			fail(err)
 			return
@@ -854,10 +881,10 @@ func (s *Service) succeed(ctx context.Context, a *App, rel *Release, lg *logger,
 	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = 'live', container = ?, log = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), duration_ms = ? WHERE id = ?`, container, lg.b.String(), time.Since(start).Milliseconds(), rel.ID)
 	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE apps SET status = 'live', current_release = ? WHERE id = ?`, rel.ID, a.ID)
 	url := ""
-	if a.Domain != "" {
-		url = "https://" + a.Domain
+	if hosts := a.Domains(); len(hosts) > 0 {
+		url = "https://" + hosts[0]
 		if a.TLS == "none" {
-			url = "http://" + a.Domain
+			url = "http://" + hosts[0]
 		}
 	}
 	lg.line(fmt.Sprintf("[islet] live in %s %s", time.Since(start).Round(time.Second), url))
@@ -907,18 +934,22 @@ func (s *Service) route(ctx context.Context, actor string, a *App, container str
 	if err != nil {
 		return err
 	}
-	var d *proxy.Domain
-	for i := range doms {
-		if doms[i].Host == a.Domain {
-			d = &doms[i]
+	for _, host := range a.Domains() {
+		var d *proxy.Domain
+		for i := range doms {
+			if doms[i].Host == host {
+				d = &doms[i]
+			}
+		}
+		if d == nil {
+			d = &proxy.Domain{Host: host, TLS: a.TLS, Enabled: true}
+		}
+		d.TargetType, d.Target, d.Port = "container", container, a.Port
+		if _, err := s.px.Save(ctx, actor, d); err != nil {
+			return fmt.Errorf("%s: %w", host, err)
 		}
 	}
-	if d == nil {
-		d = &proxy.Domain{Host: a.Domain, TLS: a.TLS, Enabled: true}
-	}
-	d.TargetType, d.Target, d.Port = "container", container, a.Port
-	_, err = s.px.Save(ctx, actor, d)
-	return err
+	return nil
 }
 
 func (s *Service) healthy(ctx context.Context, lg *logger, container string, port int, path string) error {
