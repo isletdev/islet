@@ -129,11 +129,11 @@ export interface RunnerJob { id: number; poolId: string; externalId: string; nam
 
 export interface SecCheck { id: string; title: string; detail: string; weight: number; status: "pass" | "fail" | "warn" | "unknown"; fix?: string; fixNote?: string }
 export interface SecReport { score: number; max: number; checks: SecCheck[]; linux: boolean; computedAt: string }
-export interface FirewallRule { port: string; proto: string; from: string; comment: string }
+export interface FirewallRule { port: string; proto: string; from: string; comment: string; routed?: boolean }
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
 export interface HostAudit { at: string; suid: string[]; worldWritable: string[]; etcChanged: string[]; etcAdded: string[]; etcRemoved: string[]; baselineAt: string; rkhunter: string; rkhunterRan: boolean; notes: string[] }
 export interface Scan { target: string; at: string; critical: number; high: number; medium: number; low: number; findings: { id: string; package: string; version: string; fixed: string; severity: string; title: string }[]; error?: string; truncated?: boolean }
-export interface SecurityState { panelCidr?: string; report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
+export interface SecurityState { panelCidr?: string; report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean; missingRoutes?: string[] }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
 
 export interface BackupDestination { id: string; name: string; type: "s3" | "sftp" | "local" | "rest"; config: Record<string, string>; password?: string; lastCheck: string; checkOk: boolean; size: number; lastRestoreTest: string; restoreTestOk: boolean; createdAt: string; repo: string }
 export interface BackupSource { type: "volume" | "path" | "database" | "islet"; value: string }
@@ -299,8 +299,8 @@ export const api = {
   lynis: () => post<{ score: number; output: string }>("/api/v1/security/lynis"),
   security: () => request<SecurityState>("/api/v1/security"),
   securityFix: (id: string) => post<{ output: string }>(`/api/v1/security/fix/${id}`),
-  firewallAllow: (b: { port: string; proto: string; from: string; comment: string }) => post<void>("/api/v1/security/firewall/rules", b),
-  firewallDelete: (b: { port: string; proto: string; from: string }) => post<void>("/api/v1/security/firewall/rules", b, "DELETE"),
+  firewallAllow: (b: { port: string; proto: string; from: string; comment: string; routed: boolean }) => post<void>("/api/v1/security/firewall/rules", b),
+  firewallDelete: (b: { port: string; proto: string; from: string; routed: boolean }) => post<void>("/api/v1/security/firewall/rules", b, "DELETE"),
   unban: (ip: string) => post<void>("/api/v1/security/unban", { ip }),
   sshApply: (cfg: SSHSettings) => post<{ message: string }>("/api/v1/security/ssh", cfg),
   sshConfirm: () => post<void>("/api/v1/security/ssh/confirm"),

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -104,6 +105,11 @@ func run() error {
 		}
 	}()
 
+	// The port the panel ends up on is known only once it is listening, and the
+	// firewall rules need it, so it is published here for the hooks to read.
+	var panelPort atomic.Value
+	panelPort.Store("9443")
+
 	collector := metrics.NewCollector()
 	sampler := metrics.NewSampler(collector, st, log)
 	go sampler.Run(ctx)
@@ -140,6 +146,9 @@ func run() error {
 			}
 			return "provider snapshot " + desc + " requested before " + op
 		},
+		ProxyPorts:    px.Ports,
+		PanelRouted:   px.PanelRouted,
+		PanelPort:     func() string { p, _ := panelPort.Load().(string); return p },
 		Admin2FA:      as.AllAdminsHave2FA,
 		PanelHasCert:  func() bool { return *tlsMode == "off" || panelHasTrustedCert(ctx, px) },
 		HasBackupPlan: bk.HasPlan,
@@ -199,6 +208,7 @@ func run() error {
 	scheme := "http"
 	if _, port, err := net.SplitHostPort(ln.Addr().String()); err == nil {
 		px.SetPanelURL(map[bool]string{true: "https", false: "http"}[*tlsMode != "off"], port)
+		panelPort.Store(port)
 	}
 	if err := px.Reconcile(ctx); err != nil {
 		log.Warn("proxy reconcile failed", "err", err)

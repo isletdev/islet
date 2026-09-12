@@ -47,9 +47,12 @@ type Report struct {
 
 // FirewallRule is one allowed port.
 type FirewallRule struct {
-	Port    string `json:"port"`
-	Proto   string `json:"proto"`
-	From    string `json:"from"`
+	Port  string `json:"port"`
+	Proto string `json:"proto"`
+	From  string `json:"from"`
+	// Routed marks a rule on the forward chain, which is the only kind that
+	// reaches a port published by a container.
+	Routed  bool   `json:"routed"`
 	Comment string `json:"comment"`
 }
 
@@ -59,6 +62,9 @@ type Firewall struct {
 	Active    bool           `json:"active"`
 	Rules     []FirewallRule `json:"rules"`
 	DockerOK  bool           `json:"dockerAware"`
+	// MissingRoutes names proxy ports that have no forward rule, which is the
+	// state where every site behind the proxy answers nothing.
+	MissingRoutes []string `json:"missingRoutes"`
 }
 
 // Finding is a Trivy vulnerability.
@@ -101,6 +107,9 @@ type Service struct {
 	has2FA      func(context.Context) bool
 	panelCert   func() bool
 	beforeRisky func(ctx context.Context, op string) string
+	proxyPorts  func() (string, string)
+	panelPort   func() string
+	panelRouted func(context.Context) bool
 }
 
 // Hooks lets other packages answer questions the score needs.
@@ -111,12 +120,20 @@ type Hooks struct {
 	// BeforeRisky may take a provider snapshot before a change that could
 	// lock the admin out; it returns a note for the output ("" = nothing).
 	BeforeRisky func(ctx context.Context, op string) string
+	// ProxyPorts reports the published HTTP and HTTPS ports of the proxy, so
+	// firewall rules match what is really listening rather than a guess.
+	ProxyPorts func() (string, string)
+	// PanelPort is the port the daemon itself listens on.
+	PanelPort func() string
+	// PanelRouted says whether a domain reaches the panel through the proxy.
+	// When it does, the panel port does not have to be open to the internet.
+	PanelRouted func(context.Context) bool
 }
 
 // New builds the service.
 func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, h Hooks, log *slog.Logger) *Service {
 	abs, _ := filepath.Abs(dataDir)
-	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, beforeRisky: h.BeforeRisky}
+	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, beforeRisky: h.BeforeRisky, proxyPorts: h.ProxyPorts, panelPort: h.PanelPort, panelRouted: h.PanelRouted}
 	if b, err := os.ReadFile(filepath.Join(abs, "scans.json")); err == nil {
 		_ = json.Unmarshal(b, &s.scans)
 	}
@@ -228,13 +245,26 @@ func (s *Service) Report(ctx context.Context) Report {
 		if fw.Active {
 			st = "pass"
 		}
-		add(Check{ID: "firewall", Title: "Firewall enabled with only the needed ports", Detail: "ufw with SSH, HTTP, HTTPS and the panel port allowed, everything else denied. Published Docker ports honour it.", Weight: 12, Status: st, Fix: "firewall", FixNote: "Enables ufw with SSH, 80, 443 and the panel port"})
+		add(Check{ID: "firewall", Title: "Firewall enabled with only the needed ports", Detail: "ufw allowing SSH and the proxy ports and nothing else, on both the input and the forward chain so published container ports are covered. The panel port is reached from your own address, not the internet.", Weight: 12, Status: st, Fix: "firewall", FixNote: "Opens SSH and the proxy ports; the panel from your address only"})
 		if fw.Active {
 			st = "warn"
 			if fw.DockerOK {
 				st = "pass"
 			}
 			add(Check{ID: "firewall-docker", Title: "Docker cannot bypass the firewall", Detail: "Without the DOCKER-USER rules, any published port is open regardless of ufw.", Weight: 5, Status: st, Fix: "firewall"})
+		}
+		if fw.Active && fw.DockerOK {
+			// A port published by a container arrives on the forward chain.
+			// "ufw allow 443/tcp" only writes an input rule, so without a
+			// forward rule every site behind the proxy goes dark while the
+			// host itself keeps answering. This check names that state.
+			st = "pass"
+			detail := "Ports the proxy publishes need a ufw route rule, not just an allow rule. Without one, every domain stops answering while the server still responds on its own ports."
+			if len(fw.MissingRoutes) > 0 {
+				st = "fail"
+				detail = "No forward rule for port " + strings.Join(fw.MissingRoutes, ", ") + ". Every domain behind the proxy is unreachable right now, although the server itself still answers."
+			}
+			add(Check{ID: "firewall-routes", Title: "Proxy ports reach the proxy", Detail: detail, Weight: 10, Status: st, Fix: "firewall-routes", FixNote: "Adds the missing route rules"})
 		}
 		// fail2ban
 		st = "fail"
@@ -373,7 +403,9 @@ func (s *Service) Fix(ctx context.Context, actor, id, clientIP string) (string, 
 	var err error
 	switch id {
 	case "firewall":
-		out, err = s.EnableFirewall(ctx, actor, clientIP)
+		out, err = s.EnableFirewall(ctx, actor, clientIP, FirewallOptions{})
+	case "firewall-routes":
+		out, err = s.RepairRoutes(ctx, actor)
 	case "fail2ban":
 		out, err = s.aptInstall(ctx, actor, "fail2ban")
 		if err == nil {
@@ -435,27 +467,24 @@ func (s *Service) FirewallStatus(ctx context.Context) Firewall {
 	if err != nil {
 		return fw
 	}
-	fw.Active = strings.Contains(out, "Status: active")
-	for _, l := range strings.Split(out, "\n") {
-		l = strings.TrimSpace(l)
-		if l == "" || strings.HasPrefix(l, "Status") || strings.HasPrefix(l, "To ") || strings.HasPrefix(l, "--") || strings.Contains(l, "(v6)") {
-			continue
-		}
-		f := strings.Fields(l)
-		if len(f) < 4 || f[1] != "ALLOW" {
-			continue
-		}
-		port, proto, _ := strings.Cut(f[0], "/")
-		r := FirewallRule{Port: port, Proto: proto, From: f[3]}
-		if i := strings.Index(l, "#"); i >= 0 {
-			r.Comment = strings.TrimSpace(l[i+1:])
-		}
-		fw.Rules = append(fw.Rules, r)
-	}
+	fw.Active, fw.Rules = ParseUFWStatus(out)
 	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
 		fw.DockerOK = true
 	}
+	httpP, httpsP := s.ports()
+	fw.MissingRoutes = MissingRoutes(fw, httpP, httpsP)
 	return fw
+}
+
+// ports reports the proxy's published ports, falling back to the defaults when
+// nothing told us otherwise.
+func (s *Service) ports() (string, string) {
+	if s.proxyPorts != nil {
+		if a, b := s.proxyPorts(); a != "" && b != "" {
+			return a, b
+		}
+	}
+	return "80", "443"
 }
 
 // dockerRules is the widely used ufw-docker snippet: published container
@@ -484,31 +513,92 @@ COMMIT
 # END UFW AND DOCKER
 `
 
-// EnableFirewall installs ufw, allows SSH, HTTP, HTTPS and the panel port,
-// makes Docker honour it and turns it on. The caller's IP is allowed
-// first so the panel session survives.
-func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string) (string, error) {
+// FirewallOptions tunes how far EnableFirewall opens the panel port. Everything
+// else is derived from what this server runs.
+type FirewallOptions struct {
+	// PanelPublic opens the panel port to the internet. Off by default: the
+	// panel is reached on its domain through the proxy, or from the admin's own
+	// address, so the only ports the world sees are HTTP and HTTPS.
+	PanelPublic bool
+}
+
+// Plan reports the openings EnableFirewall would apply, without touching
+// anything. The Security page shows it before asking to go ahead.
+func (s *Service) Plan(ctx context.Context, clientIP string, opts FirewallOptions) ([]Opening, string) {
+	httpP, httpsP := s.ports()
+	panelP := "9443"
+	if s.panelPort != nil {
+		if p := s.panelPort(); p != "" {
+			panelP = p
+		}
+	}
+	routed := false
+	if s.panelRouted != nil {
+		routed = s.panelRouted(ctx)
+	}
+	admin := clientIP
+	if admin == "127.0.0.1" || admin == "::1" {
+		admin = ""
+	}
+	return FirewallPlan(PlanInput{
+		SSHPort:     s.readSSHD(ctx).Port,
+		HTTPPort:    httpP,
+		HTTPSPort:   httpsP,
+		PanelPort:   panelP,
+		PanelCIDR:   s.PanelCIDR(ctx),
+		PanelPublic: opts.PanelPublic,
+		PanelDomain: routed,
+		AdminIP:     admin,
+	})
+}
+
+// EnableFirewall installs ufw, opens exactly the ports this server needs, makes
+// Docker honour it and turns it on.
+//
+// Ports published by a container get a route rule as well as an input rule.
+// Without the route rule, `ufw default deny routed` plus the ufw-docker rules
+// leave every site behind the proxy unreachable while the host still answers,
+// which is a silent outage that looks like a proxy fault.
+func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string, opts FirewallOptions) (string, error) {
 	if !has("ufw") {
 		if _, err := s.aptInstall(ctx, actor, "ufw"); err != nil {
 			return "", err
 		}
 	}
+	openings, warn := s.Plan(ctx, clientIP, opts)
+	for _, o := range openings {
+		if err := o.Validate(); err != nil {
+			return "", err
+		}
+	}
+
 	var log strings.Builder
-	sshPort := s.readSSHD(ctx).Port
+	if warn != "" {
+		log.WriteString("[islet] " + warn + "\n")
+	}
 	cmds := [][]string{
 		{"ufw", "--force", "reset"},
 		{"ufw", "default", "deny", "incoming"},
 		{"ufw", "default", "allow", "outgoing"},
 		{"ufw", "default", "deny", "routed"},
-		{"ufw", "limit", strconv.Itoa(sshPort) + "/tcp", "comment", "SSH"},
-		{"ufw", "allow", "80/tcp", "comment", "HTTP"},
-		{"ufw", "allow", "443/tcp", "comment", "HTTPS"},
-		{"ufw", "allow", "443/udp", "comment", "HTTP/3"},
-		{"ufw", "allow", "9443/tcp", "comment", "Islet panel"},
 	}
-	if clientIP != "" && clientIP != "127.0.0.1" && clientIP != "::1" {
-		cmds = append(cmds, []string{"ufw", "allow", "from", clientIP, "comment", "current admin"})
+	for _, o := range openings {
+		cmds = append(cmds, o.Commands()...)
 	}
+	// Keep the admin reachable whatever else changes.
+	if admin := clientIP; admin != "" && admin != "127.0.0.1" && admin != "::1" {
+		cmds = append(cmds, []string{"ufw", "allow", "from", admin, "comment", "current admin"})
+	}
+
+	// The Docker rules have to be in place before ufw is enabled, or the first
+	// reload leaves forwarding denied with nothing to allow it.
+	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && !strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
+		if err := os.WriteFile("/etc/ufw/after.rules", append(b, []byte(dockerRules)...), 0o640); err != nil {
+			return log.String(), fmt.Errorf("write /etc/ufw/after.rules: %w", err)
+		}
+		log.WriteString("[islet] added the ufw-docker rules to /etc/ufw/after.rules\n")
+	}
+
 	for _, c := range cmds {
 		out, err := s.sh(ctx, actor, c[0], c[1:]...)
 		log.WriteString(out)
@@ -516,69 +606,91 @@ func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string) (s
 			return log.String(), fmt.Errorf("%s: %w", strings.Join(c, " "), err)
 		}
 	}
-	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && !strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
-		_ = os.WriteFile("/etc/ufw/after.rules", append(b, []byte(dockerRules)...), 0o640)
-	}
 	out, err := s.sh(ctx, actor, "ufw", "--force", "enable")
 	log.WriteString(out)
 	if err != nil {
 		return log.String(), err
 	}
 	_, _ = s.sh(ctx, actor, "ufw", "reload")
+
+	// Say plainly what the internet can now reach.
+	fw := s.FirewallStatus(ctx)
+	if len(fw.MissingRoutes) > 0 {
+		log.WriteString("[islet] warning: no forward rule for port " + strings.Join(fw.MissingRoutes, ", ") + "; sites behind the proxy will not answer\n")
+	}
+	_ = s.st.Audit(ctx, actor, "firewall.enable", strconv.Itoa(len(openings))+" openings", warn)
 	return log.String(), nil
 }
 
-// AllowPort adds a rule; from may be "any" or a CIDR.
-func (s *Service) AllowPort(ctx context.Context, actor, port, proto, from, comment string) error {
-	if !regexp.MustCompile(`^\d{1,5}(:\d{1,5})?$`).MatchString(port) || (proto != "tcp" && proto != "udp" && proto != "") {
-		return errors.New("port must be a number or range and proto tcp or udp")
+// RepairRoutes adds the missing forward rules without resetting anything else.
+// This is the small, safe fix for a server that is already firewalled and has
+// gone dark behind the proxy.
+func (s *Service) RepairRoutes(ctx context.Context, actor string) (string, error) {
+	fw := s.FirewallStatus(ctx)
+	if !fw.Installed {
+		return "", errors.New("ufw is not installed")
 	}
-	args := []string{"allow"}
-	if from != "" && from != "any" {
-		if !regexp.MustCompile(`^[0-9a-fA-F.:/]+$`).MatchString(from) {
-			return errors.New("from must be an IP or CIDR")
+	if len(fw.MissingRoutes) == 0 {
+		return "Nothing to repair: every proxy port already has a forward rule.\n", nil
+	}
+	var log strings.Builder
+	for _, port := range fw.MissingRoutes {
+		protos := []string{"tcp"}
+		_, httpsP := s.ports()
+		if port == httpsP {
+			protos = append(protos, "udp")
 		}
-		args = append(args, "from", from, "to", "any", "port", port)
-		if proto != "" {
-			args = append(args, "proto", proto)
+		for _, proto := range protos {
+			o := Opening{Port: port, Proto: proto, Routed: true, Comment: "islet proxy"}
+			if err := o.Validate(); err != nil {
+				return log.String(), err
+			}
+			for _, c := range o.Commands() {
+				out, err := s.sh(ctx, actor, c[0], c[1:]...)
+				log.WriteString(out)
+				if err != nil {
+					return log.String(), fmt.Errorf("%s: %w", strings.Join(c, " "), err)
+				}
+			}
 		}
-	} else {
-		spec := port
-		if proto != "" {
-			spec += "/" + proto
-		}
-		args = append(args, spec)
 	}
-	if comment != "" {
-		args = append(args, "comment", regexp.MustCompile(`[^A-Za-z0-9 ._-]`).ReplaceAllString(comment, ""))
-	}
-	_, err := s.sh(ctx, actor, "ufw", args...)
-	if err == nil {
-		_ = s.st.Audit(ctx, actor, "firewall.allow", port+"/"+proto, from)
-	}
-	return err
+	_, _ = s.sh(ctx, actor, "ufw", "reload")
+	_ = s.st.Audit(ctx, actor, "firewall.repair", strings.Join(fw.MissingRoutes, ","), "")
+	return log.String(), nil
 }
 
-// DenyPort removes an allow rule.
-func (s *Service) DenyPort(ctx context.Context, actor, port, proto, from string) error {
-	args := []string{"delete", "allow"}
-	if from != "" && from != "any" && from != "Anywhere" {
-		args = append(args, "from", from, "to", "any", "port", port)
-		if proto != "" {
-			args = append(args, "proto", proto)
-		}
-	} else {
-		spec := port
-		if proto != "" {
-			spec += "/" + proto
-		}
-		args = append(args, spec)
+// AllowPort adds a rule; from may be "any" or a CIDR. routed adds the forward
+// rule a port published by a container needs instead of an input rule.
+func (s *Service) AllowPort(ctx context.Context, actor, port, proto, from, comment string, routed bool) error {
+	o := Opening{Port: port, Proto: proto, From: from, Comment: comment, Host: true, Routed: routed}
+	if err := o.Validate(); err != nil {
+		return err
 	}
-	_, err := s.sh(ctx, actor, "ufw", args...)
-	if err == nil {
-		_ = s.st.Audit(ctx, actor, "firewall.delete", port+"/"+proto, from)
+	for _, c := range o.Commands() {
+		if _, err := s.sh(ctx, actor, c[0], c[1:]...); err != nil {
+			return err
+		}
 	}
-	return err
+	_ = s.st.Audit(ctx, actor, "firewall.allow", port+"/"+proto, from)
+	return nil
+}
+
+// DenyPort removes an allow rule from the chain it lives on.
+func (s *Service) DenyPort(ctx context.Context, actor, port, proto, from string, routed bool) error {
+	if from == "Anywhere" {
+		from = ""
+	}
+	o := Opening{Port: port, Proto: proto, From: from, Host: true, Routed: routed}
+	if err := o.Validate(); err != nil {
+		return err
+	}
+	for _, c := range o.DeleteCommands() {
+		if _, err := s.sh(ctx, actor, c[0], c[1:]...); err != nil {
+			return err
+		}
+	}
+	_ = s.st.Audit(ctx, actor, "firewall.delete", port+"/"+proto, from)
+	return nil
 }
 
 // BannedIPs lists fail2ban's current bans.

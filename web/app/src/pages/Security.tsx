@@ -71,7 +71,7 @@ export default function Security() {
       {out && <Card title={out.title}><pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs">{out.text}</pre></Card>}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <FirewallCard s={s} isAdmin={isAdmin} onChanged={load} onFix={() => void fix("firewall")} busy={busy} />
+        <FirewallCard s={s} isAdmin={isAdmin} onChanged={load} onFix={() => void fix("firewall")} onFixRoutes={() => void fix("firewall-routes")} busy={busy} />
         <SSHCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -173,18 +173,27 @@ function Diagnostics() {
   );
 }
 
-function FirewallCard({ s, isAdmin, onChanged, onFix, busy }: { s: SecurityState; isAdmin: boolean; onChanged: () => Promise<void>; onFix: () => void; busy: string | null }) {
+function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: SecurityState; isAdmin: boolean; onChanged: () => Promise<void>; onFix: () => void; onFixRoutes: () => void; busy: string | null }) {
   const fw = s.firewall;
   const [port, setPort] = useState(""); const [proto, setProto] = useState("tcp"); const [from, setFrom] = useState(""); const [comment, setComment] = useState("");
+  const [routed, setRouted] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
-  const add = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.firewallAllow({ port, proto, from, comment }); setPort(""); setFrom(""); setComment(""); await onChanged(); } catch (er) { setMsg(err(er)); } };
+  const add = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.firewallAllow({ port, proto, from, comment, routed }); setPort(""); setFrom(""); setComment(""); await onChanged(); } catch (er) { setMsg(err(er)); } };
+  const missing = fw.missingRoutes ?? [];
   return (
     <Card title="Firewall" description={!s.report.linux ? "Available on Linux servers." : !fw.installed ? "ufw is not installed." : fw.active ? `Active. ${fw.dockerAware ? "Docker honours it." : "Docker can bypass it: run the firewall fix."}` : "Installed but inactive."}>
-      {s.report.linux && !fw.active && isAdmin && <Button className="h-8 text-xs" disabled={busy !== null} onClick={onFix}>Enable with SSH, 80, 443 and the panel port</Button>}
+      {s.report.linux && !fw.active && isAdmin && <div className="space-y-2"><p className="text-sm text-ink-muted">Opens SSH and the proxy ports to the internet, and reaches the panel from your address only. Everything else is denied, on both the input and the forward chain, so published container ports are covered too.</p><Button className="h-8 text-xs" disabled={busy !== null} onClick={onFix}>Turn the firewall on</Button></div>}
+      {missing.length > 0 && (
+        <div className="mb-3 rounded-md border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
+          <p className="font-medium">Every domain behind the proxy is unreachable.</p>
+          <p className="mt-1">Port {missing.join(" and ")} reaches the proxy container over the forward chain, and there is no rule allowing it. The server still answers on its own ports, so this looks like a proxy fault but it is the firewall.</p>
+          {isAdmin && <Button className="mt-2 h-8 text-xs" disabled={busy !== null} onClick={() => void onFixRoutes()}>{busy === "firewall-routes" ? "Adding rules…" : "Add the missing rules"}</Button>}
+        </div>
+      )}
       {fw.active && (
         <>
           <table className="w-full text-xs"><tbody className="divide-y divide-border">
-            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (confirm(`Remove the rule for ${r.port}?`)) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
+            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">{r.routed ? <span title="Reaches a port published by a container" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to containers</span> : <span title="Reaches a port the server itself listens on" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to this server</span>}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (confirm(`Remove the rule for ${r.port}?`)) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from, routed: !!r.routed }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
           </tbody></table>
           {isAdmin && <PanelRestrict cidr={s.panelCidr ?? ""} onChanged={onChanged} />}
           {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
@@ -192,6 +201,7 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, busy }: { s: SecurityState
             <Field label="Proto"><Select value={proto} onChange={(e) => setProto(e.target.value)} className="w-auto"><option>tcp</option><option>udp</option></Select></Field>
             <Field label="From" hint="empty = anywhere"><Input value={from} onChange={(e) => setFrom(e.target.value)} className="w-40 font-mono" placeholder="203.0.113.0/24" /></Field>
             <Field label="Comment"><Input value={comment} onChange={(e) => setComment(e.target.value)} className="w-36" placeholder="office" /></Field>
+            <Field label="Reaches" hint="A container port needs a forward rule; an allow rule alone never matches it."><Select value={routed ? "container" : "host"} onChange={(e) => setRouted(e.target.value === "container")} className="w-44"><option value="container">A container</option><option value="host">This server</option></Select></Field>
             <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9 text-xs">Allow</Button>{msg && <span className="text-xs text-danger">{msg}</span>}</FieldAction>
           </form>}
         </>

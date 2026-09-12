@@ -56,7 +56,10 @@ func (s *Server) handleFirewallRule(w http.ResponseWriter, r *http.Request) {
 	if !s.adminOnly(w, r) {
 		return
 	}
-	var req struct{ Port, Proto, From, Comment string }
+	var req struct {
+		Port, Proto, From, Comment string
+		Routed                     bool // the port is published by a container
+	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
@@ -64,9 +67,9 @@ func (s *Server) handleFirewallRule(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	var err error
 	if r.Method == http.MethodDelete {
-		err = s.security.DenyPort(r.Context(), u.Username, req.Port, req.Proto, req.From)
+		err = s.security.DenyPort(r.Context(), u.Username, req.Port, req.Proto, req.From, req.Routed)
 	} else {
-		err = s.security.AllowPort(r.Context(), u.Username, req.Port, req.Proto, req.From, req.Comment)
+		err = s.security.AllowPort(r.Context(), u.Username, req.Port, req.Proto, req.From, req.Comment, req.Routed)
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "firewall", Message: err.Error()})

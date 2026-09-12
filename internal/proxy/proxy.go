@@ -56,6 +56,24 @@ func New(run *cmdrun.Runner, st *store.Store, dataDir, ports string) *Manager {
 	return m
 }
 
+// Ports reports the published HTTP and HTTPS ports, which the firewall needs
+// so its rules match what is really listening.
+func (m *Manager) Ports() (string, string) { return m.httpP, m.httpsP }
+
+// PanelRouted says whether an enabled domain points at the panel.
+func (m *Manager) PanelRouted(ctx context.Context) bool {
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range doms {
+		if d.TargetType == "panel" && d.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 // SetPanelURL tells the proxy how to reach the daemon (scheme and port).
 func (m *Manager) SetPanelURL(scheme, port string) {
 	m.panel = scheme + "://host.docker.internal:" + port

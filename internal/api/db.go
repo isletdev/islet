@@ -319,24 +319,24 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 		_ = s.store.SetSetting(r.Context(), "db.allow."+inst.Name, "")
 	} else if s.security != nil && s.security.FirewallStatus(r.Context()).Active {
 		for _, cidr := range splitList(prev) {
-			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr)
+			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr, true)
 		}
 		if req.Public {
 			list := splitList(req.AllowFrom)
 			for _, cidr := range list {
-				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr, "db "+inst.Name); err != nil {
+				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr, "db "+inst.Name, true); err != nil {
 					fwNote = "firewall rule failed: " + err.Error()
 				}
 			}
 			if len(list) == 0 {
-				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "", "db "+inst.Name); err != nil {
+				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "", "db "+inst.Name, true); err != nil {
 					fwNote = "firewall rule failed: " + err.Error()
 				}
 			} else {
-				_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "")
+				_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "", true)
 			}
 		} else {
-			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "")
+			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "", true)
 		}
 	} else if req.Public && strings.TrimSpace(req.AllowFrom) != "" {
 		fwNote = "the firewall is not active, so the allowlist is recorded but not enforced; enable ufw on the Security page"

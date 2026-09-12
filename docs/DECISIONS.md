@@ -198,3 +198,13 @@ Inputs across the panel were a pixel garden: nine different hand-written `select
 
 ## 2026-09-13 — /containers/stacks is a tab, not a container called "stacks"
 `:id` and the tabbed lists sat in different Routes, so React Router matched `/containers/stacks` as a container detail and the page failed with "No such container: stacks". The static tabs and the dynamic detail now sit in one Routes, where a static segment outranks a parameter. "Manage stack" also names the stack it means, `?stack=<name>`, which opens that stack's editor, and a stack that cannot be opened says so inline instead of raising a browser alert that blocks the page.
+
+## 2026-09-13 — Firewall rules are generated from what the server runs, and know which chain a port arrives on
+A port on a Docker host arrives on one of two chains. A port the host itself listens on is INPUT, which is what `ufw allow` writes. A port published by a container is FORWARDed to it and needs `ufw route allow`. The old EnableFirewall set `default deny routed`, installed the ufw-docker rules, then wrote input rules only. The result was a silent outage: every domain behind the proxy stopped answering while the server still replied on its own ports, which reads as a proxy fault and is not.
+
+Openings are now a described thing rather than a hardcoded list. Each one names its port, protocol, the chains it needs and where it may come from, and `FirewallPlan` builds the set from the real SSH port, the proxy's real published ports and the panel's real port. A database published by a container is a routed port too, so its allowlist finally does something.
+
+Three things keep it from coming back. `Opening.Commands` is the single place that renders ufw arguments, and it emits the route rule whenever a port is routed. A `firewall-routes` check fails loudly while any proxy port lacks a forward rule, with a one-click repair that adds only the missing rules. Tests assert the rendered command lines, including the forward rules, the real-port cases and the ufw status parser, which previously could not tell a forward rule from an input rule.
+
+## 2026-09-13 — The panel port is not open to the internet by default
+Only the proxy ports face the world. The panel is the daemon on the host, so it never needs a forward rule, and how far it opens is the one real choice: an explicit range if one is set, otherwise the admin's own address, otherwise closed when a domain already routes to the panel. It falls back to open only when there is no domain and no known address, because closing it then would lock the admin out, and it says so in the output rather than doing it quietly.
