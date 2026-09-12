@@ -41,4 +41,4 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/isletd
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/isletd
       - name: Installer syntax
-        run: sh -n installer/get.sh && sh -n installer/uninstall.sh
+        run: for f in installer/*.sh hack/*.sh; do sh -n "$f" || exit 1; done

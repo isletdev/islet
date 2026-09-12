@@ -16,7 +16,7 @@ const STRATEGIES: Record<string, string> = { auto: "Detect automatically", stati
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function dur(ms: number) { return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(0)} s` : `${(ms / 60000).toFixed(1)} min`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
-const blank = (): Partial<DeployApp> => ({ id: "", name: "", source: "git", repoUrl: "", branch: "main", rootDir: "", image: "", strategy: "auto", framework: "", installCmd: "", buildCmd: "", startCmd: "", outputDir: "", port: 0, healthPath: "/", predeployCmd: "", env: "", domain: "", tls: "letsencrypt", autoDeploy: true, memoryMb: 0, cpus: 0, volumes: "", processes: "", deployOn: "push" });
+const blank = (): Partial<DeployApp> => ({ id: "", name: "", source: "git", repoUrl: "", branch: "main", rootDir: "", image: "", strategy: "auto", framework: "", installCmd: "", buildCmd: "", startCmd: "", outputDir: "", port: 0, healthPath: "/", predeployCmd: "", env: "", domain: "", tls: "letsencrypt", autoDeploy: true, memoryMb: 0, cpus: 0, ioMbps: 0, volumes: "", processes: "", deployOn: "push" });
 
 export default function Deploys() {
   const { state } = useAuth();
@@ -319,6 +319,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
             <div className="grid grid-cols-2 gap-2">
               <Field label="Memory limit (MB)" hint="0 = unlimited"><Input type="number" value={a.memoryMb ?? 0} onChange={(e) => set({ memoryMb: +e.target.value })} /></Field>
               <Field label="CPU limit" hint="0 = unlimited"><Input type="number" step="0.5" value={a.cpus ?? 0} onChange={(e) => set({ cpus: +e.target.value })} /></Field>
+              <Field label="Disk IO limit (MB/s)" hint="0 = unlimited; keeps one app from starving the database of disk time."><Input type="number" value={a.ioMbps ?? 0} onChange={(e) => set({ ioMbps: +e.target.value })} /></Field>
             </div>
           </>
         )}

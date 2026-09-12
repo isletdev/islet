@@ -145,3 +145,6 @@ No i18n library: `t("key")` reads `src/locales/<lang>.json`, unknown keys fall b
 
 ## 2026-09-12 — Mobile is the same layout, stacked
 Below the medium breakpoint the sidebar becomes a drawer, two-pane screens (files) stack, wide tables scroll inside their card and log panes take the viewport height. No separate mobile app shell; every page keeps one code path.
+
+## 2026-09-12 — End-to-end tests run on real throwaway servers, not in containers
+The installer, firewall, sshd, systemd and Docker-in-Docker behaviour cannot be trusted from a container. The e2e workflow creates real Hetzner servers per distribution and architecture, installs the CI-built binary through the unchanged installer (`ISLET_BINARY`), runs a smoke script through the HTTP API and deletes the servers in a trap. It is opt-in through one secret so forks pay nothing.

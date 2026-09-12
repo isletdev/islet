@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +60,7 @@ type App struct {
 	AutoDeploy     bool    `json:"autoDeploy"`
 	MemoryMB       int     `json:"memoryMb"`
 	CPUs           float64 `json:"cpus"`
+	IOMbps         int     `json:"ioMbps"` // disk read and write limit per second, 0 = unlimited
 	Volumes        string  `json:"volumes"`
 	Processes      string  `json:"processes"` // "worker x2: command" lines
 	DeployOn       string  `json:"deployOn"`  // push | ci
@@ -261,7 +263,7 @@ func (a *App) Validate() error {
 			return fmt.Errorf("environment line %q is not KEY=VALUE", kv)
 		}
 	}
-	if a.MemoryMB < 0 || a.CPUs < 0 {
+	if a.MemoryMB < 0 || a.CPUs < 0 || a.IOMbps < 0 {
 		return errors.New("resource limits cannot be negative")
 	}
 	for _, v := range strings.Split(a.Volumes, "\n") {
@@ -288,12 +290,12 @@ func (a *App) Validate() error {
 
 // ---- CRUD ----
 
-const cols = `id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on, current_release, status, created_at, updated_at`
+const cols = `id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on, io_mbps, current_release, status, created_at, updated_at`
 
 func (s *Service) scan(sc interface{ Scan(...any) error }) (App, error) {
 	var a App
 	var repo, env []byte
-	err := sc.Scan(&a.ID, &a.Name, &a.Source, &repo, &a.Branch, &a.RootDir, &a.Image, &a.Strategy, &a.Framework, &a.InstallCmd, &a.BuildCmd, &a.StartCmd, &a.OutputDir, &a.Port, &a.HealthPath, &a.PredeployCmd, &env, &a.Domain, &a.TLS, &a.WebhookSecret, &a.AutoDeploy, &a.MemoryMB, &a.CPUs, &a.Volumes, &a.Processes, &a.DeployOn, &a.CurrentRelease, &a.Status, &a.CreatedAt, &a.UpdatedAt)
+	err := sc.Scan(&a.ID, &a.Name, &a.Source, &repo, &a.Branch, &a.RootDir, &a.Image, &a.Strategy, &a.Framework, &a.InstallCmd, &a.BuildCmd, &a.StartCmd, &a.OutputDir, &a.Port, &a.HealthPath, &a.PredeployCmd, &env, &a.Domain, &a.TLS, &a.WebhookSecret, &a.AutoDeploy, &a.MemoryMB, &a.CPUs, &a.Volumes, &a.Processes, &a.DeployOn, &a.IOMbps, &a.CurrentRelease, &a.Status, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return a, err
 	}
@@ -410,9 +412,9 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 		if a.Domain == "" {
 			a.Domain = proxy.PreviewHost(ctx, a.Name)
 		}
-		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO apps (id, server_id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, s.st.ServerID, a.Name, a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.WebhookSecret, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn)
+		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO apps (id, server_id, name, source, repo_url, branch, root_dir, image, strategy, framework, install_cmd, build_cmd, start_cmd, output_dir, port, health_path, predeploy_cmd, env, domain, tls, webhook_secret, auto_deploy, memory_mb, cpus, volumes, processes, deploy_on, io_mbps)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, s.st.ServerID, a.Name, a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.WebhookSecret, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn, a.IOMbps)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("an app with that name already exists")
@@ -427,8 +429,8 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 		if a.Name != old.Name {
 			return nil, errors.New("apps cannot be renamed; create a new one")
 		}
-		_, err = s.st.DB.ExecContext(ctx, `UPDATE apps SET source = ?, repo_url = ?, branch = ?, root_dir = ?, image = ?, strategy = ?, framework = ?, install_cmd = ?, build_cmd = ?, start_cmd = ?, output_dir = ?, port = ?, health_path = ?, predeploy_cmd = ?, env = ?, domain = ?, tls = ?, auto_deploy = ?, memory_mb = ?, cpus = ?, volumes = ?, processes = ?, deploy_on = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
-			a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn, a.ID)
+		_, err = s.st.DB.ExecContext(ctx, `UPDATE apps SET source = ?, repo_url = ?, branch = ?, root_dir = ?, image = ?, strategy = ?, framework = ?, install_cmd = ?, build_cmd = ?, start_cmd = ?, output_dir = ?, port = ?, health_path = ?, predeploy_cmd = ?, env = ?, domain = ?, tls = ?, auto_deploy = ?, memory_mb = ?, cpus = ?, volumes = ?, processes = ?, deploy_on = ?, io_mbps = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+			a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn, a.IOMbps, a.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -932,6 +934,14 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 	if a.CPUs > 0 {
 		common = append(common, "--cpus", strconv.FormatFloat(a.CPUs, 'f', -1, 64))
 	}
+	if a.IOMbps > 0 {
+		if dev := s.dockerDisk(ctx); dev != "" {
+			common = append(common, "--device-read-bps", fmt.Sprintf("%s:%dmb", dev, a.IOMbps), "--device-write-bps", fmt.Sprintf("%s:%dmb", dev, a.IOMbps))
+			lg.line(fmt.Sprintf("[islet] disk IO limited to %d MB/s on %s", a.IOMbps, dev))
+		} else {
+			lg.line("[islet] IO limit skipped: could not find the disk behind /var/lib/docker (Linux only)")
+		}
+	}
 	for _, v := range strings.Split(a.Volumes, "\n") {
 		if v = strings.TrimSpace(v); v != "" {
 			common = append(common, "-v", fmt.Sprintf("islet-%s-%s:%s", a.Name, strings.Trim(strings.ReplaceAll(v, "/", "-"), "-"), v))
@@ -1298,4 +1308,21 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// dockerDisk finds the whole block device that holds Docker's data
+// directory (cgroup v2 io limits need the disk, not the partition).
+func (s *Service) dockerDisk(ctx context.Context) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	out, err := s.run.Run(ctx, "deploy", "sh", "-c", "src=$(findmnt -no SOURCE --target /var/lib/docker) && dev=$(lsblk -no PKNAME \"$src\" 2>/dev/null | head -n1) && [ -n \"$dev\" ] && echo /dev/$dev || echo \"$src\"")
+	if err != nil {
+		return ""
+	}
+	dev := strings.TrimSpace(out.Stdout)
+	if !strings.HasPrefix(dev, "/dev/") {
+		return ""
+	}
+	return dev
 }

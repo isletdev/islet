@@ -116,7 +116,7 @@ export interface Release { id: number; appId: string; number: number; trigger: s
 export interface DeployApp {
   id: string; name: string; source: "git" | "image" | "upload"; repoUrl: string; branch: string; rootDir: string; image: string; strategy: string; framework: string;
   installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; predeployCmd: string; env: string; domain: string; tls: string;
-  webhookSecret?: string; autoDeploy: boolean; memoryMb: number; cpus: number; volumes: string; processes: string; deployOn: "push" | "ci"; processList?: { name: string; count: number; cmd: string }[]; currentRelease: number; status: string; createdAt: string; updatedAt: string;
+  webhookSecret?: string; autoDeploy: boolean; memoryMb: number; cpus: number; volumes: string; processes: string; deployOn: "push" | "ci"; ioMbps?: number; processList?: { name: string; count: number; cmd: string }[]; currentRelease: number; status: string; createdAt: string; updatedAt: string;
   nodeVersion: string; pythonVersion: string; url: string; container: string; deploying: boolean; lastRelease?: Release;
 }
 export interface Detection { strategy: string; framework: string; summary: string; installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; composeFile?: string; nodeVersion?: string; pythonVersion?: string }

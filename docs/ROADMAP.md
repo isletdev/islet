@@ -263,7 +263,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Consistency: automatic pre-snapshot database dumps
 - [x] Per-plan pre and post hooks, pause-during-snapshot toggle
 - [x] Progress and dedup stats (bytes added vs processed), per-run logs, resumable uploads (restic)
-- [ ] Bandwidth and IO limits
+- [x] Disk IO limits per app (MB/s via device-read/write-bps on the Docker disk); network bandwidth per container not done (needs tc on the veth, revisit with the VPS)
 - [x] Backup health summary on the Backups page, stale-backup and failure events through notifications, backup plan counted in the Security Score
 - [x] Backup health in the dashboard's attention strip
 - [x] Restore browser: single file or folder to disk, volume into a new volume
@@ -319,7 +319,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] Weekly "your server this week" email report
 
 **Quality**
-- [ ] e2e suite on real VPSes for Ubuntu 22.04, 24.04, Debian 12, arm64
+- [x] e2e suite on real VPSes for Ubuntu 22.04, 24.04, Debian 12, arm64 (`.github/workflows/e2e.yml` + `hack/e2e-vps.sh` + `hack/e2e-smoke.sh`; runs once the HCLOUD_TOKEN secret exists)
 - [x] Signed releases with cosign and SLSA provenance, reproducible builds (wired in the release workflow; first tag exercises it)
 - [x] `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, issue templates
 - [x] DCO check instead of a CLA bot (`git commit -s`), `TRADEMARK.md`

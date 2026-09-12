@@ -1,0 +1,85 @@
+name: e2e
+
+# Real servers: Ubuntu 22.04, 24.04 and Debian 12 on x86_64, Ubuntu 24.04 on
+# arm64. Runs weekly and on demand, only when the HCLOUD_TOKEN secret exists.
+# Each run costs a few cents; servers are deleted even when a step fails.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.probe.outputs.enabled }}
+    steps:
+      - id: probe
+        run: echo "enabled=${{ secrets.HCLOUD_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      - if: steps.probe.outputs.enabled != 'true'
+        run: echo "HCLOUD_TOKEN is not set; skipping the VPS end-to-end run (see docs/NEEDED_FROM_YOU.md)."
+
+  build:
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/app/pnpm-lock.yaml
+      - run: cd web/app && pnpm install --frozen-lockfile && pnpm build && cd ../.. && rm -rf internal/web/dist && cp -r web/app/dist internal/web/dist
+      - run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/isletdev/islet/internal/version.Version=e2e-${GITHUB_SHA::7}" -o dist/isletd_linux_amd64 ./cmd/isletd
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/isletdev/islet/internal/version.Version=e2e-${GITHUB_SHA::7}" -o dist/isletd_linux_arm64 ./cmd/isletd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isletd-linux
+          path: dist/
+
+  vps:
+    needs: [check, build]
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: ubuntu-22.04, type: cx22, arch: amd64 }
+          - { image: ubuntu-24.04, type: cx22, arch: amd64 }
+          - { image: debian-12, type: cx22, arch: amd64 }
+          - { image: ubuntu-24.04, type: cax11, arch: arm64 }
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: isletd-linux
+          path: dist/
+      - uses: hetznercloud/setup-hcloud@v1
+      - name: Temporary SSH key
+        id: key
+        run: |
+          ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -q
+          name="islet-e2e-${GITHUB_RUN_ID}-${{ matrix.image }}-${{ matrix.arch }}"
+          hcloud ssh-key create --name "$name" --public-key-from-file "$HOME/.ssh/id_ed25519.pub" >/dev/null
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: Install and smoke test on a fresh server
+        run: sh hack/e2e-vps.sh "${{ matrix.image }}" "${{ matrix.type }}" "dist/isletd_linux_${{ matrix.arch }}" "${{ steps.key.outputs.name }}"
+      - name: Remove the SSH key
+        if: always()
+        run: hcloud ssh-key delete "${{ steps.key.outputs.name }}" >/dev/null 2>&1 || true

@@ -100,6 +100,7 @@ components:
         volumes: { type: string, description: Container paths to persist, one per line }
         processes: { type: string, description: "Extra processes from the same image, one per line: \"worker x2: command\"" }
         deployOn: { type: string, enum: [push, ci], description: Deploy on every push, or only after CI passes }
+        ioMbps: { type: integer, description: Disk read and write limit in MB/s, 0 = unlimited }
         source: { type: string, enum: [git, image, upload] }
         status: { type: string, readOnly: true }
         url: { type: string, readOnly: true }

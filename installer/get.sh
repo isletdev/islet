@@ -60,19 +60,26 @@ else
 fi
 
 step "3/5  isletd $VERSION"
-if [ "$VERSION" = "latest" ]; then
-  BASE="https://github.com/$REPO/releases/latest/download"
-else
-  BASE="https://github.com/$REPO/releases/download/$VERSION"
-fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-TARBALL="isletd_linux_${ARCH}.tar.gz"
-curl -fsSL "$BASE/$TARBALL" -o "$TMP/$TARBALL" || die "download failed: $BASE/$TARBALL"
-curl -fsSL "$BASE/checksums.txt" -o "$TMP/checksums.txt" || die "checksums download failed"
-( cd "$TMP" && grep " $TARBALL\$" checksums.txt | sha256sum -c --quiet - ) || die "checksum mismatch, refusing to install"
-tar -xzf "$TMP/$TARBALL" -C "$TMP"
-install -m 0755 "$TMP/isletd" "$BIN_DIR/isletd"
+if [ -n "${ISLET_BINARY:-}" ]; then
+  # A locally built binary (CI end-to-end runs, developers). No download, no checksum.
+  [ -x "$ISLET_BINARY" ] || die "ISLET_BINARY is not an executable file: $ISLET_BINARY"
+  say "using local binary $ISLET_BINARY"
+  install -m 0755 "$ISLET_BINARY" "$BIN_DIR/isletd"
+else
+  if [ "$VERSION" = "latest" ]; then
+    BASE="https://github.com/$REPO/releases/latest/download"
+  else
+    BASE="https://github.com/$REPO/releases/download/$VERSION"
+  fi
+  TARBALL="isletd_linux_${ARCH}.tar.gz"
+  curl -fsSL "$BASE/$TARBALL" -o "$TMP/$TARBALL" || die "download failed: $BASE/$TARBALL"
+  curl -fsSL "$BASE/checksums.txt" -o "$TMP/checksums.txt" || die "checksums download failed"
+  ( cd "$TMP" && grep " $TARBALL\$" checksums.txt | sha256sum -c --quiet - ) || die "checksum mismatch, refusing to install"
+  tar -xzf "$TMP/$TARBALL" -C "$TMP"
+  install -m 0755 "$TMP/isletd" "$BIN_DIR/isletd"
+fi
 ln -sf "$BIN_DIR/isletd" "$BIN_DIR/islet"
 say "installed $("$BIN_DIR/isletd" -version)"
 
