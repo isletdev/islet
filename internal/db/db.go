@@ -42,6 +42,7 @@ type Instance struct {
 	Image     string `json:"image"`
 	Port      int    `json:"port"`
 	Network   string `json:"network"`
+	IP        string `json:"ip,omitempty"`        // container address, for an SSH tunnel
 	Public    string `json:"public,omitempty"`    // host:port when published
 	Pooler    bool   `json:"pooler"`              // PgBouncer service present
 	AllowFrom string `json:"allowFrom,omitempty"` // firewall allowlist for the published port
@@ -183,7 +184,7 @@ func (s *Service) build(ctx context.Context, actor string, a catalog.Installed, 
 		inst.RootUser, inst.RootPass = inst.User, inst.Password
 	}
 	if info, err := s.dk.Inspect(ctx, actor, inst.Container); err == nil {
-		inst.State, inst.Image = info.State, info.Image
+		inst.State, inst.Image, inst.IP = info.State, info.Image, info.IP
 		for port, hosts := range info.Ports {
 			if strings.HasPrefix(port, strconv.Itoa(inst.Port)+"/") && hosts != "" {
 				h := strings.Split(hosts, ", ")[0]
@@ -767,9 +768,15 @@ echo "kept $(ls -1 "$DIR" | wc -l) files, older than $KEEP_DAYS days removed"
 // SetPublic publishes or unpublishes the instance port on the host by
 // editing the stack's Compose file and recreating the service. hostPort
 // defaults to the engine port; pick another when it is taken.
-func (s *Service) SetPublic(ctx context.Context, actor string, inst *Instance, on bool, hostPort int) (io.ReadCloser, func() error, error) {
+// SetPublic publishes or unpublishes the instance's port. bind is the host
+// address to bind to: "127.0.0.1" keeps it on the machine for an SSH tunnel,
+// empty means every interface.
+func (s *Service) SetPublic(ctx context.Context, actor string, inst *Instance, on bool, hostPort int, bind string) (io.ReadCloser, func() error, error) {
 	if hostPort <= 0 {
 		hostPort = inst.Port
+	}
+	if bind != "" && bind != "127.0.0.1" {
+		return nil, nil, errors.New(`bind must be empty (every interface) or "127.0.0.1"`)
 	}
 	if hostPort < 1024 || hostPort > 65535 {
 		return nil, nil, errors.New("host port must be between 1024 and 65535")
@@ -790,7 +797,11 @@ func (s *Service) SetPublic(ctx context.Context, actor string, inst *Instance, o
 	mapDel(svc, "ports")
 	if on {
 		ports := &yaml.Node{Kind: yaml.SequenceNode}
-		ports.Content = append(ports.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: fmt.Sprintf("%d:%d", hostPort, inst.Port), Style: yaml.DoubleQuotedStyle})
+		spec := fmt.Sprintf("%d:%d", hostPort, inst.Port)
+		if bind != "" {
+			spec = bind + ":" + spec
+		}
+		ports.Content = append(ports.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: spec, Style: yaml.DoubleQuotedStyle})
 		svc.Content = append(svc.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "ports"}, ports)
 	}
 	out, err := yaml.Marshal(&doc)

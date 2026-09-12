@@ -292,6 +292,7 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Public    bool   `json:"public"`
 		HostPort  int    `json:"hostPort"`
+		Bind      string `json:"bind"`      // "127.0.0.1" for a tunnel-only port, empty for every interface
 		AllowFrom string `json:"allowFrom"` // comma list of IPs/CIDRs; empty = anyone
 	}
 	if err := decode(r, &req); err != nil {
@@ -299,7 +300,7 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r.Context())
-	rc, wait, err := s.db.SetPublic(r.Context(), u.Username, inst, req.Public, req.HostPort)
+	rc, wait, err := s.db.SetPublic(r.Context(), u.Username, inst, req.Public, req.HostPort, req.Bind)
 	if err != nil {
 		s.dbErr(w, err)
 		return
@@ -313,7 +314,10 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 	}
 	prev, _, _ := s.store.Setting(r.Context(), "db.allow."+inst.Name)
 	fwNote := ""
-	if s.security != nil && s.security.FirewallStatus(r.Context()).Active {
+	if req.Bind == "127.0.0.1" {
+		// Nothing outside the machine can reach it, so there is no rule to add.
+		_ = s.store.SetSetting(r.Context(), "db.allow."+inst.Name, "")
+	} else if s.security != nil && s.security.FirewallStatus(r.Context()).Active {
 		for _, cidr := range splitList(prev) {
 			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr)
 		}

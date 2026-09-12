@@ -191,6 +191,7 @@ type Inspect struct {
 	MemoryLimit   int64             `json:"memoryLimit"`
 	CPULimit      float64           `json:"cpuLimit"`
 	Networks      []string          `json:"networks"`
+	IP            string            `json:"ip,omitempty"` // first address on a user network; an SSH tunnel can reach it
 	Stack         string            `json:"stack,omitempty"`
 	Service       string            `json:"service,omitempty"`
 }
@@ -236,7 +237,9 @@ func (s *Service) Inspect(ctx context.Context, actor, id string) (*Inspect, erro
 		}
 		NetworkSettings struct {
 			Ports    map[string][]struct{ HostIp, HostPort string }
-			Networks map[string]any
+			Networks map[string]struct {
+				IPAddress string
+			}
 		}
 	}
 	if err := json.Unmarshal([]byte(res.Stdout), &raw); err != nil || len(raw) == 0 {
@@ -256,8 +259,11 @@ func (s *Service) Inspect(ctx context.Context, actor, id string) (*Inspect, erro
 		}
 		out.Ports[port] = strings.Join(hs, ", ")
 	}
-	for n := range r.NetworkSettings.Networks {
+	for n, net := range r.NetworkSettings.Networks {
 		out.Networks = append(out.Networks, n)
+		if out.IP == "" && net.IPAddress != "" {
+			out.IP = net.IPAddress
+		}
 	}
 	out.Stack = r.Config.Labels["com.docker.compose.project"]
 	out.Service = r.Config.Labels["com.docker.compose.service"]

@@ -169,3 +169,6 @@ A domain can be created before the proxy container exists, which is exactly what
 
 ## 2026-09-12 — The www redirect gets its own router and its own certificate
 "Redirect www" used to widen the host's router rule to cover `www.<host>`, so Let's Encrypt was asked for one certificate covering both names. A domain whose `www` has no DNS record then failed the whole request, and the host that did exist was served Traefik's default certificate: one missing record broke TLS for a site that was otherwise correct. The redirect now lives on a separate router, so a missing `www` record costs only the redirect.
+
+## 2026-09-12 — Database ports publish to 127.0.0.1 by default, and the tunnel hint uses an address that resolves
+A domain routes HTTP; Postgres, MySQL and Redis speak their own protocols on their own ports, so a domain does nothing for them and the panel now says where a client should connect instead. Publishing asks where the port should live: bound to 127.0.0.1 for an SSH tunnel, which is the answer for a desktop client, or on every interface with a firewall allowlist. The tunnel command the panel printed named the container, which the SSH host cannot resolve; it prints the container's address now, with the caveat that it moves when the container is recreated.

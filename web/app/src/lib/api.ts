@@ -102,7 +102,7 @@ export interface Job {
 }
 export interface JobTemplate { id: string; name: string; description: string; schedule: string; script: string }
 
-export interface DBInstance { name: string; slug: string; engine: "postgres" | "mysql" | "redis" | "mongo"; container: string; state: string; image: string; port: number; network: string; public?: string; allowFrom?: string; pooler?: boolean; pooledUrl?: string; user: string; password?: string; rootUser?: string; rootPassword?: string; database?: string; internalUrl: string; publicUrl?: string; installedAt: string }
+export interface DBInstance { name: string; slug: string; engine: "postgres" | "mysql" | "redis" | "mongo"; container: string; state: string; image: string; port: number; network: string; public?: string; allowFrom?: string; ip?: string; pooler?: boolean; pooledUrl?: string; user: string; password?: string; rootUser?: string; rootPassword?: string; database?: string; internalUrl: string; publicUrl?: string; installedAt: string }
 export interface DBDatabase { name: string; size: string; connections: number; owner?: string }
 export interface DBStats { version: string; connections: number; maxConnections: number; uptime: string; dataSize: string; extra?: string[] }
 export interface DBExtension { name: string; installed: boolean; available: boolean; comment: string }
