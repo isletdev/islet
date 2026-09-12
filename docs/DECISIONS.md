@@ -172,3 +172,8 @@ A domain can be created before the proxy container exists, which is exactly what
 
 ## 2026-09-12 — Database ports publish to 127.0.0.1 by default, and the tunnel hint uses an address that resolves
 A domain routes HTTP; Postgres, MySQL and Redis speak their own protocols on their own ports, so a domain does nothing for them and the panel now says where a client should connect instead. Publishing asks where the port should live: bound to 127.0.0.1 for an SSH tunnel, which is the answer for a desktop client, or on every interface with a firewall allowlist. The tunnel command the panel printed named the container, which the SSH host cannot resolve; it prints the container's address now, with the caveat that it moves when the container is recreated.
+
+## 2026-09-12 — Adminer is asked for, not assumed, and databases do not take a domain
+Opening a database in Adminer used to install it silently on an sslip.io host with a Let's Encrypt certificate. That name is shared by everyone using sslip.io, which is one registered domain for rate limiting, so the certificate often would not issue. The first open now asks where Adminer should answer, which certificate it should carry and whether the panel's login should guard it, and warns when the session cookie domain does not cover both hosts. One Adminer serves every database: it joins each instance's network as that database is opened.
+
+The catalog install form no longer offers a domain for database apps. Databases speak their own protocol on their own port, so an HTTP route to them can only fail, and offering the field invited exactly that.

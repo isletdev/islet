@@ -110,10 +110,16 @@ function Installer({ app, canInstall, onClose, onDone }: { app: CatalogApp; canI
     <Card title={`Install ${app.name}`} description={app.description}>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
         <Field label="Stack name" hint="Lowercase, digits and dashes. Containers are named after it."><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
+        {app.category === "database" ? (
+          <Field label="Domain" hint="Databases speak their own protocol, so a domain would not reach this one. Other containers connect by name, and the Databases page opens a browser client for you.">
+            <p className="text-sm text-ink-muted">Not used for databases.</p>
+          </Field>
+        ) : (
         <Field label={app.needsDomain ? "Domain (required)" : "Domain (optional)"} hint="Routes the app through the proxy with HTTPS.">
           <div className="flex gap-2"><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="app.example.com" required={app.needsDomain} /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview</Button></div>
         </Field>
-        {domain && <Field label="Certificate"><select value={tls} onChange={(e) => setTls(e.target.value as typeof tls)} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">HTTP only</option></select></Field>}
+        )}
+        {domain && app.category !== "database" && <Field label="Certificate"><select value={tls} onChange={(e) => setTls(e.target.value as typeof tls)} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">HTTP only</option></select></Field>}
         {(detail?.fields ?? []).map((f) => (
           <Field key={f.key} label={f.label} hint={f.type === "secret" ? "Leave empty to generate a strong value." : f.hint}>
             <Input value={fields[f.key] ?? (f.type === "secret" ? "" : f.default)} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })} type={f.type === "password" ? "password" : "text"} placeholder={f.type === "secret" ? "generated" : ""} />

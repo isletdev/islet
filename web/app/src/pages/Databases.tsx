@@ -58,6 +58,7 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
   const [log, setLog] = useState<string[] | null>(null);
   const [showSecrets, setShowSecrets] = useState(false);
   const [slow, setSlow] = useState<{ query: string; calls: number; meanMs: number }[] | null>(null);
+  const [adminer, setAdminer] = useState<{ suggestedHost: string; panelHost?: string; cookieDomain?: string } | null>(null);
   const load = useCallback(() => api.database(name).then((x) => { setD(x); setError(null); }).catch((e) => setError(err(e))), [name]);
   useEffect(() => { setD(null); setMsg(null); setLog(null); setSlow(null); void load(); }, [load]);
 
@@ -89,6 +90,22 @@ Host port to publish on:`, String(d?.port));
     setBusy("public"); setLog([]);
     try { await postStream(`/api/v1/databases/${name}/public`, (l) => setLog((p) => [...(p ?? []), l]), { public: on, hostPort, allowFrom, bind }); await load(); await onChanged(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
   };
+  const openAdminer = async (setup?: { host: string; tls: string; protect: boolean }) => {
+    setBusy("adminer"); setMsg(null);
+    try {
+      const r = await api.dbAdminer(name, setup);
+      if (r.installed) setMsg(`Adminer installed at ${r.domain}. The certificate takes a moment.`);
+      if (r.url) {
+        window.open(r.url, "_blank", "noopener");
+        if (r.password) await navigator.clipboard?.writeText(r.password).catch(() => {});
+        setMsg((m) => `${m ? m + " " : ""}Opened Adminer; the password is on your clipboard.`);
+      }
+    } catch (e) {
+      const body = e instanceof RequestError ? (e.body as { setupRequired?: boolean; suggestedHost?: string; panelHost?: string; cookieDomain?: string } | undefined) : undefined;
+      if (body?.setupRequired) setAdminer({ suggestedHost: body.suggestedHost ?? "", panelHost: body.panelHost, cookieDomain: body.cookieDomain });
+      else setMsg(err(e));
+    } finally { setBusy(null); }
+  };
   const mask = (s: string) => showSecrets ? s : s.replace(/:\/\/([^:@]+):([^@]+)@/, "://$1:••••••••@");
 
   if (error) return <Alert>{error}</Alert>;
@@ -99,7 +116,8 @@ Host port to publish on:`, String(d?.port));
       <Card title={`${d.name} · ${ENGINE[d.engine]}`} description={d.stats ? `${d.stats.version} · up ${d.stats.uptime} · ${d.stats.connections}/${d.stats.maxConnections} connections · ${d.stats.dataSize || "size n/a"}` : d.state === "running" ? "Collecting stats…" : `Container is ${d.state}. Start it from Containers.`}>
         {d.error && <Alert>{d.error}</Alert>}
         {d.stats?.extra && <p className="mb-3 text-xs text-ink-muted">{d.stats.extra.join(" · ")}</p>}
-        {isAdmin && d.engine !== "redis" && <p className="mb-3 text-xs"><button type="button" disabled={!!busy} onClick={async () => { setBusy("adminer"); setMsg(null); try { const r = await api.dbAdminer(name); if (r.installed) setMsg(`Adminer installed at ${r.domain}.`); if (r.url) { window.open(r.url, "_blank", "noopener"); if (r.password) await navigator.clipboard?.writeText(r.password).catch(() => {}); setMsg((m) => `${m ? m + " " : ""}Opened Adminer; the password is on your clipboard.`); } } catch (e) { setMsg(err(e)); } finally { setBusy(null); } }} className="text-accent hover:underline">{busy === "adminer" ? "Preparing Adminer…" : "Open in Adminer"}</button><span className="ml-2 text-ink-muted">Installs Adminer from the catalog on first use and attaches it to this database's network.</span></p>}
+        {isAdmin && d.engine !== "redis" && <p className="mb-3 text-xs"><button type="button" disabled={!!busy} onClick={() => void openAdminer()} className="text-accent hover:underline">{busy === "adminer" ? "Preparing Adminer…" : "Open in Adminer"}</button><span className="ml-2 text-ink-muted">One Adminer serves every database here; it is attached to this one's network when you open it.</span></p>}
+        {adminer && <AdminerSetup s={adminer} onCancel={() => setAdminer(null)} onSubmit={(v) => { setAdminer(null); void openAdminer(v); }} />}
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">From other containers</span>{isAdmin && d.internalUrl && <Copy text={d.internalUrl} />}</div>
@@ -201,5 +219,33 @@ function ScheduleForm({ d, onDone }: { d: DBDetail; onDone: () => Promise<void> 
       <p className="mt-2 text-xs text-ink-muted">{d.dumpJob ? <>Job <Link to={`/cron?job=${d.dumpJob.id}`} className="underline">{d.dumpJob.name}</Link> · {d.dumpJob.described} · {d.dumpJob.enabled ? (d.dumpJob.lastRun ? `last run ${d.dumpJob.lastRun.status}` : "not run yet") : "paused"}. Edit the script in Cron to add S3 upload.</> : "Creates a script job in Cron that dumps every database and prunes old files."}</p>
       {msg && <p className="mt-1 text-xs text-ink-muted">{msg}</p>}
     </div>
+  );
+}
+
+/** Asked once, the first time anyone opens Adminer: where it should answer,
+ * what certificate it gets, and whether the panel's login guards it. */
+function AdminerSetup({ s, onCancel, onSubmit }: { s: { suggestedHost: string; panelHost?: string; cookieDomain?: string }; onCancel: () => void; onSubmit: (v: { host: string; tls: string; protect: boolean }) => void }) {
+  const [host, setHost] = useState(s.suggestedHost);
+  const [tls, setTls] = useState(s.suggestedHost.endsWith(".sslip.io") ? "self" : "letsencrypt");
+  const [protect, setProtect] = useState(true);
+  const parent = s.panelHost ? s.panelHost.split(".").slice(-2).join(".") : "";
+  const cookieOk = !protect || (!!s.cookieDomain && host.endsWith(s.cookieDomain));
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ host: host.trim(), tls, protect }); }} className="mb-3 grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
+      <p className="text-xs text-ink-muted sm:col-span-2">Adminer is not installed yet. It runs as one small container for every database on this server, reachable only through the proxy on the name you choose.</p>
+      <Field label="Host" hint={host.endsWith(".sslip.io") ? "A free name that resolves to this server. Let's Encrypt limits certificates per registered domain and every sslip.io user shares one, so a name under your own domain is far more likely to get a real certificate." : "An A record for this name must point at this server."}>
+        <Input value={host} onChange={(e) => setHost(e.target.value)} className="font-mono" required />
+      </Field>
+      <Field label="Certificate">
+        <select value={tls} onChange={(e) => setTls(e.target.value)} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">
+          <option value="letsencrypt">Let's Encrypt</option>
+          <option value="self">Self-signed</option>
+          <option value="none">HTTP only</option>
+        </select>
+      </Field>
+      <label className="flex items-center gap-1.5 text-sm sm:col-span-2"><input type="checkbox" checked={protect} onChange={(e) => setProtect(e.target.checked)} />Only reachable by people signed in to this panel</label>
+      {!cookieOk && <p className="text-xs text-warning sm:col-span-2">That guard needs the session cookie domain set to a parent of both the panel and this host{parent && <> (probably <span className="font-mono">{parent}</span>)</>}: Settings, Protect apps with Islet login. Without it you will be sent to the login page in a loop.</p>}
+      <div className="flex items-center gap-2 sm:col-span-2"><Button type="submit">Install Adminer</Button><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button></div>
+    </form>
   );
 }
