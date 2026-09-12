@@ -17,7 +17,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]api.User, 0, len(list))
 	for _, u := range list {
-		out = append(out, api.User{ID: u.ID, Username: u.Username, Role: u.Role, TOTPEnabled: u.TOTPEnabled, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt})
+		out = append(out, api.User{ID: u.ID, Username: u.Username, Role: u.Role, Projects: u.Projects, TOTPEnabled: u.TOTPEnabled, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -44,16 +44,28 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	if !s.adminOnly(w, r) {
 		return
 	}
-	var req struct{ Role, Password string }
+	var req struct {
+		Role, Password string
+		Projects       *string
+	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
 	me := userFrom(r.Context())
 	id := r.PathValue("id")
-	if err := s.auth.UpdateUser(r.Context(), id, req.Role, req.Password, me.ID); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
-		return
+	if req.Role != "" || req.Password != "" {
+		if err := s.auth.UpdateUser(r.Context(), id, req.Role, req.Password, me.ID); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+			return
+		}
+	}
+	if req.Projects != nil {
+		if err := s.auth.SetProjects(r.Context(), id, *req.Projects); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+			return
+		}
+		_ = s.store.Audit(r.Context(), me.Username, "user.projects", id, *req.Projects)
 	}
 	_ = s.store.Audit(r.Context(), me.Username, "user.update", id, "role="+req.Role+" password="+map[bool]string{true: "changed", false: "kept"}[req.Password != ""])
 	w.WriteHeader(http.StatusNoContent)

@@ -49,6 +49,7 @@ type User struct {
 	ID          string
 	Username    string
 	Role        string
+	Projects    string // comma list of app-name globs for deployers and viewers; empty = all
 	TOTPEnabled bool
 	CreatedAt   string
 	LastLoginAt string
@@ -174,7 +175,7 @@ func (s *Service) createUser(ctx context.Context, username, password, role strin
 
 // Users lists every account.
 func (s *Service) Users(ctx context.Context) ([]User, error) {
-	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at FROM users ORDER BY created_at`)
+	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +185,7 @@ func (s *Service) Users(ctx context.Context) ([]User, error) {
 		var u User
 		var totp []byte
 		var last sql.NullString
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &last); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &last, &u.Projects); err != nil {
 			return nil, err
 		}
 		u.TOTPEnabled = len(totp) > 0
@@ -263,8 +264,8 @@ func (s *Service) UserByID(ctx context.Context, id string) (*User, error) {
 	var u User
 	var lastLogin sql.NullString
 	var totp []byte
-	err := s.st.DB.QueryRowContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &lastLogin)
+	err := s.st.DB.QueryRowContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &lastLogin, &u.Projects)
 	if err != nil {
 		return nil, err
 	}
@@ -671,4 +672,22 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// SetProjects limits a deployer or viewer to apps whose names match the
+// comma-separated globs (empty = everything the role allows).
+func (s *Service) SetProjects(ctx context.Context, id, projects string) error {
+	var parts []string
+	for _, p := range strings.Split(projects, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.ContainsAny(p, " /\\") || len(p) > 40 {
+			return errors.New("project entries are app names or globs like shop-*")
+		}
+		parts = append(parts, p)
+	}
+	_, err := s.st.DB.ExecContext(ctx, `UPDATE users SET projects = ? WHERE id = ?`, strings.Join(parts, ","), id)
+	return err
 }

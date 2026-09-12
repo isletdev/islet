@@ -302,7 +302,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 
 **Platform**
 - [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)
-- [ ] Roles scoped to projects
+- [x] Roles scoped to projects (per-user app-name globs; containers, databases, domains and logs follow; files and terminal closed for scoped accounts)
 - [x] MCP server (Streamable HTTP) with scoped tokens, off by default, 16 tools
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
 - [x] "Add to sidebar" embedding of any app UI behind Islet login

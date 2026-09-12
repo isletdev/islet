@@ -42,6 +42,7 @@ type User struct {
 	ID          string `json:"id"`
 	Username    string `json:"username"`
 	Role        string `json:"role"`
+	Projects    string `json:"projects,omitempty"`
 	TOTPEnabled bool   `json:"totpEnabled"`
 	CreatedAt   string `json:"createdAt"`
 	LastLoginAt string `json:"lastLoginAt,omitempty"`

@@ -38,8 +38,15 @@ func (s *Server) handleLogSources(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if list, err := s.docker.Containers(r.Context(), userFrom(r.Context()).Username); err == nil {
+	u := userFrom(r.Context())
+	if scoped(u) {
+		out = out[:0] // journals and files are host-wide
+	}
+	if list, err := s.docker.Containers(r.Context(), u.Username); err == nil {
 		for _, c := range list {
+			if scoped(u) && !s.allowsContainer(r.Context(), u, c.Name) {
+				continue
+			}
 			label := c.Name
 			if c.Name == proxy.ContainerName {
 				label = "Islet proxy (Traefik)"
@@ -62,6 +69,10 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	actor := userFrom(r.Context()).Username
 	kind, arg, _ := cut(src, ":")
 	var argv []string
+	if u := userFrom(r.Context()); scoped(u) && (kind != "container" || !s.allowsContainer(r.Context(), u, arg)) {
+		forbiddenScope(w)
+		return
+	}
 	switch kind {
 	case "container":
 		if _, err := s.docker.Inspect(r.Context(), actor, arg); err != nil {

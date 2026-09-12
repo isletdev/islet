@@ -224,16 +224,18 @@ function Users({ meId }: { meId: string }) {
   useEffect(() => { void load(); }, []);
   const create = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.userCreate({ username, password, role }); setUsername(""); setPassword(""); setMsg(`Created ${username}. Share the password over a safe channel; they can change it and enable 2FA in Settings.`); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   const setRoleFor = async (u: User, r: string) => { try { await api.userUpdate(u.id, { role: r, password: "" }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const setProjects = async (u: User) => { const v = prompt(`Apps ${u.username} may see and work on: app names or globs, comma separated (shop, shop-*). Their containers, databases and domains follow. Empty = everything the role allows.`, u.projects ?? ""); if (v === null) return; try { await api.userUpdate(u.id, { role: "", password: "", projects: v }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   const resetPw = async (u: User) => { const pw = prompt(`New password for ${u.username} (at least 12 characters). Their sessions are signed out.`); if (!pw) return; try { await api.userUpdate(u.id, { role: "", password: pw }); setMsg(`Password for ${u.username} changed.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   const remove = async (u: User) => { if (!confirm(`Delete ${u.username}? Their sessions and API tokens are revoked.`)) return; try { await api.userDelete(u.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
-    <Card title="Users" description="Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read.">
+    <Card title="Users" description="Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read. A projects list narrows a deployer or viewer to some apps and what belongs to them.">
       <ul className="divide-y divide-border">
         {list.map((u) => (
           <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
             <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
             <div className="flex items-center gap-2 text-xs">
               <select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
+              {u.role !== "admin" && <button type="button" onClick={() => void setProjects(u)} className="text-ink-muted hover:text-ink" title="Limit this account to some apps">{u.projects ? `projects: ${u.projects}` : "all projects"}</button>}
               <button type="button" onClick={() => void resetPw(u)} className="text-ink-muted hover:text-ink">Reset password</button>
               {u.id !== meId && <button type="button" onClick={() => void remove(u)} className="text-danger hover:underline">Delete</button>}
             </div>

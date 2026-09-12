@@ -20,6 +20,7 @@ export interface User {
   id: string;
   username: string;
   role: "admin" | "deployer" | "viewer";
+  projects?: string;
   totpEnabled: boolean;
   createdAt: string;
   lastLoginAt?: string;
@@ -196,7 +197,7 @@ export const api = {
   totpDisable: (code: string) => post<void>("/api/v1/auth/totp/disable", { code }),
   users: () => request<User[]>("/api/v1/users"),
   userCreate: (b: { username: string; password: string; role: string }) => post<User>("/api/v1/users", b),
-  userUpdate: (id: string, b: { role: string; password: string }) => post<void>(`/api/v1/users/${id}`, b, "PUT"),
+  userUpdate: (id: string, b: { role: string; password: string; projects?: string }) => post<void>(`/api/v1/users/${id}`, b, "PUT"),
   userDelete: (id: string) => post<void>(`/api/v1/users/${id}`, undefined, "DELETE"),
   attention: () => request<Attention>("/api/v1/attention"),
   portCheck: (host: string, port: number) => request<{ open: boolean; message: string }>(`/api/v1/diagnostics?tool=port&host=${encodeURIComponent(host)}&port=${port}`),

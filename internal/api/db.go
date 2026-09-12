@@ -33,6 +33,10 @@ func (s *Server) dbInstance(w http.ResponseWriter, r *http.Request, write bool) 
 		s.dbErr(w, err)
 		return nil
 	}
+	if !s.allowsInstance(r.Context(), u, inst.Name) {
+		forbiddenScope(w)
+		return nil
+	}
 	return inst
 }
 
@@ -42,6 +46,15 @@ func (s *Server) handleDBList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 		return
+	}
+	if scoped(u) {
+		kept := list[:0]
+		for _, inst := range list {
+			if s.allowsInstance(r.Context(), u, inst.Name) {
+				kept = append(kept, inst)
+			}
+		}
+		list = kept
 	}
 	if u.Role != "admin" {
 		for i := range list {

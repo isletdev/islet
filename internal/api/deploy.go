@@ -47,9 +47,10 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 		return
 	}
-	role := userFrom(r.Context()).Role
+	u := userFrom(r.Context())
+	list = filterApps(u, list)
 	for i := range list {
-		maskApp(&list[i], role)
+		maskApp(&list[i], u.Role)
 	}
 	writeJSON(w, http.StatusOK, list)
 }

@@ -33,10 +33,20 @@ func (s *Server) handleDockerStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
-	list, err := s.docker.Containers(r.Context(), userFrom(r.Context()).Username)
+	u := userFrom(r.Context())
+	list, err := s.docker.Containers(r.Context(), u.Username)
 	if err != nil {
 		s.dockerErr(w, err)
 		return
+	}
+	if scoped(u) {
+		kept := list[:0]
+		for _, c := range list {
+			if s.allowsContainer(r.Context(), u, c.Name) {
+				kept = append(kept, c)
+			}
+		}
+		list = kept
 	}
 	writeJSON(w, http.StatusOK, list)
 }

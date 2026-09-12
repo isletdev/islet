@@ -147,6 +147,15 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 		return
 	}
+	if u := userFrom(r.Context()); scoped(u) {
+		kept := list[:0]
+		for _, d := range list {
+			if d.TargetType == "container" && s.allowsContainer(r.Context(), u, d.Target) {
+				kept = append(kept, d)
+			}
+		}
+		list = kept
+	}
 	if userFrom(r.Context()).Role != "admin" {
 		for i := range list {
 			list[i].BasicAuth = ""

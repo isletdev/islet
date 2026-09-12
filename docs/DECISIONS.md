@@ -148,3 +148,6 @@ Below the medium breakpoint the sidebar becomes a drawer, two-pane screens (file
 
 ## 2026-09-12 — End-to-end tests run on real throwaway servers, not in containers
 The installer, firewall, sshd, systemd and Docker-in-Docker behaviour cannot be trusted from a container. The e2e workflow creates real Hetzner servers per distribution and architecture, installs the CI-built binary through the unchanged installer (`ISLET_BINARY`), runs a smoke script through the HTTP API and deletes the servers in a trap. It is opt-in through one secret so forks pay nothing.
+
+## 2026-09-12 — Project scopes are app-name globs, derived for everything else
+A project is not a new object: a deployer or viewer gets a list of app-name globs, and the scope for containers (`islet-<app>-…`, `<app>-<service>-1`), database instances (`<app>-<engine>`) and domains (routed to those containers) is derived from the app names. That covers what a team member of one app needs without a tagging scheme across every resource, and it composes with the naming the add-service and recipe flows already use. Scoped accounts lose Files and Terminal entirely, since both would leak the rest of the host.
