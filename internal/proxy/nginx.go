@@ -112,6 +112,16 @@ func ParseNginx(text, file string) []NginxSite {
 				}
 			}
 		}
+		// Nginx Proxy Manager keeps the proxy_pass itself in an included
+		// snippet (conf.d/include/proxy.conf), so the host file only carries
+		// the variables. Those are enough: $server and $port are the upstream.
+		if site.Upstream == "" && vars["server"] != "" && vars["port"] != "" {
+			scheme := vars["forward_scheme"]
+			if scheme != "http" && scheme != "https" {
+				scheme = "http"
+			}
+			site.Upstream = scheme + "://" + vars["server"] + ":" + vars["port"]
+		}
 		if len(site.Hosts) > 0 {
 			out = append(out, site)
 		}

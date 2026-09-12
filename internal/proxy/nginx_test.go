@@ -119,3 +119,50 @@ func TestUpstreamParts(t *testing.T) {
 		}
 	}
 }
+
+// The real Nginx Proxy Manager template: the proxy_pass lives in an included
+// snippet, so only the set variables are in the host file.
+func TestParseNginxProxyManagerInclude(t *testing.T) {
+	cfg := `
+# ------------------------------------------------------------
+# api.booxy.dev
+# ------------------------------------------------------------
+server {
+  set $forward_scheme http;
+  set $server         "booxy-api";
+  set $port           4000;
+
+  listen 80;
+  listen 443 ssl http2;
+  server_name api.booxy.dev;
+
+  include conf.d/include/assets.conf;
+  include conf.d/include/block-exploits.conf;
+  include conf.d/include/ssl-ciphers.conf;
+
+  access_log /data/logs/proxy-host-2_access.log proxy;
+
+  location / {
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $http_connection;
+    proxy_http_version 1.1;
+    include conf.d/include/proxy.conf;
+  }
+}
+`
+	sites := ParseNginx(cfg, "2.conf")
+	if len(sites) != 1 {
+		t.Fatalf("got %d sites", len(sites))
+	}
+	if sites[0].Upstream != "http://booxy-api:4000" || sites[0].Hosts[0] != "api.booxy.dev" || !sites[0].TLS {
+		t.Fatalf("wrong: %+v", sites[0])
+	}
+}
+
+// A plain nginx block with no set variables and no proxy_pass stays empty.
+func TestParseNginxNoUpstream(t *testing.T) {
+	sites := ParseNginx(`server { listen 80; server_name plain.example.com; location / { return 204; } }`, "f")
+	if len(sites) != 1 || sites[0].Upstream != "" {
+		t.Fatalf("should stay empty: %+v", sites)
+	}
+}
