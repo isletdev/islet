@@ -41,7 +41,10 @@ signs:
     cmd: go
     args: ["run", "./tools/sign", "sign", "-", "${artifact}"]
     signature: "${artifact}.sig"
-    env: ["ISLET_SIGNING_KEY={{ .Env.ISLET_SIGNING_KEY }}"]
+    # The tool reads ISLET_SIGNING_KEY from the environment goreleaser passes
+    # through. Templating it here would abort the release with a confusing
+    # "map has no entry" when the secret is missing; the guard step in the
+    # workflow says what is wrong instead.
 
 release:
   github:

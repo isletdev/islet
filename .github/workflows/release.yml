@@ -27,6 +27,20 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/app/pnpm-lock.yaml
+      # Fail here, before anything is published, when the key is not reaching
+      # the runner: a release nobody can verify is worse than no release.
+      - name: Signing key present
+        env:
+          ISLET_SIGNING_KEY: ${{ secrets.ISLET_SIGNING_KEY }}
+        run: |
+          if [ -z "${ISLET_SIGNING_KEY:-}" ]; then
+            echo "::error::The ISLET_SIGNING_KEY secret is empty or missing. Add it under Settings, Secrets and variables, Actions, Repository secrets (not Variables), spelled exactly ISLET_SIGNING_KEY, with the 128 hex characters from ~/.islet/release-signing.key."
+            exit 1
+          fi
+          case "${#ISLET_SIGNING_KEY}" in
+            128) echo "key present, 128 hex characters" ;;
+            *) echo "::error::ISLET_SIGNING_KEY is ${#ISLET_SIGNING_KEY} characters; it must be the 128 hex characters of the Ed25519 private key."; exit 1 ;;
+          esac
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
