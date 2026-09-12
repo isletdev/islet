@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	catalogFS "github.com/isletdev/islet/catalog"
 	"log/slog"
 	"net"
 	"net/http"
@@ -96,7 +95,8 @@ type Server struct {
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, provider: d.Provider, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
-	s.recipes = recipes.New(catalogFS.FS, s.recipeHooks())
+	s.recipes = recipes.New(s.catalog.FS(), s.recipeHooks())
+	s.StartCatalogRefresh(context.Background())
 	s.loadCookieDomain()
 	s.StartWeeklyReport(context.Background())
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
@@ -193,6 +193,9 @@ func New(d Deps) http.Handler {
 	// Catalog
 	mux.HandleFunc("GET /api/v1/catalog", s.requireAuth(s.handleCatalog))
 	mux.HandleFunc("GET /api/v1/recipes", s.requireAuth(s.handleRecipes))
+	mux.HandleFunc("GET /api/v1/catalog/source", s.requireAuth(s.handleCatalogSource))
+	mux.HandleFunc("POST /api/v1/catalog/source", requireJSON(s.requireAuth(s.handleCatalogSource)))
+	mux.HandleFunc("DELETE /api/v1/catalog/source", requireJSON(s.requireAuth(s.handleCatalogSource)))
 	mux.HandleFunc("GET /api/v1/mail/relay", s.requireAuth(s.handleMailRelay))
 	mux.HandleFunc("POST /api/v1/mail/relay", requireJSON(s.requireAuth(s.handleMailRelay)))
 	mux.HandleFunc("DELETE /api/v1/mail/relay", requireJSON(s.requireAuth(s.handleMailRelay)))

@@ -1,0 +1,45 @@
+name: docs
+
+# Publishes docs/, the recipes and the top-level guides as a static site on
+# GitHub Pages. Enable Pages (Settings → Pages → Source: GitHub Actions) and
+# set the repository variable DOCS_SITE=true; until then the job skips.
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "README.md", "SECURITY.md", "CONTRIBUTING.md", "TRADEMARK.md", "catalog/README.md", "examples/README.md", "tools/docsite/**", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: vars.DOCS_SITE == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run ./tools/docsite -out site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    if: vars.DOCS_SITE == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

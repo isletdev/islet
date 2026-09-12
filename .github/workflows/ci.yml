@@ -36,6 +36,8 @@ jobs:
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt"; exit 1; }
           go vet ./...
           go test ./...
+      - name: Docs site renders
+        run: go run ./tools/docsite -out /tmp/site && test -f /tmp/site/index.html
       - name: Cross-compile
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/isletd

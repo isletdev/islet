@@ -29,6 +29,7 @@ export default function Settings() {
       {me.user.role === "admin" && <WeeklyReport />}
       {me.user.role === "admin" && <SSO />}
       <Language />
+      {me.user.role === "admin" && <CatalogSource />}
       {me.user.role === "admin" && <Provider />}
       {me.user.role === "admin" && <GitHubApp />}
       {me.user.role === "admin" && <MCP />}
@@ -324,6 +325,25 @@ function Language() {
       <div className="flex flex-wrap gap-2">
         {LANGS.map((l) => <button key={l.code} type="button" onClick={() => setLang(l.code)} className={`rounded-md border px-3 py-1.5 text-sm ${lang === l.code ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted hover:text-ink"}`}>{l.label} <span className="ml-1 text-[11px] opacity-70">{t("settings.language.coverage", { pct: coverage(l.code) })}</span></button>)}
       </div>
+    </Card>
+  );
+}
+
+function CatalogSource() {
+  const [st, setSt] = useState<{ source: { url: string; fetchedAt: string; apps: number; recipes: number; lastError?: string }; default: string } | null>(null);
+  const [url, setUrl] = useState(""); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.catalogSource().then((r) => { setSt(r); setUrl(r.source.url || r.default); }).catch(() => {}); }, []);
+  if (!st) return null;
+  const refresh = async () => { setBusy(true); setMsg(null); try { const r = await api.catalogSourceSet(url); setSt(r); setMsg(`Fetched ${r.source.apps} apps and ${r.source.recipes} recipes.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
+  const clear = async () => { setBusy(true); try { await api.catalogSourceClear(); setSt(await api.catalogSource()); setMsg("Back to the embedded catalog."); } finally { setBusy(false); } };
+  return (
+    <Card title="Catalog source" description="The catalog ships inside the daemon and works offline. Point it at the public catalog repository (or your own fork) to pick up new apps and recipes daily without updating Islet; fetched templates overlay the embedded ones.">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Tarball URL" hint="A .tar.gz with apps/ and recipes/; GitHub archive links work."><Input value={url} onChange={(e) => setUrl(e.target.value)} className="w-[28rem] max-w-full font-mono" /></Field>
+        <Button variant="secondary" className="h-9" disabled={busy} onClick={() => void refresh()}>{busy ? "Fetching…" : "Fetch now"}</Button>
+        {st.source.url && <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Use embedded only</button>}
+      </div>
+      <p className="mt-2 text-xs text-ink-muted">{st.source.fetchedAt ? `Last fetched ${new Date(st.source.fetchedAt).toLocaleString()} (${st.source.apps} apps, ${st.source.recipes} recipes).` : "Not fetched yet; refreshes daily once set."}{st.source.lastError && <span className="text-danger"> Last error: {st.source.lastError}</span>}{msg && <span> {msg}</span>}</p>
     </Card>
   );
 }

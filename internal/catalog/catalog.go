@@ -60,7 +60,7 @@ type Service struct {
 
 // New builds the service. stacksDir is where docker.Service keeps stacks.
 func New(dk *docker.Service, px *proxy.Manager, stacksDir string) *Service {
-	return &Service{fsys: embedded.FS, docker: dk, proxy: px, stacks: stacksDir}
+	return &Service{fsys: &layered{under: embedded.FS}, docker: dk, proxy: px, stacks: stacksDir}
 }
 
 // List returns every app, sorted by category then name.

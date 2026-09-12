@@ -176,7 +176,7 @@ After this phase a user can: connect a GitHub repo, get a build on every push, r
 - [x] Framework detection with editable install, build, start, output directory and port: Vite, CRA, Next.js, Nuxt, SvelteKit, Astro, Remix, Angular, Gatsby, plain HTML, Node and Bun APIs, Python (FastAPI, Django, Flask, uv, Poetry), Go, Dockerfile, Compose
 - [x] Detection for Rust, PHP and Laravel, Rails, Spring Boot, .NET
 - [x] Build strategies chosen automatically: Static, generated Dockerfile (Node, Python, Go), Dockerfile, Compose, Image
-- [ ] Railpack/Nixpacks as the buildpack for languages without a generated Dockerfile
+- [x] Railpack/Nixpacks: decided against for now; generated Dockerfiles cover Node, Python, Go, PHP, Ruby, Rust, Java, .NET and static sites, anything else brings its own Dockerfile
 - [x] Static apps: SPA fallback, `_redirects` file, hashed-asset caching, gzip, custom 404, password via the domain's basic auth
 - [x] Static apps: base path (host/prefix domains); brotli comes from the proxy compress middleware
 - [x] Build-time (NEXT_PUBLIC_*, VITE_*, PUBLIC_*) vs runtime env split; persistent paths for caches
@@ -306,7 +306,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] MCP server (Streamable HTTP) with scoped tokens, off by default, 16 tools
 - [ ] Plugin host (WASM) with the first two community-style plugins as examples
 - [x] "Add to sidebar" embedding of any app UI behind Islet login
-- [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide
+- [ ] Catalog moved to its own public MIT repo (needs `isletdev/catalog` created; runtime fetch with daily refresh and the contribution guide are in place, Settings → Catalog source)
 - [x] PWA install with a service worker for the app shell
 - [x] Dedicated mobile layouts for logs, deploys, notifications and the file explorer (drawer navigation, stacked panes, scrolling tables)
 - [x] i18n framework with English complete and two community languages (German and Macedonian seeded for the shell, navigation, login and overview; `web/app/src/locales`)
@@ -315,7 +315,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 **Guides and content**
 - [x] Inline "Why this matters" on every security and infra toggle (each check carries its reason)
 - [x] Teaching empty states across the app
-- [ ] 15 recipes total (done: 15 guides, 10 wizards), docs site generated from the repo (needs GitHub Pages), screencasts for the top five flows
+- [ ] 15 recipes total (done), docs site generated from the repo (`tools/docsite` + `docs` workflow; needs Pages enabled and the DOCS_SITE variable), screencasts for the top five flows (not started)
 - [x] Weekly "your server this week" email report
 
 **Quality**

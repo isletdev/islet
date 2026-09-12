@@ -48,7 +48,8 @@ Everything host-level was written for Ubuntu and Debian but could only be exerci
 Listed as open items in `docs/ROADMAP.md`. The ones most worth your opinion:
 
 - Railpack/Nixpacks buildpacks: deploys use generated Dockerfiles for Node, Python, Go, PHP/Laravel, Ruby/Rails, Rust, Java and .NET, plus static sites. Anything else needs its own Dockerfile. I would keep it that way.
-- Roles scoped to projects, the WASM plugin host and i18n are the three big remaining pieces; each is a week of work and a design call. Say which one matters first.
-- **Catalog in its own repo** (`isletdev/catalog`, MIT) needs you to create the repo; the daemon can then fetch it at runtime. Until then the catalog is embedded.
-- **Docs site:** enable GitHub Pages on `isletdev/islet` (Settings → Pages → Source: GitHub Actions) and I will add the workflow that publishes `docs/` as a site.
+- The WASM plugin host is the one big piece left. Say whether you want plugins as WASM modules (sandboxed, harder to write) or as external services talking to the API and MCP (what the current API tokens already allow); I would start with the latter and document it as the plugin story.
+- CrowdSec: needs a Linux box to develop against (bouncer at the nftables level); waiting for the test VPS.
+- **Catalog in its own repo:** create `isletdev/catalog` (public, MIT) and copy `catalog/apps`, `catalog/recipes` and `catalog/README.md` into it. The daemon already fetches `https://github.com/isletdev/catalog/archive/refs/heads/main.tar.gz` when you press Fetch in Settings → Catalog source (daily afterwards), overlaying the embedded copy.
+- **Docs site:** enable GitHub Pages on `isletdev/islet` (Settings → Pages → Source: GitHub Actions) and add the repository variable `DOCS_SITE=true` (Settings → Secrets and variables → Actions → Variables). The `docs` workflow then publishes the guides at `https://isletdev.github.io/islet/`; point `docs.islet.dev` at it later.
 - Traefik's file watcher does not fire on Docker Desktop bind mounts on Windows, so local testing restarts the proxy after route changes. Linux inotify works; nothing to do on a real server.

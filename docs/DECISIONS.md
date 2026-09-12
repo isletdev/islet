@@ -151,3 +151,9 @@ The installer, firewall, sshd, systemd and Docker-in-Docker behaviour cannot be 
 
 ## 2026-09-12 — Project scopes are app-name globs, derived for everything else
 A project is not a new object: a deployer or viewer gets a list of app-name globs, and the scope for containers (`islet-<app>-…`, `<app>-<service>-1`), database instances (`<app>-<engine>`) and domains (routed to those containers) is derived from the app names. That covers what a team member of one app needs without a tagging scheme across every resource, and it composes with the naming the add-service and recipe flows already use. Scoped accounts lose Files and Terminal entirely, since both would leak the rest of the host.
+
+## 2026-09-12 — The catalog is embedded and overlaid, never only remote
+A fresh install has every app and recipe inside the binary, so nothing depends on GitHub being reachable. A configured source (the public catalog repository by default) is fetched as a tarball, validated (every app must parse) and swapped in atomically; fetched entries win over embedded ones by slug. The daemon never executes anything from the tarball, only reads YAML.
+
+## 2026-09-12 — The docs site is generated from the repository with a 200-line tool
+`tools/docsite` renders the Markdown in the repo with goldmark and one template. No static-site framework, no theme dependencies, no separate docs source of truth: what is in `docs/` is the site.

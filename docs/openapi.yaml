@@ -415,3 +415,7 @@ paths:
     post: { tags: [Settings], summary: Store a provider token after checking it (kind hetzner; empty token clears), requestBody: { content: { application/json: { schema: { type: object, properties: { kind: { type: string }, token: { type: string } } } } } }, responses: { "200": { description: OK } } }
   /api/v1/provider/snapshot:
     post: { tags: [Settings], summary: Request a server snapshot from the provider (admin), responses: { "200": { description: "{ snapshot }" } } }
+  /api/v1/catalog/source:
+    get: { tags: [Catalog], summary: Runtime catalog source and last fetch state (admin), responses: { "200": { description: OK } } }
+    post: { tags: [Catalog], summary: Set the source tarball URL and fetch it now (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }, responses: { "200": { description: OK } } }
+    delete: { tags: [Catalog], summary: Drop the fetched overlay and use the embedded catalog (admin), responses: { "204": { description: Done } } }
