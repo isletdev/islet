@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, RequestError, type Channel, type IsletEvent } from "@/lib/api";
+import { api, RequestError, type Channel, type IsletEvent, type MailRelay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
@@ -72,6 +72,7 @@ export default function Notifications() {
           {events.length === 0 && <li className="py-4 text-center text-ink-muted">Nothing yet.</li>}
         </ul>
       </Card>
+      {isAdmin && <MailRelayCard />}
     </div>
   );
 }
@@ -134,5 +135,41 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
         <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
       </form>
     </Card>
+  );
+}
+
+function MailRelayCard() {
+  const [m, setM] = useState<MailRelay | null>(null);
+  const [domain, setDomain] = useState(""); const [hostname, setHostname] = useState(""); const [relayhost, setRelayhost] = useState(""); const [ru, setRu] = useState(""); const [rp, setRp] = useState("");
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [to, setTo] = useState("");
+  const load = () => api.mailRelay().then(setM).catch(() => {});
+  useEffect(() => { void load(); }, []);
+  if (!m) return null;
+  const setup = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { setM(await api.mailRelaySet({ domain, hostname, relayhost, relayUser: ru, relayPassword: rp })); setMsg("Relay running. Publish the records below, then send a test."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
+  const test = async () => { setBusy(true); setMsg(null); try { const r = await api.mailRelayTest(to); setMsg(`Queued for ${to}. ${r.queue ? "Queue: " + r.queue : "Queue is empty, so it was handed off."}`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
+  const remove = async () => { if (!confirm("Remove the mail relay? The DKIM key volume is kept.")) return; await api.mailRelayRemove(); await load(); };
+  return (
+    <div className="rounded-lg border border-border bg-surface">
+      <div className="border-b border-border px-4 py-3"><span className="font-semibold">Outbound mail</span><p className="mt-0.5 text-xs text-ink-muted">A Postfix relay with DKIM signing for the apps on this server and for the email channel above. Needs a domain you control; port 25 must be open at your provider, or use an upstream relay.</p></div>
+      <div className="p-4 text-sm">
+        {!m.domain ? (
+          <form onSubmit={setup} className="grid gap-3 sm:grid-cols-2">
+            <Field label="Sender domain" hint="Mail is sent as something@this-domain."><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" className="font-mono" required /></Field>
+            <Field label="Mail host name" hint="Defaults to mail.<domain>; needs an A record and a PTR record."><Input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="mail.example.com" className="font-mono" /></Field>
+            <Field label="Upstream relay (optional)" hint="[smtp.provider.com]:587 when the provider blocks port 25."><Input value={relayhost} onChange={(e) => setRelayhost(e.target.value)} className="font-mono" /></Field>
+            <div className="grid grid-cols-2 gap-2"><Field label="Upstream user"><Input value={ru} onChange={(e) => setRu(e.target.value)} autoComplete="off" /></Field><Field label="Upstream password"><Input type="password" value={rp} onChange={(e) => setRp(e.target.value)} autoComplete="off" /></Field></div>
+            <div className="flex items-center gap-2 sm:col-span-2"><Button type="submit" disabled={busy}>{busy ? "Installing…" : "Set up relay"}</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>
+          </form>
+        ) : (
+          <div className="space-y-3">
+            <p>Relay <span className="font-mono">{m.hostname}</span> for <span className="font-mono">{m.domain}</span> is {m.running ? <span className="text-success">running</span> : <span className="text-danger">not running</span>}{m.relayhost && <> via <span className="font-mono">{m.relayhost}</span></>}. Apps use <span className="font-mono">smtp://{m.appSmtp}</span> (no auth); the email channel uses host <span className="font-mono">127.0.0.1</span>, port <span className="font-mono">2525</span>.</p>
+            <table className="w-full text-xs"><thead className="text-left text-ink-muted"><tr><th className="pb-1 font-medium">Record</th><th className="pb-1 font-medium">Value</th><th className="pb-1 font-medium">Status</th></tr></thead>
+              <tbody className="divide-y divide-border">{m.records.map((r) => <tr key={r.name + r.type}><td className="py-1.5 pr-2 align-top font-mono whitespace-nowrap">{r.type} {r.name}</td><td className="py-1.5 pr-2 align-top"><pre className="whitespace-pre-wrap break-all font-mono">{r.value}</pre><span className="text-ink-faint">{r.purpose}</span></td><td className="py-1.5 align-top whitespace-nowrap">{r.ok ? <span className="text-success">published</span> : r.found ? <span className="text-warning" title={r.found}>differs</span> : <span className="text-ink-muted">missing</span>}</td></tr>)}</tbody></table>
+            <div className="flex flex-wrap items-center gap-2"><Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com" className="w-64" /><Button variant="secondary" className="h-9 text-xs" disabled={busy || !to.includes("@")} onClick={() => void test()}>Send a test</Button><Button variant="secondary" className="h-9 text-xs" onClick={() => void load()}>Re-check DNS</Button><button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Remove relay</button></div>
+            {msg && <p className="text-xs text-ink-muted">{msg}</p>}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

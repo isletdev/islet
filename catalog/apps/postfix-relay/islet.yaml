@@ -1,0 +1,34 @@
+name: Postfix mail relay
+slug: postfix-relay
+category: networking
+description: Outbound SMTP relay with DKIM signing for the apps on this server. Set up from Notifications → Outbound mail.
+website: https://github.com/bokysan/docker-postfix
+service: relay
+port: 587
+fields:
+  - key: ALLOWED_SENDER_DOMAINS
+    label: Sender domain(s)
+    type: text
+    hint: Space separated, e.g. example.com
+  - key: HOSTNAME
+    label: Mail host name
+    type: text
+    hint: The name this server announces, e.g. mail.example.com (needs an A and a PTR record)
+  - key: RELAYHOST
+    label: Upstream relay (optional)
+    type: text
+    default: ''
+    hint: "[smtp.provider.com]:587 when the provider forbids direct port 25"
+  - key: RELAYHOST_USERNAME
+    label: Upstream user (optional)
+    type: text
+    default: ''
+  - key: RELAYHOST_PASSWORD
+    label: Upstream password (optional)
+    type: password
+    default: ''
+volumes:
+  - dkim
+notes: |
+  Apps reach the relay at postfix-relay-relay-1:587 on the proxy network (no authentication, only from this server); the panel reaches it at 127.0.0.1:2525.
+  Publish the SPF, DKIM and DMARC records shown in Notifications → Outbound mail before sending real mail.

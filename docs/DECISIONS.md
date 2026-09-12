@@ -124,3 +124,6 @@ Contributors keep their copyright and sign off commits (Developer Certificate of
 
 ## 2026-09-12 — Recipes are declarative YAML run by a small engine with undo
 A recipe is inputs plus a list of typed steps (database, app, deploy, install, uptime, cron, backup) with `{{templates}}` for inputs and earlier outputs. The engine streams progress and keeps an undo list; a failed step removes everything the run created, in reverse order, so a half-finished setup never lingers. Steps call the same service methods as the API, so a wizard can do nothing the user could not do by hand.
+
+## 2026-09-12 — Outbound mail is a Postfix relay stack, not a mail server
+The relay (bokysan/docker-postfix with auto-generated DKIM) only sends, only for the configured domain, only from this server: containers reach it on the proxy network without credentials and the panel on 127.0.0.1:2525. Islet reads the generated DKIM key and shows SPF, DKIM and DMARC records with live checks, because deliverability is a DNS problem more than a software one. Inbound mail stays out of scope.

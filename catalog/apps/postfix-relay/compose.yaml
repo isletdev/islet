@@ -1,0 +1,25 @@
+services:
+  relay:
+    image: boky/postfix:v4.3.0
+    restart: unless-stopped
+    hostname: ${HOSTNAME}
+    environment:
+      ALLOWED_SENDER_DOMAINS: ${ALLOWED_SENDER_DOMAINS}
+      HOSTNAME: ${HOSTNAME}
+      RELAYHOST: ${RELAYHOST}
+      RELAYHOST_USERNAME: ${RELAYHOST_USERNAME}
+      RELAYHOST_PASSWORD: ${RELAYHOST_PASSWORD}
+      DKIM_AUTOGENERATE: "true"
+      DKIM_SELECTOR: mail
+      MESSAGE_SIZE_LIMIT: "26214400"
+    ports:
+      - "127.0.0.1:2525:587"
+    volumes:
+      - dkim:/etc/opendkim/keys
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'postfix status >/dev/null 2>&1'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+volumes:
+  dkim:

@@ -391,3 +391,9 @@ paths:
     get: { tags: [Apps], summary: Guided setups (wizards) with their inputs and steps, responses: { "200": { description: OK } } }
   /api/v1/recipes/{slug}/run:
     post: { tags: [Apps], summary: Run a recipe with the given inputs; streams progress and undoes everything on failure (admin), parameters: [{ name: slug, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, additionalProperties: { type: string } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }
+  /api/v1/mail/relay:
+    get: { tags: [Notifications], summary: Outbound mail relay state with the SPF, DKIM and DMARC records and whether each is published (admin), responses: { "200": { description: OK } } }
+    post: { tags: [Notifications], summary: Install or reconfigure the Postfix relay with DKIM (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { domain: { type: string }, hostname: { type: string }, relayhost: { type: string }, relayUser: { type: string }, relayPassword: { type: string } } } } } }, responses: { "200": { description: OK } } }
+    delete: { tags: [Notifications], summary: Remove the relay (the DKIM key volume is kept), responses: { "204": { description: Done } } }
+  /api/v1/mail/relay/test:
+    post: { tags: [Notifications], summary: Send a test message through the relay (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string } } } } } }, responses: { "200": { description: "{ status, queue }" } } }

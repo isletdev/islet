@@ -148,7 +148,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [x] Per-app overrides (channel "Only for" subject filter with wildcards)
 - [x] Message template with deep links, send-test button, delivery log
 - [x] In-app notification centre and event timeline
-- [ ] Outbound SMTP relay setup wizard with DKIM, SPF and DMARC helpers
+- [x] Outbound SMTP relay setup wizard with DKIM, SPF and DMARC helpers (Notifications → Outbound mail)
 
 **Alerts and uptime**
 - [x] Default alert rules: disk over 85%, memory pressure, CPU saturation, container exit/OOM/crash loop, cert expiring, failed logins, update available

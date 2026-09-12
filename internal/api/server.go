@@ -190,6 +190,10 @@ func New(d Deps) http.Handler {
 	// Catalog
 	mux.HandleFunc("GET /api/v1/catalog", s.requireAuth(s.handleCatalog))
 	mux.HandleFunc("GET /api/v1/recipes", s.requireAuth(s.handleRecipes))
+	mux.HandleFunc("GET /api/v1/mail/relay", s.requireAuth(s.handleMailRelay))
+	mux.HandleFunc("POST /api/v1/mail/relay", requireJSON(s.requireAuth(s.handleMailRelay)))
+	mux.HandleFunc("DELETE /api/v1/mail/relay", requireJSON(s.requireAuth(s.handleMailRelay)))
+	mux.HandleFunc("POST /api/v1/mail/relay/test", requireJSON(s.requireAuth(s.handleMailRelayTest)))
 	mux.HandleFunc("POST /api/v1/recipes/{slug}/run", requireJSON(s.requireAuth(s.handleRecipeRun)))
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
 	mux.HandleFunc("GET /api/v1/catalog/installed/updates", s.requireAuth(s.handleInstalledUpdates))
