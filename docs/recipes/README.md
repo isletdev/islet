@@ -19,3 +19,4 @@ Short, ordered guides for the setups people ask about most. Each one uses only w
 | [n8n automation](n8n-automation.md) | 3 min |
 | [Gitea with CI runners](gitea-with-runners.md) | 10 min |
 | [Vaultwarden password manager](vaultwarden.md) | 5 min |
+| [Move to a new server](move-to-a-new-server.md) | 15 min |

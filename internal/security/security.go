@@ -92,14 +92,15 @@ type Service struct {
 	log     *slog.Logger
 	dataDir string
 
-	mu        sync.Mutex
-	rollback  *time.Timer
-	prevSSHD  []byte
-	sshdPath  string
-	scans     map[string]Scan
-	hasPlan   func(context.Context) bool
-	has2FA    func(context.Context) bool
-	panelCert func() bool
+	mu          sync.Mutex
+	rollback    *time.Timer
+	prevSSHD    []byte
+	sshdPath    string
+	scans       map[string]Scan
+	hasPlan     func(context.Context) bool
+	has2FA      func(context.Context) bool
+	panelCert   func() bool
+	beforeRisky func(ctx context.Context, op string) string
 }
 
 // Hooks lets other packages answer questions the score needs.
@@ -107,12 +108,15 @@ type Hooks struct {
 	HasBackupPlan func(context.Context) bool
 	Admin2FA      func(context.Context) bool
 	PanelHasCert  func() bool
+	// BeforeRisky may take a provider snapshot before a change that could
+	// lock the admin out; it returns a note for the output ("" = nothing).
+	BeforeRisky func(ctx context.Context, op string) string
 }
 
 // New builds the service.
 func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, h Hooks, log *slog.Logger) *Service {
 	abs, _ := filepath.Abs(dataDir)
-	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert}
+	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, beforeRisky: h.BeforeRisky}
 	if b, err := os.ReadFile(filepath.Join(abs, "scans.json")); err == nil {
 		_ = json.Unmarshal(b, &s.scans)
 	}
@@ -670,6 +674,7 @@ func (s *Service) ApplySSH(ctx context.Context, actor string, cfg SSHSettings, w
 	if err := cfg.Validate(s.hasAuthorizedKeys()); err != nil {
 		return "", err
 	}
+	note := s.risky(ctx, "ssh-change")
 	prev, _ := os.ReadFile(s.sshdPath)
 	if err := os.MkdirAll(filepath.Dir(s.sshdPath), 0o755); err != nil {
 		return "", err
@@ -715,7 +720,7 @@ func (s *Service) ApplySSH(ctx context.Context, actor string, cfg SSHSettings, w
 		s.mu.Unlock()
 		msg = "applied; open a new SSH session now and confirm within 5 minutes, or the change rolls back"
 	}
-	return msg, nil
+	return note + msg, nil
 }
 
 // ConfirmSSH cancels the rollback timer.
@@ -931,4 +936,15 @@ func (s *Service) Panic(ctx context.Context, actor, clientIP string) (string, er
 		s.bus.Emit(ctx, notify.Event{Category: "security", Severity: notify.Critical, Title: "Panic button pressed", Message: "All inbound traffic is blocked except from " + clientIP + ". Sessions and API tokens were revoked.", Link: "/security"})
 	}
 	return log.String(), nil
+}
+
+// risky runs the BeforeRisky hook and formats its note for command output.
+func (s *Service) risky(ctx context.Context, op string) string {
+	if s.beforeRisky == nil {
+		return ""
+	}
+	if n := s.beforeRisky(ctx, op); n != "" {
+		return "[islet] " + n + "\n"
+	}
+	return ""
 }

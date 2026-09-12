@@ -133,3 +133,9 @@ Setuid and world-writable listings come from `find`, /etc integrity from a sha25
 
 ## 2026-09-12 — Database allowlists ride on ufw
 Publishing a database port with an allowlist adds `ufw allow from <cidr> to any port <p>` rules and removes the open rule; the DOCKER-USER chain installed by the firewall fix makes Docker honour them. Without an active firewall the list is stored and shown but not enforced, and the panel says so.
+
+## 2026-09-12 — Provider integration is one call: snapshot before a risky change
+The Hetzner token (encrypted at rest) is used for exactly one thing: a snapshot right before SSH changes, requested but not awaited. No server creation, no DNS, no billing calls; those belong to the provider's own tools. Other providers can follow the same two-endpoint shape (find this server, create image).
+
+## 2026-09-12 — Append-only credentials are guided, not automated
+Creating restricted keys or turning on object lock needs master credentials for the storage account, which is exactly what should never sit on the server. The destination form explains the per-provider recipe instead, and the built-in peer host runs rest-server append-only.

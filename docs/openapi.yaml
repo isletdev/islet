@@ -409,3 +409,8 @@ paths:
     post: { tags: [Security], summary: Run the host audit (admin, Linux), requestBody: { content: { application/json: { schema: { type: object, properties: { rkhunter: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
   /api/v1/security/host/baseline:
     post: { tags: [Security], summary: Record the current /etc hashes as the integrity baseline (admin, Linux), responses: { "200": { description: "{ files }" } } }
+  /api/v1/provider:
+    get: { tags: [Settings], summary: Hosting provider connection state (admin), responses: { "200": { description: OK } } }
+    post: { tags: [Settings], summary: Store a provider token after checking it (kind hetzner; empty token clears), requestBody: { content: { application/json: { schema: { type: object, properties: { kind: { type: string }, token: { type: string } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/provider/snapshot:
+    post: { tags: [Settings], summary: Request a server snapshot from the provider (admin), responses: { "200": { description: "{ snapshot }" } } }

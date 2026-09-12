@@ -27,6 +27,7 @@ import (
 	"github.com/isletdev/islet/internal/mcp"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
+	"github.com/isletdev/islet/internal/provider"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/recipes"
 	"github.com/isletdev/islet/internal/runner"
@@ -56,6 +57,7 @@ type Deps struct {
 	Deploy   *deploy.Service
 	Runners  *runner.Service
 	Security *security.Service
+	Provider *provider.Service
 	Backup   *backup.Service
 	GitHub   *github.Client
 	UI       http.Handler
@@ -82,6 +84,7 @@ type Server struct {
 	deploy   *deploy.Service
 	runners  *runner.Service
 	security *security.Service
+	provider *provider.Service
 	backup   *backup.Service
 	github   *github.Client
 	mcp      *mcp.Server
@@ -92,7 +95,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, provider: d.Provider, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	s.recipes = recipes.New(catalogFS.FS, s.recipeHooks())
 	s.loadCookieDomain()
 	s.StartWeeklyReport(context.Background())
@@ -268,6 +271,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/security/host/audit", s.requireAuth(s.handleHostAudit))
 	mux.HandleFunc("POST /api/v1/security/host/audit", requireJSON(s.requireAuth(s.handleHostAudit)))
 	mux.HandleFunc("POST /api/v1/security/host/baseline", requireJSON(s.requireAuth(s.handleHostBaseline)))
+	mux.HandleFunc("GET /api/v1/provider", s.requireAuth(s.handleProvider))
+	mux.HandleFunc("POST /api/v1/provider", requireJSON(s.requireAuth(s.handleProvider)))
+	mux.HandleFunc("POST /api/v1/provider/snapshot", requireJSON(s.requireAuth(s.handleProviderSnapshot)))
 
 	// Runners
 	mux.HandleFunc("GET /api/v1/runners", s.requireAuth(s.handleRunnerPools))

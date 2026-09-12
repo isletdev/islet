@@ -31,6 +31,8 @@ Everything host-level was written for Ubuntu and Debian but could only be exerci
 - [ ] **Deploy:** connect a real repository (a Vite site and a Next.js app are the best first tests), add the webhook from the app's Auto-deploy panel, push, watch it redeploy, roll back.
 - [ ] **Runners:** create a GitHub personal access token (classic, `repo`) for a throwaway repository, add a pool on the Runners page, push a workflow with `runs-on: self-hosted`. I could only verify the pool logic, webhooks and the workflow generator without credentials. Same for GitLab and Gitea if you use them.
 - [ ] **Backups off-site:** add an S3 (R2 or B2) or SFTP (Storage Box) destination and run a plan; local-path repositories are verified, remote ones are not.
+- [ ] **Full restore:** on a second throwaway VPS run `installer/restore.sh` with the recovery kit and check the stacks come back. This script could only be written, not run.
+- [ ] **Hetzner snapshot hook:** Settings → Hosting provider, paste a read/write token, press "Take a snapshot now", confirm it appears in the console; then change an SSH setting and check a second snapshot was taken first.
 - [ ] **Hetzner API token** (read/write, project-scoped) if you want the e2e job in CI to create and destroy throwaway servers automatically.
 - [ ] **Load test on the small box:** `hack/loadtest.sh -n 30 -k admin '<password>'` on a 1 vCPU / 2 GB VPS and paste the table. Target: every p95 under 500 ms.
 - [ ] **First tagged release:** `git tag v0.1.0 && git push --tags` once the signing secret is in place; the workflow also produces a cosign bundle and SLSA attestations, so check the release page shows `checksums.txt.cosign.bundle`.

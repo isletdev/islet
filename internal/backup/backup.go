@@ -1172,6 +1172,7 @@ func (s *Service) RecoveryKit(ctx context.Context) ([]byte, error) {
 		"hostname":     s.st.Hostname,
 		"destinations": dests,
 		"plans":        plans,
+		"fullRestore":  "On a fresh Ubuntu or Debian server: curl -fsSL https://raw.githubusercontent.com/isletdev/islet/main/installer/restore.sh -o restore.sh && sudo sh restore.sh recovery-kit.json   (installs Islet, restores state, volumes and dumps, starts the stacks; also the way to move to another provider)",
 		"howToRestore": []string{
 			"1. Install restic (or use docker run --rm restic/restic).",
 			"2. For each destination set RESTIC_REPOSITORY (see repo), RESTIC_PASSWORD (password) and the provider credentials from config.",

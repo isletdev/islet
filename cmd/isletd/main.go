@@ -32,6 +32,7 @@ import (
 	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
+	"github.com/isletdev/islet/internal/provider"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/runner"
 	"github.com/isletdev/islet/internal/security"
@@ -127,7 +128,18 @@ func run() error {
 	rn.Start(ctx)
 	bk := backup.New(st, keys, cmds, dbs, bus, *dataDir, log)
 	bk.Start(ctx)
+	prov := provider.New(st, keys)
 	sec := security.New(st, cmds, bus, *dataDir, security.Hooks{
+		BeforeRisky: func(ctx context.Context, op string) string {
+			desc, err := prov.Snapshot(ctx, "system", op)
+			if err != nil {
+				if errors.Is(err, provider.ErrNotConfigured) {
+					return ""
+				}
+				return "provider snapshot failed: " + err.Error()
+			}
+			return "provider snapshot " + desc + " requested before " + op
+		},
 		Admin2FA:      as.AllAdminsHave2FA,
 		PanelHasCert:  func() bool { return *tlsMode == "off" || panelHasTrustedCert(ctx, px) },
 		HasBackupPlan: bk.HasPlan,
@@ -173,7 +185,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Provider: prov, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

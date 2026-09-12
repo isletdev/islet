@@ -115,6 +115,13 @@ function HostCard() {
   );
 }
 
+const APPEND_ONLY: Record<string, string> = {
+  s3: "Ransomware-proof it: give Islet a key that cannot delete. Backblaze B2: application key with listBuckets, listFiles, readFiles, writeFiles (no deleteFiles) and turn on Object Lock on the bucket. Cloudflare R2: token with Object Read & Write only. AWS S3: a user policy without s3:DeleteObject plus Object Lock in compliance mode. Pruning then fails on purpose; clean old snapshots from a trusted machine.",
+  sftp: "Ransomware-proof it: on a Hetzner Storage Box or your own host, restrict the key to an rrsync/sftp chroot and keep a second, offline copy of the SSH key. Snapshots are content-addressed, so a deleted file is noticed by Verify.",
+  rest: "Ransomware-proof it: run rest-server with --append-only (the Islet peer host does) so a compromised server cannot delete its history.",
+  local: "A local repository protects against mistakes, not against losing the disk. Add an off-site destination too.",
+};
+
 function DestForm({ initial, onClose, onSaved }: { initial: Partial<BackupDestination>; onClose: () => void; onSaved: () => Promise<void> }) {
   const [d, setD] = useState<Partial<BackupDestination>>(initial);
   const [msg, setMsg] = useState<string | null>(null);
@@ -127,6 +134,7 @@ function DestForm({ initial, onClose, onSaved }: { initial: Partial<BackupDestin
       <Field label="Name"><Input value={d.name ?? ""} onChange={(e) => setD({ ...d, name: e.target.value })} required disabled={!!d.id} placeholder="hetzner-box" /></Field>
       <Field label="Type"><select value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as BackupDestination["type"], config: {} })} className={SELECT} disabled={!!d.id}>{Object.entries(DEST_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
       <p className="text-xs text-ink-muted sm:col-span-2">{t.help}</p>
+      {APPEND_ONLY[d.type ?? ""] && <p className="text-xs text-ink-muted sm:col-span-2">{APPEND_ONLY[d.type ?? ""]}</p>}
       {t.fields.map((f) => <Field key={f.key} label={f.label} hint={d.id && f.secret ? "Leave empty to keep the stored value." : f.hint}>{f.key === "privateKey" ? <textarea value={d.config?.[f.key] ?? ""} onChange={(e) => setCfg(f.key, e.target.value)} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /> : <Input type={f.secret ? "password" : "text"} value={d.config?.[f.key] ?? ""} onChange={(e) => setCfg(f.key, e.target.value)} placeholder={f.hint} autoComplete="off" className="font-mono" />}</Field>)}
       <div className="flex items-center gap-2 sm:col-span-2"><Button type="submit" disabled={busy}>{d.id ? "Save" : "Add and initialise"}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>
     </form>

@@ -268,11 +268,11 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Backup health in the dashboard's attention strip
 - [x] Restore browser: single file or folder to disk, volume into a new volume
 - [x] Database into a new instance, dry run (whole app = restore its volume, then redeploy)
-- [ ] Full server restore from a fresh install using the recovery kit, also the migration path between providers
+- [x] Full server restore from a fresh install using the recovery kit (`installer/restore.sh`), also the migration path between providers
 - [x] Weekly integrity check (restic check with a data sample) and a "last verified" date
 - [x] Monthly automated restore test (pulls Islet state or a dump out of the latest snapshot into a scratch folder), with a manual button
-- [ ] Write-only credentials and object lock or append-only mode set up automatically for B2, R2 and S3
-- [ ] Provider snapshot before risky operations where the provider API is configured
+- [x] Append-only guidance per provider in the destination form (automatic key creation would need master credentials on the server; deliberately not done); the Islet peer host is append-only by default
+- [x] Provider snapshot before risky operations where the provider API is configured (Hetzner Cloud; SSH changes)
 - [x] `islet backup list|run|snapshots|verify|restore` in the CLI
 
 **Networking and access**
