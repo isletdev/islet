@@ -67,7 +67,9 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
   };
   const togglePublic = async (on: boolean) => {
     let hostPort = d?.port ?? 0;
+    let allowFrom = "";
     if (on) {
+      allowFrom = prompt("Only allow these addresses (IPs or CIDRs, comma separated). Leave empty for anyone; needs ufw enabled on the Security page to be enforced:", d?.allowFrom ?? "") ?? "";
       const v = prompt(`Publish on every interface. Anyone on the internet can reach the server and try passwords; prefer an SSH tunnel unless you really need this.
 
 Host port to publish on:`, String(d?.port));
@@ -75,7 +77,7 @@ Host port to publish on:`, String(d?.port));
       hostPort = +v;
     }
     setBusy("public"); setLog([]);
-    try { await postStream(`/api/v1/databases/${name}/public`, (l) => setLog((p) => [...(p ?? []), l]), { public: on, hostPort }); await load(); await onChanged(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
+    try { await postStream(`/api/v1/databases/${name}/public`, (l) => setLog((p) => [...(p ?? []), l]), { public: on, hostPort, allowFrom }); await load(); await onChanged(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
   };
   const mask = (s: string) => showSecrets ? s : s.replace(/:\/\/([^:@]+):([^@]+)@/, "://$1:••••••••@");
 
@@ -101,7 +103,7 @@ Host port to publish on:`, String(d?.port));
           </div>
           <div>
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{d.public ? "From the internet" : "From your machine"}</span>{isAdmin && d.publicUrl && <Copy text={d.publicUrl} />}</div>
-            {d.public ? <pre className="overflow-x-auto rounded-md border border-warning/40 bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.publicUrl ?? "") : "(admins only)"}</pre>
+            {d.public ? <><pre className="overflow-x-auto rounded-md border border-warning/40 bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.publicUrl ?? "") : "(admins only)"}</pre>{d.allowFrom && <p className="mt-1 text-xs text-ink-muted">Firewall allows only: <span className="font-mono">{d.allowFrom}</span></p>}</>
               : <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">ssh -N -L {d.port}:{d.container}:{d.port} root@your-server{"\n"}# then connect to localhost:{d.port}</pre>}
             {isAdmin && <div className="mt-1 flex items-center gap-3 text-xs">
               <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="text-ink-muted hover:text-ink">{showSecrets ? "Hide passwords" : "Show passwords"}</button>

@@ -101,7 +101,7 @@ export interface Job {
 }
 export interface JobTemplate { id: string; name: string; description: string; schedule: string; script: string }
 
-export interface DBInstance { name: string; slug: string; engine: "postgres" | "mysql" | "redis" | "mongo"; container: string; state: string; image: string; port: number; network: string; public?: string; pooler?: boolean; pooledUrl?: string; user: string; password?: string; rootUser?: string; rootPassword?: string; database?: string; internalUrl: string; publicUrl?: string; installedAt: string }
+export interface DBInstance { name: string; slug: string; engine: "postgres" | "mysql" | "redis" | "mongo"; container: string; state: string; image: string; port: number; network: string; public?: string; allowFrom?: string; pooler?: boolean; pooledUrl?: string; user: string; password?: string; rootUser?: string; rootPassword?: string; database?: string; internalUrl: string; publicUrl?: string; installedAt: string }
 export interface DBDatabase { name: string; size: string; connections: number; owner?: string }
 export interface DBStats { version: string; connections: number; maxConnections: number; uptime: string; dataSize: string; extra?: string[] }
 export interface DBExtension { name: string; installed: boolean; available: boolean; comment: string }
@@ -130,6 +130,7 @@ export interface SecCheck { id: string; title: string; detail: string; weight: n
 export interface SecReport { score: number; max: number; checks: SecCheck[]; linux: boolean; computedAt: string }
 export interface FirewallRule { port: string; proto: string; from: string; comment: string }
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
+export interface HostAudit { at: string; suid: string[]; worldWritable: string[]; etcChanged: string[]; etcAdded: string[]; etcRemoved: string[]; baselineAt: string; rkhunter: string; rkhunterRan: boolean; notes: string[] }
 export interface Scan { target: string; at: string; critical: number; high: number; medium: number; low: number; findings: { id: string; package: string; version: string; fixed: string; severity: string; title: string }[]; error?: string; truncated?: boolean }
 export interface SecurityState { panelCidr?: string; report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
 
@@ -299,6 +300,13 @@ export const api = {
   unban: (ip: string) => post<void>("/api/v1/security/unban", { ip }),
   sshApply: (cfg: SSHSettings) => post<{ message: string }>("/api/v1/security/ssh", cfg),
   sshConfirm: () => post<void>("/api/v1/security/ssh/confirm"),
+  hostUser: (name: string, publicKey: string) => post<{ output: string }>("/api/v1/security/host/user", { name, publicKey }),
+  hostSSHKey: (user: string, publicKey: string) => post<{ output: string }>("/api/v1/security/host/sshkey", { user, publicKey }),
+  hostTimezone: () => request<{ timezone: string }>("/api/v1/security/host/timezone"),
+  hostTimezoneSet: (timezone: string) => post<{ timezone: string }>("/api/v1/security/host/timezone", { timezone }),
+  hostAudit: () => request<HostAudit | null>("/api/v1/security/host/audit"),
+  hostAuditRun: (rkhunter: boolean) => post<HostAudit>("/api/v1/security/host/audit", { rkhunter }),
+  hostBaseline: () => post<{ files: number }>("/api/v1/security/host/baseline"),
   scanImage: (image: string) => post<Scan>("/api/v1/security/scan", { image }),
   panic: () => post<{ output: string; message: string }>("/api/v1/security/panic"),
   runnerPools: () => request<RunnerPool[]>("/api/v1/runners"),

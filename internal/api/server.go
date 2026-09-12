@@ -261,6 +261,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/security/firewall/panel", requireJSON(s.requireAuth(s.handlePanelRestrict)))
 	mux.HandleFunc("POST /api/v1/security/lynis", requireJSON(s.requireAuth(s.handleLynis)))
 	mux.HandleFunc("POST /api/v1/security/panic", requireJSON(s.requireAuth(s.handlePanic)))
+	mux.HandleFunc("POST /api/v1/security/host/user", requireJSON(s.requireAuth(s.handleHostUser)))
+	mux.HandleFunc("POST /api/v1/security/host/sshkey", requireJSON(s.requireAuth(s.handleHostSSHKey)))
+	mux.HandleFunc("GET /api/v1/security/host/timezone", s.requireAuth(s.handleHostTimezone))
+	mux.HandleFunc("POST /api/v1/security/host/timezone", requireJSON(s.requireAuth(s.handleHostTimezone)))
+	mux.HandleFunc("GET /api/v1/security/host/audit", s.requireAuth(s.handleHostAudit))
+	mux.HandleFunc("POST /api/v1/security/host/audit", requireJSON(s.requireAuth(s.handleHostAudit)))
+	mux.HandleFunc("POST /api/v1/security/host/baseline", requireJSON(s.requireAuth(s.handleHostBaseline)))
 
 	// Runners
 	mux.HandleFunc("GET /api/v1/runners", s.requireAuth(s.handleRunnerPools))

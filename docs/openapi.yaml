@@ -397,3 +397,15 @@ paths:
     delete: { tags: [Notifications], summary: Remove the relay (the DKIM key volume is kept), responses: { "204": { description: Done } } }
   /api/v1/mail/relay/test:
     post: { tags: [Notifications], summary: Send a test message through the relay (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { to: { type: string } } } } } }, responses: { "200": { description: "{ status, queue }" } } }
+  /api/v1/security/host/user:
+    post: { tags: [Security], summary: Create a sudo user with an optional SSH key (admin, Linux), requestBody: { content: { application/json: { schema: { type: object, properties: { name: { type: string }, publicKey: { type: string } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/security/host/sshkey:
+    post: { tags: [Security], summary: Append a public key to a user's authorized_keys (admin, Linux), requestBody: { content: { application/json: { schema: { type: object, properties: { user: { type: string }, publicKey: { type: string } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/security/host/timezone:
+    get: { tags: [Security], summary: System timezone, responses: { "200": { description: OK } } }
+    post: { tags: [Security], summary: Set the system timezone (admin, Linux), requestBody: { content: { application/json: { schema: { type: object, properties: { timezone: { type: string } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/security/host/audit:
+    get: { tags: [Security], summary: Last host audit (setuid, world-writable, /etc changes, rkhunter), responses: { "200": { description: OK } } }
+    post: { tags: [Security], summary: Run the host audit (admin, Linux), requestBody: { content: { application/json: { schema: { type: object, properties: { rkhunter: { type: boolean } } } } } }, responses: { "200": { description: OK } } }
+  /api/v1/security/host/baseline:
+    post: { tags: [Security], summary: Record the current /etc hashes as the integrity baseline (admin, Linux), responses: { "200": { description: "{ files }" } } }

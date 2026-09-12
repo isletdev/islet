@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, RequestError, type SecurityState, type SSHSettings } from "@/lib/api";
+import { api, RequestError, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
@@ -80,6 +80,7 @@ export default function Security() {
         </Card>
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
+      {isAdmin && r.linux && <div className="grid gap-4 lg:grid-cols-2"><ServerSetup onChanged={load} /><HostAuditCard /></div>}
       {isAdmin && r.linux && <LynisCard onChanged={load} />}
       <Diagnostics />
     </div>
@@ -93,6 +94,60 @@ function LynisCard({ onChanged }: { onChanged: () => Promise<void> }) {
     <Card title="Lynis audit" description="A full system audit by Lynis (installed on first run, takes a minute or two). The hardening index joins the Security Score.">
       <div className="flex items-center gap-3"><Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void run()}>{busy ? "Auditing…" : "Run Lynis audit"}</Button>{score !== null && <span className="text-sm">Hardening index <span className="font-mono font-semibold">{score}</span>/100</span>}</div>
       {out && <pre className="mt-3 max-h-72 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{out}</pre>}
+    </Card>
+  );
+}
+
+function ServerSetup({ onChanged }: { onChanged: () => Promise<void> }) {
+  const [user, setUser] = useState(""); const [key, setKey] = useState(""); const [keyUser, setKeyUser] = useState("root"); const [key2, setKey2] = useState(""); const [tz, setTz] = useState(""); const [cur, setCur] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.hostTimezone().then((r) => { setCur(r.timezone); setTz(r.timezone); }).catch(() => {}); }, []);
+  const run = async (fn: () => Promise<{ output?: string; timezone?: string }>) => { setMsg(null); try { const r = await fn(); setMsg(r.output ?? (r.timezone ? `Timezone is now ${r.timezone}.` : "Done.")); await onChanged(); } catch (er) { setMsg(err(er)); } };
+  return (
+    <Card title="Server setup" description="The three steps every fresh server needs: a sudo user so root stays unused, your key on it, the right clock.">
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostUser(user, key)); }} className="grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+        <Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="deploy" className="font-mono" required />
+        <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="ssh-ed25519 AAAA… (optional)" className="font-mono" />
+        <Button type="submit" variant="secondary" className="h-9 text-xs">Create sudo user</Button>
+      </form>
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostSSHKey(keyUser, key2)); }} className="mt-2 grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+        <Input value={keyUser} onChange={(e) => setKeyUser(e.target.value)} className="font-mono" required />
+        <Input value={key2} onChange={(e) => setKey2(e.target.value)} placeholder="ssh-ed25519 AAAA…" className="font-mono" required />
+        <Button type="submit" variant="secondary" className="h-9 text-xs">Add SSH key</Button>
+      </form>
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostTimezoneSet(tz)); }} className="mt-2 grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+        <span className="self-center text-xs text-ink-muted">Timezone {cur && <span className="font-mono">({cur})</span>}</span>
+        <Input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="Europe/Skopje" className="font-mono" required />
+        <Button type="submit" variant="secondary" className="h-9 text-xs">Set timezone</Button>
+      </form>
+      {msg && <pre className="mt-2 whitespace-pre-wrap font-mono text-xs text-ink-muted">{msg}</pre>}
+      <p className="mt-2 text-xs text-ink-muted">Then turn off root and password logins under SSH; the five-minute rollback protects you if the key does not work.</p>
+    </Card>
+  );
+}
+
+function HostAuditCard() {
+  const [a, setA] = useState<HostAudit | null>(null); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.hostAudit().then(setA).catch(() => {}); }, []);
+  const run = async (rk: boolean) => { setBusy(true); setMsg(null); try { setA(await api.hostAuditRun(rk)); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
+  const baseline = async () => { setBusy(true); setMsg(null); try { const r = await api.hostBaseline(); setMsg(`Baseline recorded for ${r.files} files under /etc.`); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
+  const list = (title: string, items: string[]) => items.length > 0 && <details className="mt-1 text-xs"><summary className="cursor-pointer">{title}: {items.length}</summary><pre className="mt-1 max-h-40 overflow-auto font-mono text-[11px]">{items.join("\n")}</pre></details>;
+  return (
+    <Card title="Host audit" description="Unexpected setuid binaries, world-writable files, changes under /etc since the baseline, and rkhunter for rootkits. Takes a minute.">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void run(false)}>{busy ? "Auditing…" : "Run audit"}</Button>
+        <Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void run(true)}>Run with rkhunter</Button>
+        <Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void baseline()} title="Record /etc as it is now; later audits list every change">Set /etc baseline</Button>
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      </div>
+      {a && <div className="mt-2 text-sm">
+        <p className="text-xs text-ink-muted">Last audit {fmt(a.at)}{a.baselineAt && ` · baseline ${fmt(a.baselineAt)}`}</p>
+        {a.suid.length === 0 && a.worldWritable.length === 0 && a.etcChanged.length + a.etcAdded.length + a.etcRemoved.length === 0 && !a.rkhunter && <p className="mt-1 text-success">Nothing unusual.</p>}
+        {list("Setuid binaries outside the known set", a.suid)}{list("World-writable files", a.worldWritable)}{list("/etc files changed", a.etcChanged)}{list("/etc files added", a.etcAdded)}{list("/etc files removed", a.etcRemoved)}
+        {a.rkhunter && <details className="mt-1 text-xs" open><summary className="cursor-pointer text-warning">rkhunter warnings</summary><pre className="mt-1 max-h-48 overflow-auto font-mono text-[11px]">{a.rkhunter}</pre></details>}
+        {a.rkhunterRan && !a.rkhunter && <p className="mt-1 text-xs text-success">rkhunter: no warnings.</p>}
+        {a.notes.map((n) => <p key={n} className="mt-1 text-xs text-ink-muted">{n}</p>)}
+      </div>}
     </Card>
   );
 }

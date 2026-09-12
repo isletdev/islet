@@ -120,7 +120,7 @@ After this phase a user can: create a Postgres instance with a backup schedule, 
 - [x] First-class database objects for Postgres, MySQL, MariaDB, Redis, MongoDB (catalog installs appear on the Databases page)
 - [x] Create databases and users, copyable connection strings for internal and public access
 - [x] Public exposure gated behind a warning, on a chosen host port, with SSH tunnel instructions
-- [ ] IP allowlist for published database ports (needs the firewall, v0.6)
+- [x] IP allowlist for published database ports (ufw rules follow the published port; recorded but not enforced without ufw)
 - [x] Postgres extension toggles (pg_stat_statements, pg_trgm, pgcrypto, uuid-ossp, hstore, citext; pgvector/postgis when the image has them)
 - [x] PgBouncer toggle
 - [x] Adminer deep links from any Postgres, MySQL or Mongo instance (installs and attaches it on first use); pgweb and RedisInsight not planned
@@ -226,7 +226,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 **Hardening wizard and Security Score**
 - [x] One-click fixes: disable root and password login, UFW rules, fail2ban, unattended-upgrades, security upgrades, swap, NTP
 - [x] "Fix everything safe" runs updates, fail2ban, swap, NTP and the firewall in order
-- [ ] Guided sudo user, SSH key and timezone steps
+- [x] Guided sudo user, SSH key and timezone steps (Security → Server setup)
 - [x] Security Score (0–100) with explanations and one-click fixes
 - [x] Security Score card on the dashboard
 - [x] SSH settings UI with validation (sshd -t, authorized_keys present) and a five-minute rollback timer
@@ -242,8 +242,8 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Lynis audit on demand with the hardening index in the Security Score and a stored history
 - [x] Lynis weekly once it has been run by hand
 - [x] Trivy image scanning (in a container), stored results with critical and high findings, events on criticals
-- [ ] Filesystem scans, findings on the container page
-- [ ] rkhunter, file integrity monitoring on `/etc`, SUID and world-writable audits
+- [x] Filesystem scans, findings on the container page (image findings with a scan button on each container)
+- [x] rkhunter, file integrity monitoring on `/etc` (baseline diff), SUID and world-writable audits (Security → Host audit)
 - [x] Auth log viewer (Logs → SSH logins)
 - [x] Login-from-new-address alert (first sign-in from an IP raises a warning)
 - [x] Country lookup for that alert (opt-in, ipapi.co)

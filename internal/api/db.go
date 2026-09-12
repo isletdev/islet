@@ -2,8 +2,11 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/isletdev/islet/internal/cron"
 	"github.com/isletdev/islet/internal/db"
@@ -53,6 +56,7 @@ func (s *Server) handleDBGet(w http.ResponseWriter, r *http.Request) {
 	if inst == nil {
 		return
 	}
+	inst.AllowFrom, _, _ = s.store.Setting(r.Context(), "db.allow."+inst.Name)
 	u := userFrom(r.Context())
 	if u.Role != "admin" {
 		inst.Redact()
@@ -273,8 +277,9 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Public   bool `json:"public"`
-		HostPort int  `json:"hostPort"`
+		Public    bool   `json:"public"`
+		HostPort  int    `json:"hostPort"`
+		AllowFrom string `json:"allowFrom"` // comma list of IPs/CIDRs; empty = anyone
 	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
@@ -287,5 +292,63 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit(r.Context(), u.Username, "db.public", inst.Name, strconv.FormatBool(req.Public))
+	// Firewall rules follow the published port: with an allowlist only those
+	// sources get through ufw (Docker ports honour it thanks to DOCKER-USER).
+	port := req.HostPort
+	if port <= 0 {
+		port = inst.Port
+	}
+	prev, _, _ := s.store.Setting(r.Context(), "db.allow."+inst.Name)
+	fwNote := ""
+	if s.security != nil && s.security.FirewallStatus(r.Context()).Active {
+		for _, cidr := range splitList(prev) {
+			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr)
+		}
+		if req.Public {
+			list := splitList(req.AllowFrom)
+			for _, cidr := range list {
+				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", cidr, "db "+inst.Name); err != nil {
+					fwNote = "firewall rule failed: " + err.Error()
+				}
+			}
+			if len(list) == 0 {
+				if err := s.security.AllowPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "", "db "+inst.Name); err != nil {
+					fwNote = "firewall rule failed: " + err.Error()
+				}
+			} else {
+				_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "")
+			}
+		} else {
+			_ = s.security.DenyPort(r.Context(), u.Username, strconv.Itoa(port), "tcp", "")
+		}
+	} else if req.Public && strings.TrimSpace(req.AllowFrom) != "" {
+		fwNote = "the firewall is not active, so the allowlist is recorded but not enforced; enable ufw on the Security page"
+	}
+	if req.Public {
+		_ = s.store.SetSetting(r.Context(), "db.allow."+inst.Name, strings.Join(splitList(req.AllowFrom), ","))
+	} else {
+		_ = s.store.SetSetting(r.Context(), "db.allow."+inst.Name, "")
+	}
+	if fwNote != "" {
+		pr, pw := io.Pipe()
+		go func() {
+			defer pw.Close()
+			_, _ = io.Copy(pw, rc)
+			fmt.Fprintln(pw, "[islet] "+fwNote)
+		}()
+		streamLines(w, r, pr, wait)
+		return
+	}
 	streamLines(w, r, rc, wait)
+}
+
+// splitList splits a comma or whitespace separated list, dropping blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

@@ -42,8 +42,9 @@ type Instance struct {
 	Image     string `json:"image"`
 	Port      int    `json:"port"`
 	Network   string `json:"network"`
-	Public    string `json:"public,omitempty"` // host:port when published
-	Pooler    bool   `json:"pooler"`           // PgBouncer service present
+	Public    string `json:"public,omitempty"`    // host:port when published
+	Pooler    bool   `json:"pooler"`              // PgBouncer service present
+	AllowFrom string `json:"allowFrom,omitempty"` // firewall allowlist for the published port
 	Pooled    string `json:"pooledUrl,omitempty"`
 	User      string `json:"user"`
 	Password  string `json:"password,omitempty"`

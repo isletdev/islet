@@ -52,6 +52,22 @@ export default function ContainersRoot() {
   );
 }
 
+/** Trivy findings for the container's image, from the Security page scans. */
+function ImageFindings({ image }: { image: string }) {
+  const [sc, setSc] = useState<{ critical: number; high: number; medium: number; low: number; at: string } | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void api.security().then((s) => setSc(s.scans.find((x) => x.target === image) ?? null)).catch(() => setSc(null)); }, [image]);
+  const scan = async () => { setBusy(true); try { const r = await api.scanImage(image); setSc(r); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); } finally { setBusy(false); } };
+  if (sc === undefined) return null;
+  return (
+    <p className="mt-1 text-xs">
+      {sc ? <span className={sc.critical > 0 ? "text-danger" : sc.high > 0 ? "text-warning" : "text-ink-muted"}>{sc.critical} critical · {sc.high} high · {sc.medium} medium · {sc.low} low <span className="text-ink-faint">(scanned {new Date(sc.at).toLocaleDateString()})</span></span> : <span className="text-ink-muted">Image not scanned yet.</span>}
+      <button type="button" disabled={busy} onClick={() => void scan()} className="ml-2 text-accent hover:underline">{busy ? "Scanning…" : sc ? "Rescan" : "Scan for vulnerabilities"}</button>
+      <Link to="/security" className="ml-2 text-ink-muted hover:text-ink">Details</Link>
+    </p>
+  );
+}
+
 function StateDot({ state }: { state: string }) {
   const c = state === "running" ? "bg-success" : state === "paused" || state === "restarting" ? "bg-warning" : "bg-ink-faint";
   return <span className={`inline-block h-2 w-2 rounded-full ${c}`} aria-hidden="true" />;
@@ -129,6 +145,7 @@ function Detail() {
           <Link to="/containers" className="text-xs text-ink-muted hover:text-ink">← Containers</Link>
           <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-[-0.02em]">{c && <StateDot state={c.state} />}{c?.name ?? id}</h1>
           <p className="mt-0.5 font-mono text-xs text-ink-muted">{c?.image} {c?.stack && `· stack ${c.stack}`} {c && `· restarts ${c.restartCount}`}</p>
+          {c && <ImageFindings image={c.image} />}
         </div>
         {c && (
           <div className="flex gap-1">

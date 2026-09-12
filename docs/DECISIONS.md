@@ -127,3 +127,9 @@ A recipe is inputs plus a list of typed steps (database, app, deploy, install, u
 
 ## 2026-09-12 — Outbound mail is a Postfix relay stack, not a mail server
 The relay (bokysan/docker-postfix with auto-generated DKIM) only sends, only for the configured domain, only from this server: containers reach it on the proxy network without credentials and the panel on 127.0.0.1:2525. Islet reads the generated DKIM key and shows SPF, DKIM and DMARC records with live checks, because deliverability is a DNS problem more than a software one. Inbound mail stays out of scope.
+
+## 2026-09-12 — Host audits are plain find and sha256, not an agent
+Setuid and world-writable listings come from `find`, /etc integrity from a sha256 baseline stored under the data directory, rootkit checks from rkhunter installed on demand. Results are files, not database rows, so a compromised database cannot rewrite them without also touching the data directory (which the backup plan for Islet state covers).
+
+## 2026-09-12 — Database allowlists ride on ufw
+Publishing a database port with an allowlist adds `ufw allow from <cidr> to any port <p>` rules and removes the open rule; the DOCKER-USER chain installed by the firewall fix makes Docker honour them. Without an active firewall the list is stored and shown but not enforced, and the panel says so.
