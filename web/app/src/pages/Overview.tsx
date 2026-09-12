@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { t, useLang } from "@/lib/i18n";
 import { api, type HostInfo, type Point, type Process, type Port, type Sample } from "@/lib/api";
 import { bytes, duration, pct, rate } from "@/lib/format";
 import Sparkline, { type SparkPoint } from "@/components/Sparkline";
@@ -11,6 +12,7 @@ import { Link } from "react-router-dom";
 type Range = "1h" | "6h" | "24h" | "7d";
 
 export default function Overview() {
+  useLang();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [latest, setLatest] = useState<Sample | null>(null);
@@ -96,23 +98,23 @@ export default function Overview() {
       <Attention />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Tile label="CPU" value={latest ? pct(latest.cpuPct) : "–"} sub={latest ? `load ${latest.load1.toFixed(2)} / ${latest.load5.toFixed(2)} / ${latest.load15.toFixed(2)}` : ""} warn={!!latest && latest.cpuPct >= 90}>
+        <Tile label={t("overview.cpu")} value={latest ? pct(latest.cpuPct) : "–"} sub={latest ? `load ${latest.load1.toFixed(2)} / ${latest.load5.toFixed(2)} / ${latest.load15.toFixed(2)}` : ""} warn={!!latest && latest.cpuPct >= 90}>
           <Sparkline points={series.cpu} max={100} format={pct} />
         </Tile>
-        <Tile label="Memory" value={latest ? pct(memPct) : "–"} sub={latest ? `${bytes(latest.memUsed)} of ${bytes(latest.memTotal)}${latest.swapTotal ? ` · swap ${bytes(latest.swapUsed)}` : ""}` : ""} warn={memPct >= 90}>
+        <Tile label={t("overview.memory")} value={latest ? pct(memPct) : "–"} sub={latest ? `${bytes(latest.memUsed)} of ${bytes(latest.memTotal)}${latest.swapTotal ? ` · swap ${bytes(latest.swapUsed)}` : ""}` : ""} warn={memPct >= 90}>
           <Sparkline points={series.mem} max={100} format={pct} />
         </Tile>
-        <Tile label="Disk" value={latest ? pct(diskPct) : "–"} sub={latest ? `${bytes(latest.diskUsed)} of ${bytes(latest.diskTotal)}` : ""} warn={diskPct >= 85}>
+        <Tile label={t("overview.disk")} value={latest ? pct(diskPct) : "–"} sub={latest ? `${bytes(latest.diskUsed)} of ${bytes(latest.diskTotal)}` : ""} warn={diskPct >= 85}>
           <Sparkline points={series.disk} max={100} format={pct} />
         </Tile>
-        <Tile label="Network" value={latest ? rate(latest.netRx + latest.netTx) : "–"} sub={latest ? `↓ ${rate(latest.netRx)} · ↑ ${rate(latest.netTx)}` : ""}>
+        <Tile label={t("overview.network")} value={latest ? rate(latest.netRx + latest.netTx) : "–"} sub={latest ? `↓ ${rate(latest.netRx)} · ↑ ${rate(latest.netTx)}` : ""}>
           <Sparkline points={series.net} format={rate} />
           {latest?.ifaces && latest.ifaces.length > 1 && <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-ink-muted">{latest.ifaces.map((i) => <li key={i.name} className="flex justify-between"><span>{i.name}</span><span>↓ {rate(i.rx)} · ↑ {rate(i.tx)}</span></li>)}</ul>}
         </Tile>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <Card title="Top processes" description="By CPU, then memory. Refreshes every 10 seconds.">
+        <Card title={t("overview.processes")} description={t("overview.processes.desc")}>
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-ink-muted">
               <tr><th className="pb-2 font-medium">Process</th><th className="pb-2 font-medium">User</th><th className="pb-2 text-right font-medium">CPU</th><th className="pb-2 text-right font-medium">Memory</th></tr>

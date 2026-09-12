@@ -24,19 +24,20 @@ import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
 import { NAV } from "./nav";
+import { t } from "./lib/i18n";
 
 export default function App() {
   const { state } = useAuth();
 
   if (state.status === "loading") {
-    return <div className="flex min-h-screen items-center justify-center text-sm text-ink-muted">Loading…</div>;
+    return <div className="flex min-h-screen items-center justify-center text-sm text-ink-muted">{t("shell.loading")}</div>;
   }
   if (state.status === "setup") return <Setup />;
   if (state.status === "anonymous") return <Login />;
   if (state.status === "mfa") return <Login mfa />;
 
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-ink-muted">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-ink-muted">{t("shell.loading")}</div>}>
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<Overview />} />

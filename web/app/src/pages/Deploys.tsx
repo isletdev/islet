@@ -135,12 +135,12 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
         {(log || open) && (
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between text-xs text-ink-muted"><span>{open ? <>Release #{open.number} <RelStatus s={open.status} /> · {open.trigger} by {open.actor} · {fmt(open.startedAt)}{open.commit && <> · <span className="font-mono">{open.commit.slice(0, 7)}</span> {open.message}</>}</> : "Deploy log"}</span><button type="button" onClick={() => { setLog(null); setOpen(null); }} className="hover:text-ink">Close</button></div>
-            <pre ref={box} className="max-h-[28rem] overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{open ? open.log || "(no log)" : (log ?? []).join("\n") || "starting…"}</pre>
+            <pre ref={box} className="max-h-[60vh] overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-[11px] text-[#FAFAFA] whitespace-pre-wrap break-all md:max-h-[28rem] md:text-xs">{open ? open.log || "(no log)" : (log ?? []).join("\n") || "starting…"}</pre>
           </div>
         )}
       </Card>
       <Card title="Releases" description="Newest first. Roll back re-points to a previous image without rebuilding.">
-        <table className="w-full text-sm"><tbody className="divide-y divide-border">
+        <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm"><tbody className="divide-y divide-border">
           {releases.map((r) => (
             <tr key={r.id} className="cursor-pointer hover:bg-surface-2" onClick={() => void show(r)}>
               <td className="py-1.5 pr-2 font-mono text-xs">#{r.number}</td>
@@ -151,7 +151,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
             </tr>
           ))}
           {releases.length === 0 && <tr><td className="py-2 text-ink-muted">Nothing deployed yet. Press Deploy: Islet clones, detects, builds, health-checks and routes; each attempt lands here with its log.</td></tr>}
-        </tbody></table>
+        </tbody></table></div>
       </Card>
     </div>
   );

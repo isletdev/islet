@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { t, useLang, setLang, coverage, LANGS } from "@/lib/i18n";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
@@ -27,6 +28,7 @@ export default function Settings() {
       {me.user.role === "admin" && <LoginAlerts />}
       {me.user.role === "admin" && <WeeklyReport />}
       {me.user.role === "admin" && <SSO />}
+      <Language />
       {me.user.role === "admin" && <Provider />}
       {me.user.role === "admin" && <GitHubApp />}
       {me.user.role === "admin" && <MCP />}
@@ -309,6 +311,17 @@ function SSO() {
         <Button type="submit" className="h-9">Save</Button>
         {msg && <span className="text-xs text-ink-muted">{msg}</span>}
       </form>
+    </Card>
+  );
+}
+
+function Language() {
+  const lang = useLang();
+  return (
+    <Card title={t("settings.language")} description={t("settings.language.desc")}>
+      <div className="flex flex-wrap gap-2">
+        {LANGS.map((l) => <button key={l.code} type="button" onClick={() => setLang(l.code)} className={`rounded-md border px-3 py-1.5 text-sm ${lang === l.code ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted hover:text-ink"}`}>{l.label} <span className="ml-1 text-[11px] opacity-70">{t("settings.language.coverage", { pct: coverage(l.code) })}</span></button>)}
+      </div>
     </Card>
   );
 }

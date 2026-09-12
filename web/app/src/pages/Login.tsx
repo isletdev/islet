@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, RequestError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { t, useLang } from "@/lib/i18n";
 import { Alert, AuthFrame, Button, Field, Input } from "@/components/ui";
 
 /** After forward-auth sends someone here, go back to the app they wanted, but only within the session cookie domain. */
@@ -16,6 +17,7 @@ async function followNext() {
 }
 
 export default function Login({ mfa = false }: { mfa?: boolean }) {
+  useLang();
   const { refresh, signOut } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -50,30 +52,30 @@ export default function Login({ mfa = false }: { mfa?: boolean }) {
 
   if (mfa) {
     return (
-      <AuthFrame title="Second factor" subtitle="Enter the 6-digit code from your authenticator app, or a recovery code.">
+      <AuthFrame title={t("login.mfa.title")} subtitle="Enter the 6-digit code from your authenticator app, or a recovery code.">
         <form onSubmit={submitCode} className="space-y-4">
           {error && <Alert>{error}</Alert>}
-          <Field label="Code">
+          <Field label={t("login.code")}>
             <Input value={code} onChange={(e) => setCode(e.target.value)} required autoFocus autoComplete="one-time-code" inputMode="numeric" className="font-mono tracking-widest" placeholder="123456" />
           </Field>
           <Button type="submit" className="w-full" disabled={busy}>{busy ? "Checking…" : "Continue"}</Button>
-          <button type="button" onClick={() => void signOut()} className="w-full text-center text-sm text-ink-muted hover:text-ink">Sign in as someone else</button>
+          <button type="button" onClick={() => void signOut()} className="w-full text-center text-sm text-ink-muted hover:text-ink">{t("login.other")}</button>
         </form>
       </AuthFrame>
     );
   }
 
   return (
-    <AuthFrame title="Sign in">
+    <AuthFrame title={t("login.title")}>
       <form onSubmit={submitLogin} className="space-y-4">
         {error && <Alert>{error}</Alert>}
-        <Field label="Username">
+        <Field label={t("login.username")}>
           <Input value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus autoComplete="username" />
         </Field>
-        <Field label="Password">
+        <Field label={t("login.password")}>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
         </Field>
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? t("login.busy") : t("login.submit")}</Button>
       </form>
     </AuthFrame>
   );

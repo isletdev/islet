@@ -141,9 +141,9 @@ export default function Files() {
         </div>
       )}
 
-      <div className="mt-3 grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: open || preview || trash || search ? "minmax(0,1fr) minmax(0,1.3fr)" : "1fr" }}>
+      <div className="mt-3 grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: (open || preview || trash || search) && window.innerWidth >= 768 ? "minmax(0,1fr) minmax(0,1.3fr)" : "1fr" }}>
         <div className="min-h-0 overflow-auto rounded-lg border border-border bg-surface">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[480px] text-sm">
             <thead className="sticky top-0 bg-surface text-left text-xs text-ink-muted">
               <tr>{isAdmin && <th className="w-8 px-3 py-2"><input type="checkbox" checked={shown.length > 0 && sel.size === shown.length} onChange={toggleAll} aria-label="Select all" /></th>}<th className="py-2 font-medium">Name</th><th className="py-2 text-right font-medium">Size</th><th className="py-2 pl-4 font-medium">Mode</th><th className="py-2 pl-4 font-medium">Owner</th><th className="py-2 pl-4 font-medium">Modified</th><th className="py-2 pr-3"></th></tr>
             </thead>

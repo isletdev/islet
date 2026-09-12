@@ -308,8 +308,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] "Add to sidebar" embedding of any app UI behind Islet login
 - [ ] Catalog moved to its own public MIT repo, fetched at runtime, with a contribution guide
 - [x] PWA install with a service worker for the app shell
-- [ ] Dedicated mobile layouts for logs, deploys, notifications and the file explorer
-- [ ] i18n framework with English complete and two community languages
+- [x] Dedicated mobile layouts for logs, deploys, notifications and the file explorer (drawer navigation, stacked panes, scrolling tables)
+- [x] i18n framework with English complete and two community languages (German and Macedonian seeded for the shell, navigation, login and overview; `web/app/src/locales`)
 - [x] Command transparency: every command Islet ran, copyable (Settings)
 
 **Guides and content**

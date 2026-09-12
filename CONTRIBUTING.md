@@ -5,6 +5,7 @@ Thanks for helping. Here is what makes a contribution easy to merge.
 ## Before you start
 
 - Open an issue for anything bigger than a bug fix, so the design can be discussed first. The roadmap in `docs/ROADMAP.md` shows what is planned.
+- Translations are the other easy first contribution: copy `web/app/src/locales/en.json` to your language code, translate the values (keep `{placeholders}`), add one line in `web/app/src/lib/i18n.ts`.
 - Catalog apps are the easiest first contribution: add `catalog/apps/<slug>/islet.yaml` and `compose.yaml`, pin the image tag, and test the install on a real server.
 
 ## Development

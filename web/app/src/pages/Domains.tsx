@@ -94,7 +94,7 @@ export default function Domains() {
           {isAdmin && <Button variant="secondary" className="h-8 text-xs" onClick={() => setImporting(!importing)}>Import from nginx</Button>}
           {isAdmin && <Button className="h-8 text-xs" onClick={() => { setEditing({ ...EMPTY }); setMsg(null); }}>Add domain</Button>}
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2 font-medium">Host</th><th className="py-2 font-medium">Target</th><th className="py-2 font-medium">DNS</th><th className="py-2 font-medium">Certificate</th><th className="py-2 pr-4 text-right"></th></tr></thead>
           <tbody className="divide-y divide-border">
             {domains.map((d) => {
@@ -114,7 +114,7 @@ export default function Domains() {
             })}
             {domains.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-ink-muted">No domains yet. Point an A record at this server, add the host here and pick what it should reach: a container, the panel, or any URL. HTTPS is automatic.</td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       {editing && (

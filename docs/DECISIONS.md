@@ -139,3 +139,9 @@ The Hetzner token (encrypted at rest) is used for exactly one thing: a snapshot 
 
 ## 2026-09-12 — Append-only credentials are guided, not automated
 Creating restricted keys or turning on object lock needs master credentials for the storage account, which is exactly what should never sit on the server. The destination form explains the per-provider recipe instead, and the built-in peer host runs rest-server append-only.
+
+## 2026-09-12 — i18n is a JSON dictionary per language with English fallback
+No i18n library: `t("key")` reads `src/locales/<lang>.json`, unknown keys fall back to English and then to the key, and the language is a per-browser choice (localStorage, defaulting to the browser language). Strings move behind keys page by page as they are touched; the picker shows how complete each language is so nobody is surprised by mixed text.
+
+## 2026-09-12 — Mobile is the same layout, stacked
+Below the medium breakpoint the sidebar becomes a drawer, two-pane screens (files) stack, wide tables scroll inside their card and log panes take the viewport height. No separate mobile app shell; every page keeps one code path.

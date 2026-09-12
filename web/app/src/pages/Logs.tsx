@@ -42,7 +42,7 @@ export default function Logs() {
   const groups = useMemo(() => { const g: Record<string, LogSource[]> = {}; for (const s of sources) (g[s.group] ??= []).push(s); return g; }, [sources]);
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-7rem)] max-w-6xl flex-col gap-3">
+    <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-6xl flex-col gap-3 md:h-[calc(100vh-7rem)]">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Logs</h1>
@@ -50,11 +50,11 @@ export default function Logs() {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select value={source} onChange={(e) => setParams({ source: e.target.value })} className="h-9 min-w-56 rounded-md border border-border-strong bg-bg px-2 text-sm">
+        <select value={source} onChange={(e) => setParams({ source: e.target.value })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm sm:w-auto sm:min-w-56">
           {Object.entries(groups).map(([g, list]) => <optgroup key={g} label={g}>{list.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</optgroup>)}
           {sources.length === 0 && <option value="">No sources available</option>}
         </select>
-        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter lines…" className="w-56" />
+        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter lines…" className="w-full sm:w-56" />
         <select value={tail} onChange={(e) => setTail(+e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm">{[100, 200, 500, 1000, 5000].map((n) => <option key={n} value={n}>last {n}</option>)}</select>
         <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />Follow</label>
         <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />Wrap</label>
