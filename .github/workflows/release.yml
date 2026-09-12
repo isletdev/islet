@@ -55,6 +55,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Ed25519 release signing key, hex; generated with `go run ./tools/sign keygen`.
           ISLET_SIGNING_KEY: ${{ secrets.ISLET_SIGNING_KEY }}
+          # Release the tag that triggered this run. Left to itself goreleaser
+          # asks git for the tag on HEAD, and git's version sort ranks
+          # v0.1.0-rc1 above v0.1.0, so a release cut on the same commit as
+          # its candidate would publish into the candidate again.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
       # Second, independent signature: keyless cosign (Sigstore) over the
       # checksums file, verifiable without any Islet key.
       - uses: sigstore/cosign-installer@v3
