@@ -34,3 +34,26 @@ func TestRenderProtect(t *testing.T) {
 		t.Fatalf("open router has forward auth:\n%s", block(j))
 	}
 }
+
+// The www redirect must not share a certificate with the host it redirects to:
+// a missing www DNS record would otherwise fail the whole ACME request.
+func TestRenderWWWSeparateRouter(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "a1", Host: "example.com", TargetType: "url", Target: "http://127.0.0.1:3000", TLS: "letsencrypt", RedirectWWW: true, Enabled: true},
+	}, "https://host.docker.internal:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if strings.Contains(out, "Host(`example.com`) || Host(`www.example.com`)") {
+		t.Fatal("the two hosts still share one router:\n" + out)
+	}
+	if !strings.Contains(out, "Host(`www.example.com`)") {
+		t.Fatal("www router missing:\n" + out)
+	}
+	// The main router keeps exactly its own host.
+	i := strings.Index(out, "rule: Host(`example.com`)")
+	if i < 0 {
+		t.Fatal("main router rule changed:\n" + out)
+	}
+}

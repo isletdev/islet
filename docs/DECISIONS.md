@@ -166,3 +166,6 @@ Every route Islet serves comes from the file provider it writes. The Docker prov
 
 ## 2026-09-12 — Attaching a container to the proxy network cannot depend on install order
 A domain can be created before the proxy container exists, which is exactly what happens when someone imports their nginx or Nginx Proxy Manager hosts and installs the proxy afterwards. The attach used to fail because the network was not there yet, and the domain was saved anyway, so the route existed and answered 502. The network is now created on demand, and installing the proxy re-attaches every enabled container target, so an install repairs whatever was saved earlier.
+
+## 2026-09-12 — The www redirect gets its own router and its own certificate
+"Redirect www" used to widen the host's router rule to cover `www.<host>`, so Let's Encrypt was asked for one certificate covering both names. A domain whose `www` has no DNS record then failed the whole request, and the host that did exist was served Traefik's default certificate: one missing record broke TLS for a site that was otherwise correct. The redirect now lives on a separate router, so a missing `www` record costs only the redirect.

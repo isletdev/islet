@@ -545,17 +545,10 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		if wildcard {
 			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(strings.TrimPrefix(d.Host, "*."), ".", "\\."))
 		}
-		if d.RedirectWWW {
-			rule = fmt.Sprintf("(Host(`%s`) || Host(`www.%s`))", d.Host, d.Host)
-		}
 		if d.PathPrefix != "" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", d.PathPrefix)
 		}
 		mws := []string{"islet-compress", "islet-security-headers"}
-		if d.RedirectWWW {
-			middlewares[name+"-www"] = map[string]any{"redirectRegex": map[string]any{"regex": fmt.Sprintf(`^https?://www\.%s/(.*)`, regexp.QuoteMeta(d.Host)), "replacement": fmt.Sprintf("https://%s/${1}", d.Host), "permanent": true}}
-			mws = append(mws, name+"-www")
-		}
 		if d.IPAllowlist != "" {
 			middlewares[name+"-ipallow"] = map[string]any{"ipAllowList": map[string]any{"sourceRange": splitList(d.IPAllowlist)}}
 			mws = append(mws, name+"-ipallow")
@@ -608,6 +601,25 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			router["service"] = name
 		}
 		routers[name] = router
+
+		// www rides on its own router and its own certificate: a missing www
+		// DNS record then breaks only the redirect, not this host's TLS.
+		if d.RedirectWWW && !wildcard {
+			middlewares[name+"-www"] = map[string]any{"redirectRegex": map[string]any{"regex": fmt.Sprintf(`^https?://www\.%s/(.*)`, regexp.QuoteMeta(d.Host)), "replacement": fmt.Sprintf("https://%s/${1}", d.Host), "permanent": true}}
+			wwwRule := fmt.Sprintf("Host(`www.%s`)", d.Host)
+			wwwRouter := map[string]any{"rule": wwwRule, "entryPoints": []string{"websecure"}, "middlewares": []string{name + "-www"}, "service": "noop@internal"}
+			if d.TLS == "letsencrypt" {
+				wwwRouter["tls"] = map[string]any{"certResolver": "letsencrypt"}
+			} else if d.TLS == "self" {
+				wwwRouter["tls"] = map[string]any{}
+			}
+			if d.TLS == "none" {
+				wwwRouter["entryPoints"] = []string{"web"}
+			} else {
+				routers[name+"-www-http"] = map[string]any{"rule": wwwRule, "entryPoints": []string{"web"}, "middlewares": []string{name + "-www"}, "service": "noop@internal"}
+			}
+			routers[name+"-www"] = wwwRouter
+		}
 
 		var url string
 		switch d.TargetType {

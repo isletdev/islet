@@ -21,7 +21,7 @@ func TestValidateAndRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(out)
-	for _, want := range []string{"Host(`app.example.com`) || Host(`www.app.example.com`)", "http://web-1:3000", "certResolver: letsencrypt", "d-abc-auth", "d-abc-ipallow", "d-abc-ratelimit", "d-abc-www", "X-Frame-Options: DENY", "https://host.docker.internal:9443", "islet-insecure"} {
+	for _, want := range []string{"Host(`www.app.example.com`)", "http://web-1:3000", "certResolver: letsencrypt", "d-abc-auth", "d-abc-ipallow", "d-abc-ratelimit", "d-abc-www", "X-Frame-Options: DENY", "https://host.docker.internal:9443", "islet-insecure"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered config missing %q\n%s", want, s)
 		}
