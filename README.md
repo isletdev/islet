@@ -91,4 +91,6 @@ Go daemon with SQLite, React + Vite + TypeScript panel embedded in the binary, T
 
 AGPL-3.0 for the core. Catalog templates will move to their own MIT repository.
 
+Brand marks for catalog apps and recipe stacks come from [Simple Icons](https://simpleicons.org), released under CC0-1.0, and live in `web/app/src/components/brandIcons.ts`. The trademarks themselves belong to their owners; the marks identify the software an entry installs and imply no endorsement.
+
 Copyright and trademark: Torsten Labs DOO, North Macedonia, https://torstenlabs.com

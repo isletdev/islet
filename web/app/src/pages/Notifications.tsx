@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type Channel, type IsletEvent, type MailRelay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 
 const TYPES: Record<string, { label: string; fields: { key: string; label: string; hint?: string; secret?: boolean }[]; help: string }> = {
   telegram: { label: "Telegram", help: "Create a bot with @BotFather, paste its token, send the bot a message, then click Detect chat.", fields: [{ key: "token", label: "Bot token", secret: true }, { key: "chatId", label: "Chat ID" }] },
@@ -103,7 +103,7 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
   return (
     <Card title={c.id ? `Edit ${c.name}` : "Add channel"} description={t?.help}>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
-        <Field label="Type"><select value={c.type} onChange={(e) => setC({ ...c, type: e.target.value, config: {} })} disabled={!!c.id} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
+        <Field label="Type"><Select value={c.type} onChange={(e) => setC({ ...c, type: e.target.value, config: {} })} disabled={!!c.id}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
         <Field label="Name"><Input value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} required placeholder="Ops channel" /></Field>
         {t?.fields.map((f) => (
           <Field key={f.key} label={f.label} hint={c.id && f.secret ? "Leave empty to keep the stored value." : f.hint}>
@@ -115,10 +115,10 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
           </Field>
         ))}
         <Field label="Minimum severity" hint="Criticals always go through.">
-          <select value={c.minSeverity} onChange={(e) => setC({ ...c, minSeverity: e.target.value as Channel["minSeverity"] })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="info">Info and up (everything)</option><option value="warning">Warnings and criticals</option><option value="critical">Criticals only</option></select>
+          <Select value={c.minSeverity} onChange={(e) => setC({ ...c, minSeverity: e.target.value as Channel["minSeverity"] })}><option value="info">Info and up (everything)</option><option value="warning">Warnings and criticals</option><option value="critical">Criticals only</option></Select>
         </Field>
         <Field label="Digest" hint="Batch warnings and info into one message; criticals still go out at once.">
-          <select value={c.digest ?? ""} onChange={(e) => setC({ ...c, digest: e.target.value })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="">Send each event</option><option value="hourly">Hourly digest</option><option value="daily">Daily digest</option></select>
+          <Select value={c.digest ?? ""} onChange={(e) => setC({ ...c, digest: e.target.value })}><option value="">Send each event</option><option value="hourly">Hourly digest</option><option value="daily">Daily digest</option></Select>
         </Field>
         <Field label="Only for (optional)" hint="Names of apps, containers, checks, jobs or plans this channel is for, comma separated; * wildcards work (shop-*). Server-wide events still follow the categories."><Input value={c.subjects ?? ""} onChange={(e) => setC({ ...c, subjects: e.target.value })} placeholder="shop, shop-worker" className="font-mono" /></Field>
         <Field label="Quiet hours (optional)" hint="Local server time. Warnings and info wait; criticals do not.">

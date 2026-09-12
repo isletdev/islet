@@ -208,6 +208,66 @@ export const SearchIcon = (p: IconProps) => (
   </Icon>
 );
 
+/* ---- catalog categories ---- */
+
+export const CodeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m8.6 8.4-4.2 3.6 4.2 3.6" />
+    <path d="m15.4 8.4 4.2 3.6-4.2 3.6" />
+    <path d="m13.4 5.4-2.8 13.2" />
+  </Icon>
+);
+
+export const CmsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12.8 3.4H6.4a2 2 0 0 0-2 2v13.2a2 2 0 0 0 2 2h11.2a2 2 0 0 0 2-2v-6.4" />
+    <path d="M8.4 8.6h5.2M8.4 12.4h3" />
+    <path d="M17.6 3.2 21 6.6l-5.6 5.6h-3.4V8.8z" />
+  </Icon>
+);
+
+export const ChartIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 20.2h16.4" />
+    <path d="M7 20.2v-6.4M12 20.2V6.6M17 20.2v-9.6" />
+  </Icon>
+);
+
+export const StorageIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4.2" width="18" height="6.2" rx="1.8" />
+    <rect x="3" y="13.4" width="18" height="6.2" rx="1.8" />
+    <path d="M7 7.3h.01M7 16.5h.01" />
+  </Icon>
+);
+
+export const AutomationIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="5.6" cy="6.4" r="2.6" />
+    <circle cx="18.4" cy="12" r="2.6" />
+    <circle cx="5.6" cy="17.6" r="2.6" />
+    <path d="M8.2 6.4h4a2 2 0 0 1 2 2v1.2M8.2 17.6h4a2 2 0 0 0 2-2v-1.2" />
+  </Icon>
+);
+
+/** Catalog category to icon, for anything without a brand mark. */
+export const CATEGORY_ICONS: Record<string, (p: IconProps) => ReactNode> = {
+  database: DatabasesIcon,
+  developer: CodeIcon,
+  cms: CmsIcon,
+  analytics: ChartIcon,
+  monitoring: UptimeIcon,
+  storage: StorageIcon,
+  network: DomainsIcon,
+  networking: DomainsIcon,
+  automation: AutomationIcon,
+  security: SecurityIcon,
+  // recipe categories
+  "web app": DomainsIcon,
+  api: CodeIcon,
+  operations: UptimeIcon,
+};
+
 /** Nav key to icon, so nav.ts stays plain data. */
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   overview: OverviewIcon,

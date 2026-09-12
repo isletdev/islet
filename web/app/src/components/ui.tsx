@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 export function Mark({ className = "" }: { className?: string }) {
   return (
@@ -21,13 +21,32 @@ export function Button({ variant = "primary", className = "", ...rest }: ButtonH
   return <button className={`${base} ${styles} ${className}`} {...rest} />;
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+// One line of label above every control, the same height everywhere, so a row of
+// fields lines its inputs up whether or not a particular field carries a hint.
+const LABEL = "mb-1.5 block h-5 text-sm font-medium leading-5";
+
+export function Field({ label, hint, className = "", children }: { label: string; hint?: string; className?: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium">{label}</span>
+    <label className={`block ${className}`}>
+      <span className={LABEL}>{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-ink-muted">{hint}</span>}
     </label>
+  );
+}
+
+/** A button or note that sits in a row of fields: the spacer stands in for the
+    label so the control lines up with the inputs next to it. */
+export function FieldAction({ className = "", children }: { className?: string; children: ReactNode }) {
+  // The spacer has to stay above the content, so the caller's classes go on an
+  // inner row. Putting them on the outer box let a `flex` there pull the spacer
+  // alongside the button instead of over it, which is the misalignment this
+  // component exists to prevent.
+  return (
+    <div className="block">
+      <span className={`${LABEL} invisible select-none`} aria-hidden="true">&nbsp;</span>
+      <div className={className}>{children}</div>
+    </div>
   );
 }
 
@@ -40,6 +59,18 @@ export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInput
   );
 }
 
+/** The same box as Input, so a select never sits a pixel off the field beside it. */
+export function Select({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={`h-9 w-full rounded-md border border-border-strong bg-bg px-2.5 text-sm text-ink focus:border-accent ${className}`}
+      {...rest}
+    >
+      {children}
+    </select>
+  );
+}
+
 export function Alert({ tone = "danger", children }: { tone?: "danger" | "success" | "warning"; children: ReactNode }) {
   const styles = {
     danger: "border-danger/40 bg-danger-soft text-danger",
@@ -49,13 +80,16 @@ export function Alert({ tone = "danger", children }: { tone?: "danger" | "succes
   return <div className={`rounded-md border px-3 py-2 text-sm ${styles}`} role="alert">{children}</div>;
 }
 
-export function Card({ title, description, children, className = "" }: { title?: string; description?: string; children: ReactNode; className?: string }) {
+export function Card({ title, description, icon, children, className = "" }: { title?: string; description?: string; icon?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={`rounded-lg border border-border bg-surface ${className}`}>
       {(title || description) && (
-        <header className="border-b border-border px-5 py-4">
-          {title && <h2 className="font-semibold">{title}</h2>}
-          {description && <p className="mt-0.5 text-sm text-ink-muted">{description}</p>}
+        <header className="flex items-start gap-3 border-b border-border px-5 py-4">
+          {icon}
+          <div className="min-w-0 flex-1">
+            {title && <h2 className="font-semibold">{title}</h2>}
+            {description && <p className="mt-0.5 text-sm text-ink-muted">{description}</p>}
+          </div>
         </header>
       )}
       <div className="px-5 py-4">{children}</div>

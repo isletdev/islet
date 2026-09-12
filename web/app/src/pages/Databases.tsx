@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DBDetail, type DBInstance } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
+import AppIcon from "@/components/AppIcon";
 
 const ENGINE: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", redis: "Redis", mongo: "MongoDB" };
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
@@ -19,6 +20,7 @@ export default function Databases() {
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [params, setParams] = useSearchParams();
+  const nav = useNavigate();
   const [list, setList] = useState<DBInstance[]>([]);
   const [error, setError] = useState<string | null>(null);
   const selected = params.get("i");
@@ -32,18 +34,30 @@ export default function Databases() {
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Databases</h1>
           <p className="mt-1 text-ink-muted">Every database server installed from the catalog, with connection strings, dumps and health.</p>
         </div>
-        <Link to="/apps" className="text-sm text-ink-muted hover:text-ink">Install a database from the catalog</Link>
+        <Button type="button" onClick={() => nav("/apps?tab=catalog&category=database")}>Install a database</Button>
       </div>
       {error && <Alert>{error}</Alert>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list.map((i) => (
           <button key={i.name} type="button" onClick={() => setParams({ i: i.name })} className={`rounded-lg border p-4 text-left transition-colors ${selected === i.name ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
-            <div className="flex items-center justify-between"><span className="font-semibold">{i.name}</span><span className={`h-2 w-2 rounded-full ${i.state === "running" ? "bg-success" : i.state === "missing" ? "bg-ink-faint" : "bg-danger"}`} /></div>
-            <div className="mt-1 text-xs text-ink-muted">{ENGINE[i.engine]} · {i.image.split("@")[0]}</div>
+            <div className="flex items-center gap-2.5">
+              <AppIcon slug={i.engine} category="database" name={ENGINE[i.engine]} size="sm" />
+              <span className="min-w-0 flex-1 truncate font-semibold">{i.name}</span>
+              <span className={`h-2 w-2 shrink-0 rounded-full ${i.state === "running" ? "bg-success" : i.state === "missing" ? "bg-ink-faint" : "bg-danger"}`} />
+            </div>
+            <div className="mt-2 text-xs text-ink-muted">{ENGINE[i.engine]} · {i.image.split("@")[0]}</div>
             <div className="mt-2 font-mono text-[11px] text-ink-faint">{i.container}:{i.port}{i.public && <span className="ml-2 rounded-sm bg-warning-soft px-1 text-warning">public</span>}</div>
           </button>
         ))}
-        {list.length === 0 && !error && <div className="col-span-full rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-muted">No database instances yet. Install Postgres, MySQL, MariaDB, Redis or MongoDB from the catalog and it appears here.</div>}
+        {list.length === 0 && !error && (
+          <div className="col-span-full rounded-lg border border-dashed border-border p-8 text-center">
+            <div className="flex justify-center gap-2">
+              {["postgres", "mysql", "mariadb", "redis", "mongo"].map((e) => <AppIcon key={e} slug={e} category="database" name={e} size="sm" />)}
+            </div>
+            <p className="mt-3 text-sm text-ink-muted">No databases yet. Install Postgres, MySQL, MariaDB, Redis or MongoDB and it appears here.</p>
+            <Button className="mt-3" type="button" onClick={() => nav("/apps?tab=catalog&category=database")}>Install a database</Button>
+          </div>
+        )}
       </div>
       {selected && <Detail name={selected} isAdmin={isAdmin} onChanged={load} />}
     </div>
@@ -210,11 +224,10 @@ function ScheduleForm({ d, onDone }: { d: DBDetail; onDone: () => Promise<void> 
   const save = async (enabled: boolean) => { setMsg(null); try { await api.dbSchedule(d.name, { schedule, keepDays: keep, enabled }); setMsg(enabled ? "Scheduled. Failures raise a cron alert." : "Paused."); await onDone(); } catch (e) { setMsg(err(e)); } };
   return (
     <div className="rounded-md border border-border p-3 text-sm">
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-start gap-2">
         <Field label="Schedule"><Input value={schedule} onChange={(e) => setSchedule(e.target.value)} className="w-36 font-mono" /></Field>
         <Field label="Keep days"><Input type="number" min={1} value={keep} onChange={(e) => setKeep(+e.target.value)} className="w-24" /></Field>
-        <Button className="h-9 text-xs" onClick={() => void save(true)}>{d.dumpJob?.enabled ? "Update schedule" : "Schedule dumps"}</Button>
-        {d.dumpJob?.enabled && <Button variant="secondary" className="h-9 text-xs" onClick={() => void save(false)}>Pause</Button>}
+        <FieldAction className="flex items-center gap-2"><Button className="h-9 text-xs" onClick={() => void save(true)}>{d.dumpJob?.enabled ? "Update schedule" : "Schedule dumps"}</Button>{d.dumpJob?.enabled && <Button variant="secondary" className="h-9 text-xs" onClick={() => void save(false)}>Pause</Button>}</FieldAction>
       </div>
       <p className="mt-2 text-xs text-ink-muted">{d.dumpJob ? <>Job <Link to={`/cron?job=${d.dumpJob.id}`} className="underline">{d.dumpJob.name}</Link> · {d.dumpJob.described} · {d.dumpJob.enabled ? (d.dumpJob.lastRun ? `last run ${d.dumpJob.lastRun.status}` : "not run yet") : "paused"}. Edit the script in Cron to add S3 upload.</> : "Creates a script job in Cron that dumps every database and prunes old files."}</p>
       {msg && <p className="mt-1 text-xs text-ink-muted">{msg}</p>}
@@ -237,11 +250,11 @@ function AdminerSetup({ s, onCancel, onSubmit }: { s: { suggestedHost: string; p
         <Input value={host} onChange={(e) => setHost(e.target.value)} className="font-mono" required />
       </Field>
       <Field label="Certificate">
-        <select value={tls} onChange={(e) => setTls(e.target.value)} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">
+        <Select value={tls} onChange={(e) => setTls(e.target.value)}>
           <option value="letsencrypt">Let's Encrypt</option>
           <option value="self">Self-signed</option>
           <option value="none">HTTP only</option>
-        </select>
+        </Select>
       </Field>
       <label className="flex items-center gap-1.5 text-sm sm:col-span-2"><input type="checkbox" checked={protect} onChange={(e) => setProtect(e.target.checked)} />Only reachable by people signed in to this panel</label>
       {!cookieOk && <p className="text-xs text-warning sm:col-span-2">That guard needs the session cookie domain set to a parent of both the panel and this host{parent && <> (probably <span className="font-mono">{parent}</span>)</>}: Settings, Protect apps with Islet login. Without it you will be sent to the login page in a loop.</p>}

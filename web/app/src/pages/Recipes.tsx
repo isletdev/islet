@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Recipe } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input, Select } from "@/components/ui";
+import AppIcon from "@/components/AppIcon";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
 
@@ -20,12 +21,16 @@ export default function Recipes() {
       {sel && <Runner recipe={sel} isAdmin={isAdmin} onClose={() => setSel(null)} />}
       {cats.map((c) => (
         <div key={c}>
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">{c}</h2>
+          <h2 className="mb-2 text-[11px] font-medium text-ink-faint">{c}</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {list.filter((r) => r.category === c).map((r) => (
               <button key={r.slug} type="button" onClick={() => { setSel(r); window.scrollTo({ top: 0 }); }} className={`rounded-lg border bg-surface p-4 text-left transition-colors hover:border-border-strong ${sel?.slug === r.slug ? "border-ink" : "border-border"}`}>
-                <div className="flex items-baseline justify-between gap-2"><span className="font-medium">{r.name}</span><span className="font-mono text-[11px] text-ink-faint">{r.time}</span></div>
-                <p className="mt-1 text-xs text-ink-muted">{r.description}</p>
+                <div className="flex items-center gap-2.5">
+                  <AppIcon slug={r.slug} category={r.category} name={r.name} size="sm" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{r.name}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-ink-faint">{r.time}</span>
+                </div>
+                <p className="mt-2 text-xs text-ink-muted">{r.description}</p>
                 <p className="mt-2 text-[11px] text-ink-faint">{r.steps.length} steps: {r.steps.map((s) => s.type).join(" → ")}</p>
               </button>
             ))}
@@ -55,12 +60,12 @@ function Runner({ recipe, isAdmin, onClose }: { recipe: Recipe; isAdmin: boolean
   const done = log?.some((l) => l.startsWith("[recipe] done"));
   const step = log ? log.filter((l) => l.startsWith("[recipe] step")).length : 0;
   return (
-    <Card title={recipe.name} description={recipe.description}>
+    <Card title={recipe.name} description={recipe.description} icon={<AppIcon slug={recipe.slug} category={recipe.category} name={recipe.name} />}>
       <form onSubmit={run} className="grid gap-3 sm:grid-cols-2">
         {recipe.inputs.map((i) => (
           <Field key={i.key} label={i.label + (i.optional ? " (optional)" : "")} hint={i.hint}>
             {i.type === "select" ? (
-              <select value={vals[i.key] ?? ""} onChange={(e) => setVals({ ...vals, [i.key]: e.target.value })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">{(i.options ?? "").split(",").map((o) => <option key={o} value={o.trim()}>{o.trim()}</option>)}</select>
+              <Select value={vals[i.key] ?? ""} onChange={(e) => setVals({ ...vals, [i.key]: e.target.value })}>{(i.options ?? "").split(",").map((o) => <option key={o} value={o.trim()}>{o.trim()}</option>)}</Select>
             ) : (
               <Input value={vals[i.key] ?? ""} onChange={(e) => setVals({ ...vals, [i.key]: e.target.value })} type={i.type === "secret" ? "password" : "text"} className={i.type === "url" || i.type === "domain" || i.key === "name" ? "font-mono" : ""} required={!i.optional} autoComplete="off" />
             )}

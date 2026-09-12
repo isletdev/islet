@@ -3,9 +3,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DeployApp, type Detection, type GitHubRepo, type Release } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 
-const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
 const SAMPLES = [
   { dir: "static-site", label: "Static site (HTML + CSS)" },
   { dir: "node-api", label: "Node API (no dependencies)" },
@@ -118,7 +117,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
           {canEdit && <button type="button" onClick={onEdit} className="text-xs text-ink-muted hover:text-ink">Settings</button>}
           {canEdit && <span className="flex items-center gap-1 text-xs text-ink-muted">Add {(["postgres", "mysql", "redis"] as const).map((e) => <button key={e} type="button" disabled={busy || app.deploying} onClick={() => void addService(e)} className="rounded-sm border border-border-strong px-1.5 py-0.5 hover:text-ink">{e}</button>)}</span>}
           {canEdit && <button type="button" onClick={() => setShowHook(!showHook)} className="text-xs text-ink-muted hover:text-ink">Auto-deploy</button>}
-          {canDeploy && app.currentRelease > 0 && app.strategy !== "compose" && targets.length > 0 && <select value="" disabled={busy || app.deploying} onChange={(e) => { if (e.target.value) void promote(e.target.value); }} className="h-7 rounded-md border border-border-strong bg-bg px-1 text-xs"><option value="">Promote to…</option>{targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
+          {canDeploy && app.currentRelease > 0 && app.strategy !== "compose" && targets.length > 0 && <Select value="" disabled={busy || app.deploying} onChange={(e) => { if (e.target.value) void promote(e.target.value); }} className="h-7 w-auto px-1.5 text-xs"><option value="">Promote to…</option>{targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>}
           {canEdit && <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Delete app</button>}
         </div>
         {(app.processList?.length ?? 0) > 0 && <p className="mt-2 text-xs text-ink-muted">Processes: web{app.processList!.map((p) => <span key={p.name}> · <Link to={`/containers?c=islet-${app.name}-${p.name}-1-r${app.currentRelease}`} className="hover:text-ink">{p.name}{p.count > 1 ? ` ×${p.count}` : ""}</Link> <span className="font-mono">{p.cmd}</span></span>)}</p>}
@@ -265,14 +264,14 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
     <Card title={isNew ? "New app" : `Settings for ${initial.name}`} description={isNew ? "Point Islet at a repository. It clones it, tells you what it found, and you can change anything before the first deploy." : "Changes apply on the next deploy."}>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
         <Field label="Name" hint="Lowercase, becomes the container name and preview domain."><Input value={a.name ?? ""} onChange={(e) => set({ name: e.target.value })} required disabled={!isNew} placeholder="shop" /></Field>
-        <Field label="Source"><select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image" | "upload", strategy: e.target.value === "image" ? "image" : "auto" })} className={SELECT} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option><option value="upload">Upload a folder or zip</option></select></Field>
+        <Field label="Source"><Select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image" | "upload", strategy: e.target.value === "image" ? "image" : "auto" })} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option><option value="upload">Upload a folder or zip</option></Select></Field>
         {a.source === "upload" ? (
           <p className="text-sm text-ink-muted md:col-span-2">Create the app, then drop a folder or a .zip on its card. Islet detects the framework from the upload and every new upload becomes a release you can roll back.</p>
         ) : a.source === "git" ? (
           <>
-            {isNew && <Field label="Try a sample" hint="Small apps from the Islet repository, one per framework."><select value="" onChange={(e) => { const s = SAMPLES.find((x) => x.dir === e.target.value); if (s) set({ repoUrl: "https://github.com/isletdev/islet", branch: "main", rootDir: `examples/${s.dir}`, name: a.name || `sample-${s.dir}`, env: "GREETING=hello from islet" }); }} className={SELECT}><option value="">Pick a sample…</option>{SAMPLES.map((s) => <option key={s.dir} value={s.dir}>{s.label}</option>)}</select></Field>}
+            {isNew && <Field label="Try a sample" hint="Small apps from the Islet repository, one per framework."><Select value="" onChange={(e) => { const s = SAMPLES.find((x) => x.dir === e.target.value); if (s) set({ repoUrl: "https://github.com/isletdev/islet", branch: "main", rootDir: `examples/${s.dir}`, name: a.name || `sample-${s.dir}`, env: "GREETING=hello from islet" }); }}><option value="">Pick a sample…</option>{SAMPLES.map((s) => <option key={s.dir} value={s.dir}>{s.label}</option>)}</Select></Field>}
             <Field label="Repository URL" hint={repos.length ? "Pick one of the repositories the GitHub App can see, or paste any git URL." : "Public https URL, or https://user:token@host/org/repo for private repos (stored encrypted). Configure the GitHub App in Settings to pick from a list."}>
-              {repos.length > 0 && <select value="" onChange={(e) => { const r = repos.find((x) => x.url === e.target.value); if (r) set({ repoUrl: r.url, branch: r.defaultBranch, name: a.name || r.fullName.split("/")[1].toLowerCase().replace(/[^a-z0-9-]/g, "-") }); }} className={`${SELECT} mb-1`}><option value="">Pick from GitHub…</option>{repos.map((r) => <option key={r.fullName} value={r.url}>{r.fullName}{r.private ? " (private)" : ""}</option>)}</select>}
+              {repos.length > 0 && <Select value="" onChange={(e) => { const r = repos.find((x) => x.url === e.target.value); if (r) set({ repoUrl: r.url, branch: r.defaultBranch, name: a.name || r.fullName.split("/")[1].toLowerCase().replace(/[^a-z0-9-]/g, "-") }); }} className="mb-1"><option value="">Pick from GitHub…</option>{repos.map((r) => <option key={r.fullName} value={r.url}>{r.fullName}{r.private ? " (private)" : ""}</option>)}</Select>}
               <Input value={a.repoUrl ?? ""} onChange={(e) => set({ repoUrl: e.target.value })} className="font-mono" placeholder="https://github.com/org/repo" required />
             </Field>
             <div className="grid grid-cols-2 gap-2">
@@ -292,14 +291,14 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
           </>
         )}
         <Field label="Domains" hint={isNew ? "Comma separated; the first is the primary. Leave empty for a free preview domain on sslip.io. Own domains need an A record to this server." : "Comma separated; the first is the primary. Changes re-route the live release."}><Input value={a.domain ?? ""} onChange={(e) => set({ domain: e.target.value })} className="font-mono" placeholder="app.example.com, www.app.example.com" /></Field>
-        <Field label="Certificate"><select value={a.tls ?? "letsencrypt"} onChange={(e) => set({ tls: e.target.value })} className={SELECT}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None (HTTP only)</option></select></Field>
+        <Field label="Certificate"><Select value={a.tls ?? "letsencrypt"} onChange={(e) => set({ tls: e.target.value })}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None (HTTP only)</option></Select></Field>
         <div className="md:col-span-2">
           <Field label="Environment variables" hint="KEY=VALUE per line, or paste a whole .env. A line @group pulls in a shared env group. NEXT_PUBLIC_*, VITE_* and similar are baked in at build time; the rest are injected at runtime."><textarea value={envShown} onChange={(e) => set({ env: e.target.value })} rows={5} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"DATABASE_URL=postgres://…\nNEXT_PUBLIC_API=https://api.example.com"} /></Field>
         </div>
         {a.source === "git" && <div className="md:col-span-2"><button type="button" onClick={() => setAdvanced(!advanced)} className="text-xs text-ink-muted hover:text-ink">{advanced ? "Hide" : "Show"} build and run settings</button></div>}
         {advanced && a.source === "git" && (
           <>
-            <Field label="Strategy"><select value={a.strategy ?? "auto"} onChange={(e) => set({ strategy: e.target.value })} className={SELECT}>{Object.entries(STRATEGIES).filter(([k]) => k !== "image").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+            <Field label="Strategy"><Select value={a.strategy ?? "auto"} onChange={(e) => set({ strategy: e.target.value })}>{Object.entries(STRATEGIES).filter(([k]) => k !== "image").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
             <Field label="Framework (label)"><Input value={a.framework ?? ""} onChange={(e) => set({ framework: e.target.value })} placeholder="detected on deploy" /></Field>
             {a.strategy !== "dockerfile" && a.strategy !== "compose" && (
               <>
@@ -325,7 +324,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
         )}
         <div className="flex flex-wrap items-center gap-4 md:col-span-2">
           <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={a.autoDeploy ?? true} onChange={(e) => set({ autoDeploy: e.target.checked })} />Deploy automatically</label>
-          {a.source === "git" && (a.autoDeploy ?? true) && <select value={a.deployOn ?? "push"} onChange={(e) => set({ deployOn: e.target.value as "push" | "ci" })} className={SELECT}><option value="push">on every push</option><option value="ci">after CI passes</option></select>}
+          {a.source === "git" && (a.autoDeploy ?? true) && <Select value={a.deployOn ?? "push"} onChange={(e) => set({ deployOn: e.target.value as "push" | "ci" })}><option value="push">on every push</option><option value="ci">after CI passes</option></Select>}
         </div>
         <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>{isNew ? "Create app" : "Save"}</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-sm text-danger">{msg}</span>}</div>
       </form>

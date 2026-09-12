@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type Job, type JobRun, type JobTemplate } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 
 const CodeEditor = lazy(() => import("@/components/CodeEditor"));
 
@@ -18,7 +18,6 @@ const TYPES: Record<string, { label: string; help: string }> = {
   heartbeat: { label: "Heartbeat", help: "For jobs that run elsewhere. They ping a URL; Islet alerts when the ping stops." },
 };
 const PRESETS: [string, string][] = [["Every minute", "* * * * *"], ["Every 5 minutes", "*/5 * * * *"], ["Every 15 minutes", "*/15 * * * *"], ["Hourly", "0 * * * *"], ["Daily at 03:00", "0 3 * * *"], ["Weekdays at 08:00", "0 8 * * 1-5"], ["Weekly, Sunday 04:00", "0 4 * * 0"], ["Monthly, 1st at 04:00", "0 4 1 * *"]];
-const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
 
 const blank = (): Partial<Job> => ({ id: "", name: "", type: "command", schedule: "0 3 * * *", timezone: "", command: "", script: "", container: "", httpMethod: "GET", workDir: "", runAs: "", timeoutSec: 3600, overlap: "skip", retries: 0, nice: 0, jitterSec: 0, graceSec: 300, notifyOn: "failure", enabled: true });
 
@@ -192,11 +191,11 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
     <Card title={j.id ? `Edit ${initial.name}` : "New job"} description={t?.help}>
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
         <Field label="Name"><Input value={j.name ?? ""} onChange={(e) => set({ name: e.target.value })} required placeholder="Nightly Postgres backup" /></Field>
-        <Field label="Type"><select value={j.type} onChange={(e) => set({ type: e.target.value })} className={SELECT}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
+        <Field label="Type"><Select value={j.type} onChange={(e) => set({ type: e.target.value })}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
 
         <div className="md:col-span-2 grid gap-3 rounded-md border border-border p-3 md:grid-cols-[1fr_1fr_200px]">
           <Field label={j.type === "heartbeat" ? "Expected schedule" : "Schedule"} hint="Five cron fields, or @hourly, @daily, @weekly. Leave empty for manual only.">
-            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className={`${SELECT} w-36`}><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
+            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><Select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className="w-36"><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</Select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
             {builder && <ScheduleBuilder onPick={(s) => { set({ schedule: s }); setBuilder(false); }} />}
           </Field>
           <Field label="Timezone" hint="IANA name, empty means server time."><Input value={j.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Skopje" /></Field>
@@ -218,7 +217,7 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
         </>}
         {j.type === "http" && <>
           <Field label="URL"><Input value={j.command ?? ""} onChange={(e) => set({ command: e.target.value })} className="font-mono" placeholder="https://example.com/cron/tick" /></Field>
-          <Field label="Method"><select value={j.httpMethod ?? "GET"} onChange={(e) => set({ httpMethod: e.target.value })} className={SELECT}>{["GET", "POST", "PUT", "DELETE"].map((m) => <option key={m}>{m}</option>)}</select></Field>
+          <Field label="Method"><Select value={j.httpMethod ?? "GET"} onChange={(e) => set({ httpMethod: e.target.value })}>{["GET", "POST", "PUT", "DELETE"].map((m) => <option key={m}>{m}</option>)}</Select></Field>
         </>}
         {j.type === "chain" && <div className="md:col-span-2">
           <span className="mb-1 block text-sm font-medium">Jobs to run, in order</span>
@@ -230,9 +229,9 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium">Script</span>
             <div className="flex flex-wrap gap-2 text-xs">
-              <select value="" onChange={(e) => e.target.value && applyTemplate(e.target.value)} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">Start from a template</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-              <select value="" onChange={(e) => { const v = e.target.value.replace("#!", ""); if (v) set({ script: `#!${v}\n` + (j.script ?? "").replace(/^#!.*\n/, "") }); }} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">Shebang</option><option value="#!/usr/bin/env bash">bash</option><option value="#!/bin/sh">sh</option><option value="#!/usr/bin/env python3">python3</option><option value="#!/usr/bin/env node">node</option></select>
-              {versions.length > 0 && <select value="" onChange={(e) => e.target.value && void restore(+e.target.value)} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">History ({versions.length})</option>{versions.map((v) => <option key={v.id} value={v.id}>{fmt(v.createdAt)} · {v.actor}</option>)}</select>}
+              <Select value="" onChange={(e) => e.target.value && applyTemplate(e.target.value)} className="h-7 w-auto px-2 text-xs"><option value="">Start from a template</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
+              <Select value="" onChange={(e) => { const v = e.target.value.replace("#!", ""); if (v) set({ script: `#!${v}\n` + (j.script ?? "").replace(/^#!.*\n/, "") }); }} className="h-7 w-auto px-2 text-xs"><option value="">Shebang</option><option value="#!/usr/bin/env bash">bash</option><option value="#!/bin/sh">sh</option><option value="#!/usr/bin/env python3">python3</option><option value="#!/usr/bin/env node">node</option></Select>
+              {versions.length > 0 && <Select value="" onChange={(e) => e.target.value && void restore(+e.target.value)} className="h-7 w-auto px-2 text-xs"><option value="">History ({versions.length})</option>{versions.map((v) => <option key={v.id} value={v.id}>{fmt(v.createdAt)} · {v.actor}</option>)}</Select>}
               <button type="button" onClick={() => void runLint()} className="text-ink-muted hover:text-ink">ShellCheck</button>
             </div>
           </div>
@@ -245,11 +244,11 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
           <Field label="Working directory"><Input value={j.workDir ?? ""} onChange={(e) => set({ workDir: e.target.value })} className="font-mono" placeholder="/srv/app" /></Field>
           <Field label="Run as user" hint="Linux only. Empty runs as the daemon user."><Input value={j.runAs ?? ""} onChange={(e) => set({ runAs: e.target.value })} placeholder="deploy" /></Field>
           <Field label="Timeout (seconds)"><Input type="number" value={j.timeoutSec ?? 3600} onChange={(e) => set({ timeoutSec: +e.target.value })} /></Field>
-          <Field label="If the previous run is still going"><select value={j.overlap ?? "skip"} onChange={(e) => set({ overlap: e.target.value })} className={SELECT}><option value="skip">Skip this run</option><option value="queue">Wait, then run</option><option value="kill">Stop it and start over</option></select></Field>
+          <Field label="If the previous run is still going"><Select value={j.overlap ?? "skip"} onChange={(e) => set({ overlap: e.target.value })}><option value="skip">Skip this run</option><option value="queue">Wait, then run</option><option value="kill">Stop it and start over</option></Select></Field>
           <Field label="Retries on failure" hint="30 seconds apart."><Input type="number" min={0} max={10} value={j.retries ?? 0} onChange={(e) => set({ retries: +e.target.value })} /></Field>
           <Field label="Random delay (seconds)" hint="Spreads load when many jobs share a schedule."><Input type="number" min={0} value={j.jitterSec ?? 0} onChange={(e) => set({ jitterSec: +e.target.value })} /></Field>
           <Field label="Nice level" hint="-20 (highest priority) to 19 (lowest). Linux only."><Input type="number" min={-20} max={19} value={j.nice ?? 0} onChange={(e) => set({ nice: +e.target.value })} /></Field>
-          <Field label="Notify"><select value={j.notifyOn ?? "failure"} onChange={(e) => set({ notifyOn: e.target.value })} className={SELECT}><option value="failure">On failure and recovery</option><option value="always">After every run</option><option value="never">Never</option></select></Field>
+          <Field label="Notify"><Select value={j.notifyOn ?? "failure"} onChange={(e) => set({ notifyOn: e.target.value })}><option value="failure">On failure and recovery</option><option value="always">After every run</option><option value="never">Never</option></Select></Field>
         </>}
         <label className="flex items-center gap-1.5 text-sm md:col-span-2"><input type="checkbox" checked={j.enabled ?? true} onChange={(e) => set({ enabled: e.target.checked })} />Enabled</label>
         <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>{msg && <span className="text-sm text-danger">{msg}</span>}</div>
@@ -267,7 +266,7 @@ function ScheduleBuilder({ onPick }: { onPick: (s: string) => void }) {
   const num = (v: number, set: (x: number) => void, min: number, max: number, w = "w-16") => <Input type="number" min={min} max={max} value={v} onChange={(e) => set(+e.target.value)} className={`${w} font-mono`} />;
   return (
     <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border border-border bg-surface-2 p-2 text-xs">
-      <select value={mode} onChange={(e) => setMode(e.target.value)} className="h-8 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="minutes">Every N minutes</option><option value="hourly">Every hour</option><option value="daily">Every day</option><option value="weekly">On certain days</option><option value="monthly">Once a month</option></select>
+      <Select value={mode} onChange={(e) => setMode(e.target.value)} className="h-8 w-auto px-2 text-xs"><option value="minutes">Every N minutes</option><option value="hourly">Every hour</option><option value="daily">Every day</option><option value="weekly">On certain days</option><option value="monthly">Once a month</option></Select>
       {mode === "minutes" && <span className="flex items-center gap-1">every {num(n, setN, 1, 59)} min</span>}
       {mode !== "minutes" && <span className="flex items-center gap-1">at {mode !== "hourly" && num(hour, setHour, 0, 23)}{mode !== "hourly" && ":"}{num(minute, setMinute, 0, 59)}{mode === "hourly" && " minutes past"}</span>}
       {mode === "weekly" && <span className="flex gap-1">{DOW.map((d, i) => <button key={d} type="button" onClick={() => setDays(days.includes(i) ? days.filter((x) => x !== i) : [...days, i])} className={`rounded-sm border px-1.5 py-0.5 ${days.includes(i) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{d}</button>)}</span>}

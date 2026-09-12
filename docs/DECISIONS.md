@@ -189,3 +189,12 @@ The German and Macedonian dictionaries were machine translated and half complete
 
 ## 2026-09-12 — The shell holds still; only the page scrolls
 The sidebar and header are fixed panes and the content area is the only scroll container, so navigation and the server's name stay on screen on a long log or a long container list. Pages that fill the viewport ask for `h-full` instead of subtracting header heights from `100vh`, which was wrong whenever a banner appeared.
+
+## 2026-09-13 — Catalog entries wear the project's own mark
+A wall of identical cards told nobody which one was Postgres. Entries now carry a monochrome brand mark from Simple Icons, which is CC0, kept as single paths in `web/app/src/components/brandIcons.ts`. A recipe takes the mark of the framework that names it, not of the database it happens to use, so "Next.js with Postgres" is a Next.js card. Anything without a mark falls back to an icon for its category, so nothing renders blank.
+
+## 2026-09-13 — One Field, one Select, and a spacer for buttons in a row
+Inputs across the panel were a pixel garden: nine different hand-written `select` class strings, and rows that used `items-end` so any field carrying a hint sat higher than its neighbours. There is now a `Select` primitive with the same box as `Input`, every label reserves one line so labels and controls line up whether or not a hint is present, and a button standing in a row of fields wears `FieldAction`, which puts an invisible label-height spacer above it. The caller's classes go on an inner row inside `FieldAction`: putting them on the outer box let a `flex` there pull the spacer alongside the button and reintroduce the very gap it exists to close.
+
+## 2026-09-13 — /containers/stacks is a tab, not a container called "stacks"
+`:id` and the tabbed lists sat in different Routes, so React Router matched `/containers/stacks` as a container detail and the page failed with "No such container: stacks". The static tabs and the dynamic detail now sit in one Routes, where a static segment outranks a parameter. "Manage stack" also names the stack it means, `?stack=<name>`, which opens that stack's editor, and a stack that cannot be opened says so inline instead of raising a browser alert that blocks the page.

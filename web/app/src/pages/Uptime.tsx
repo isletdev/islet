@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type Check, type CheckResult } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 
-const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function pct(v: number) { return v < 0 ? "—" : v >= 99.995 ? "100%" : `${v.toFixed(2)}%`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
@@ -91,7 +90,7 @@ function CheckForm({ initial, onClose, onSaved }: { initial: Partial<Check>; onC
     <Card title={c.id ? `Edit ${initial.name}` : "New check"} description="Two failures in a row count as down and raise a critical event; the recovery is reported too.">
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-3">
         <Field label="Name"><Input value={c.name ?? ""} onChange={(e) => set({ name: e.target.value })} required placeholder="Marketing site" /></Field>
-        <Field label="Type"><select value={c.type} onChange={(e) => set({ type: e.target.value as Check["type"], target: e.target.value === "tcp" ? "" : (c.target || "https://") })} className={SELECT}><option value="http">HTTP status</option><option value="keyword">HTTP keyword</option><option value="tcp">TCP port</option></select></Field>
+        <Field label="Type"><Select value={c.type} onChange={(e) => set({ type: e.target.value as Check["type"], target: e.target.value === "tcp" ? "" : (c.target || "https://") })}><option value="http">HTTP status</option><option value="keyword">HTTP keyword</option><option value="tcp">TCP port</option></Select></Field>
         <Field label={c.type === "tcp" ? "Host and port" : "URL"}><Input value={c.target ?? ""} onChange={(e) => set({ target: e.target.value })} className="font-mono" placeholder={c.type === "tcp" ? "db.example.com:5432" : "https://example.com/health"} required /></Field>
         {c.type === "keyword" && <Field label="Keyword that must appear"><Input value={c.keyword ?? ""} onChange={(e) => set({ keyword: e.target.value })} required /></Field>}
         {c.type !== "tcp" && <Field label="Expected status" hint="0 accepts any status below 400."><Input type="number" value={c.expectStatus ?? 0} onChange={(e) => set({ expectStatus: +e.target.value })} /></Field>}

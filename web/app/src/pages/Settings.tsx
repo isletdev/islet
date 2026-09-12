@@ -3,7 +3,7 @@ import QRCode from "qrcode";
 import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "react-router-dom";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
 
@@ -162,11 +162,11 @@ function TwoFactor({ enabled, codesLeft, onChange }: { enabled: boolean; codesLe
           </form>
         )}
         {enabled && (
-          <form onSubmit={disable} className="flex items-end gap-2">
+          <form onSubmit={disable} className="flex items-start gap-2">
             <Field label="Code to disable" hint="A current app code or an unused recovery code.">
               <Input value={code} onChange={(e) => setCode(e.target.value)} required className="font-mono" />
             </Field>
-            <Button type="submit" variant="danger" disabled={busy}>Disable two-factor</Button>
+            <FieldAction><Button type="submit" variant="danger" disabled={busy}>Disable two-factor</Button></FieldAction>
           </form>
         )}
       </div>
@@ -264,8 +264,8 @@ function Tokens() {
       {created && <div className="mt-3 rounded-md border border-success/40 bg-success-soft p-3 text-sm"><div className="mb-1 text-success">Copy this token now. It is not shown again.</div><pre className="overflow-x-auto font-mono text-xs">{created}</pre><pre className="mt-2 overflow-x-auto font-mono text-xs text-ink-muted">islet login --url {location.origin} --token {created}</pre></div>}
       <form onSubmit={create} className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-[1fr_auto_auto]">
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="CI deploys" required /></Field>
-        <Field label="Expires"><select value={ttl} onChange={(e) => setTtl(+e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value={0}>Never</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></select></Field>
-        <div className="flex items-end"><Button type="submit" className="h-9">Create token</Button></div>
+        <Field label="Expires"><Select value={ttl} onChange={(e) => setTtl(+e.target.value)} className="w-auto"><option value={0}>Never</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></Select></Field>
+        <FieldAction><Button type="submit" className="h-9">Create token</Button></FieldAction>
         <div className="sm:col-span-3"><span className="mb-1 block text-sm font-medium">Scopes</span><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setScopes([])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.length === 0 ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>everything</button>{SCOPES.map((sc) => <button key={sc} type="button" onClick={() => setScopes(scopes.includes(sc) ? scopes.filter((x) => x !== sc) : [...scopes, sc])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.includes(sc) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{sc}</button>)}</div></div>
         {msg && <p className="text-sm text-danger sm:col-span-3">{msg}</p>}
       </form>
@@ -291,7 +291,7 @@ function Users({ meId }: { meId: string }) {
           <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
             <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
             <div className="flex items-center gap-2 text-xs">
-              <select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
+              <Select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 w-auto px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></Select>
               {u.role !== "admin" && <button type="button" onClick={() => void setProjects(u)} className="text-ink-muted hover:text-ink" title="Limit this account to some apps">{u.projects ? `projects: ${u.projects}` : "all projects"}</button>}
               <button type="button" onClick={() => void resetPw(u)} className="text-ink-muted hover:text-ink">Reset password</button>
               {u.id !== meId && <button type="button" onClick={() => void remove(u)} className="text-danger hover:underline">Delete</button>}
@@ -302,7 +302,7 @@ function Users({ meId }: { meId: string }) {
       <form onSubmit={create} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_1fr_auto_auto]">
         <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" required autoComplete="off" />
         <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password (12+ characters)" required autoComplete="new-password" />
-        <select value={role} onChange={(e) => setRole(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></select>
+        <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-auto"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></Select>
         <Button type="submit" className="h-9">Add user</Button>
         {msg && <p className="text-xs text-ink-muted sm:col-span-4">{msg}</p>}
       </form>
@@ -319,11 +319,10 @@ function SidebarLinks() {
   return (
     <Card title="Add to sidebar" description="Show any app's own UI inside the panel. Pair it with &quot;Protect with Islet login&quot; on the app's domain so one sign-in covers both.">
       <ul className="divide-y divide-border text-sm">{links.map((l, i) => <li key={i} className="flex items-center justify-between py-1.5"><span>{l.label} <span className="ml-2 font-mono text-xs text-ink-muted">{l.url}</span></span><button type="button" onClick={() => void save(links.filter((_, j) => j !== i))} className="text-xs text-danger hover:underline">Remove</button></li>)}{links.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No links yet.</li>}</ul>
-      <form onSubmit={(e) => { e.preventDefault(); void save([...links, { label, url }]); }} className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+      <form onSubmit={(e) => { e.preventDefault(); void save([...links, { label, url }]); }} className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
         <Field label="Label"><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Grafana" className="w-40" required /></Field>
         <Field label="URL"><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://grafana.example.com" className="w-72 font-mono" required /></Field>
-        <Button type="submit" className="h-9">Add</Button>
-        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+        <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9">Add</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</FieldAction>
       </form>
     </Card>
   );
@@ -365,10 +364,9 @@ function SSO() {
   const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Sessions now cover *.${r.cookieDomain}. Sign out and back in, then tick "Protect with Islet login" on a domain.` : "Sessions are scoped to the panel host again."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
     <Card title="Protect apps with Islet login" description="Route the panel to a domain (say panel.example.com), set the parent domain here, and any domain marked &quot;Protect with Islet login&quot; only opens for people signed in to this panel.">
-      <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+      <form onSubmit={save} className="flex flex-wrap items-start gap-2">
         <Field label="Session cookie domain" hint="The parent of the panel and the protected apps, for example example.com."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-64 font-mono" placeholder="example.com" /></Field>
-        <Button type="submit" className="h-9">Save</Button>
-        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+        <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9">Save</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</FieldAction>
       </form>
     </Card>
   );
@@ -383,10 +381,9 @@ function CatalogSource() {
   const clear = async () => { setBusy(true); try { await api.catalogSourceClear(); setSt(await api.catalogSource()); setMsg("Back to the embedded catalog."); } finally { setBusy(false); } };
   return (
     <Card title="Catalog source" description="The catalog ships inside the daemon and works offline. Point it at the public catalog repository (or your own fork) to pick up new apps and recipes daily without updating Islet; fetched templates overlay the embedded ones.">
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-start gap-2">
         <Field label="Tarball URL" hint="A .tar.gz with apps/ and recipes/; GitHub archive links work."><Input value={url} onChange={(e) => setUrl(e.target.value)} className="w-[28rem] max-w-full font-mono" /></Field>
-        <Button variant="secondary" className="h-9" disabled={busy} onClick={() => void refresh()}>{busy ? "Fetching…" : "Fetch now"}</Button>
-        {st.source.url && <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Use embedded only</button>}
+        <FieldAction className="flex items-center gap-2"><Button variant="secondary" className="h-9" disabled={busy} onClick={() => void refresh()}>{busy ? "Fetching…" : "Fetch now"}</Button>{st.source.url && <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Use embedded only</button>}</FieldAction>
       </div>
       <p className="mt-2 text-xs text-ink-muted">{st.source.fetchedAt ? `Last fetched ${new Date(st.source.fetchedAt).toLocaleString()} (${st.source.apps} apps, ${st.source.recipes} recipes).` : "Not fetched yet; refreshes daily once set."}{st.source.lastError && <span className="text-danger"> Last error: {st.source.lastError}</span>}{msg && <span> {msg}</span>}</p>
     </Card>
@@ -410,9 +407,9 @@ function Provider() {
           <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Remove token</button>
         </div>
       ) : (
-        <form onSubmit={save} className="flex flex-wrap items-end gap-2">
+        <form onSubmit={save} className="flex flex-wrap items-start gap-2">
           <Field label="Hetzner Cloud API token" hint="Project → Security → API tokens → Generate (read & write)."><Input type="password" value={token} onChange={(e) => setToken(e.target.value)} className="w-80 font-mono" autoComplete="off" required /></Field>
-          <Button type="submit" className="h-9" disabled={busy}>{busy ? "Checking…" : "Connect"}</Button>
+          <FieldAction><Button type="submit" className="h-9" disabled={busy}>{busy ? "Checking…" : "Connect"}</Button></FieldAction>
         </form>
       )}
       {msg && <p className="mt-2 text-xs text-ink-muted">{msg}</p>}

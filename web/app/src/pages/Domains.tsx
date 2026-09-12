@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type Container, type Domain, type ProxyStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 
 const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, createdAt: "", updatedAt: "" };
 
@@ -71,16 +71,18 @@ export default function Domains() {
       {err && <Alert>{err}</Alert>}
 
       <Card title="Reverse proxy" description={status?.running ? `Traefik is running on ports ${status.httpPort} and ${status.httpsPort}.` : status?.installed ? "Traefik is installed but not running." : "Not installed. Install it to route domains."}>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <Field label="Let's Encrypt email" hint="Used for certificate expiry notices. Required for public certificates.">
             <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" />
           </Field>
-          {isAdmin && <Button onClick={() => void install()} disabled={busy}>{status?.installed ? "Reinstall / apply" : "Install proxy"}</Button>}
-          {isAdmin && status?.installed && <Button variant="secondary" onClick={() => api.proxyRemove().then(load)}>Remove</Button>}
-          {msg && <span className="text-sm text-ink-muted">{msg}</span>}
+          <FieldAction className="flex flex-wrap items-center gap-2">
+            {isAdmin && <Button onClick={() => void install()} disabled={busy}>{status?.installed ? "Reinstall / apply" : "Install proxy"}</Button>}
+            {isAdmin && status?.installed && <Button variant="secondary" onClick={() => api.proxyRemove().then(load)}>Remove</Button>}
+            {msg && <span className="text-sm text-ink-muted">{msg}</span>}
+          </FieldAction>
         </div>
-        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
-          <Field label="DNS provider for wildcards" hint="Optional. Lets *.example.com get a certificate through DNS-01."><select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)} className="h-9 w-56 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="">None (HTTP-01 only)</option>{Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
+        <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
+          <Field label="DNS provider for wildcards" hint="Optional. Lets *.example.com get a certificate through DNS-01."><Select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)} className="w-56"><option value="">None (HTTP-01 only)</option>{Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}</Select></Field>
           {dnsProvider && (providers[dnsProvider] ?? []).map((k) => <Field key={k} label={k} hint={status?.dnsProvider === dnsProvider ? "Leave empty to keep the stored value." : undefined}><Input type="password" value={dnsEnv[k] ?? ""} onChange={(e) => setDnsEnv({ ...dnsEnv, [k]: e.target.value })} autoComplete="off" className="w-56 font-mono" /></Field>)}
         </div>
         <p className="mt-3 text-xs text-ink-muted">Ports 80 and 443 belong to the proxy. Apps are reached by domain, not by published ports. Press "Reinstall / apply" after changing the DNS provider.</p>
@@ -122,19 +124,19 @@ export default function Domains() {
           <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
             <Field label="Host" hint="e.g. app.example.com. Wildcards need a DNS provider (later)."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => setEditing({ ...editing, host: e.target.value })} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
             <Field label="Target">
-              <select value={editing.targetType} onChange={(e) => setEditing({ ...editing, targetType: e.target.value as Domain["targetType"] })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">
+              <Select value={editing.targetType} onChange={(e) => setEditing({ ...editing, targetType: e.target.value as Domain["targetType"] })}>
                 <option value="container">Container</option><option value="panel">Islet panel</option><option value="url">Any URL</option>
-              </select>
+              </Select>
             </Field>
             {editing.targetType === "container" && <>
-              <Field label="Container"><select value={editing.target} onChange={(e) => setEditing({ ...editing, target: e.target.value })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm" required><option value="">Choose…</option>{containers.map((c) => <option key={c.id} value={c.name}>{c.name} ({c.state})</option>)}</select></Field>
+              <Field label="Container"><Select value={editing.target} onChange={(e) => setEditing({ ...editing, target: e.target.value })} required><option value="">Choose…</option>{containers.map((c) => <option key={c.id} value={c.name}>{c.name} ({c.state})</option>)}</Select></Field>
               <Field label="Container port" hint="The port the app listens on inside the container, not a published port."><Input value={String(editing.port)} onChange={(e) => setEditing({ ...editing, port: Number(e.target.value) })} inputMode="numeric" required /></Field>
             </>}
             {editing.targetType === "url" && <Field label="URL"><Input value={editing.target} onChange={(e) => setEditing({ ...editing, target: e.target.value })} placeholder="http://10.0.0.5:8080" required /></Field>}
             <Field label="Certificate">
-              <select value={editing.tls} onChange={(e) => setEditing({ ...editing, tls: e.target.value as Domain["tls"] })} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">
+              <Select value={editing.tls} onChange={(e) => setEditing({ ...editing, tls: e.target.value as Domain["tls"] })}>
                 <option value="letsencrypt">Let's Encrypt (public)</option><option value="self">Self-signed (previews, sslip.io)</option><option value="none">HTTP only</option>
-              </select>
+              </Select>
             </Field>
             <Field label="Path prefix (optional)" hint="Route only this path, e.g. /api"><Input value={editing.pathPrefix} onChange={(e) => setEditing({ ...editing, pathPrefix: e.target.value })} placeholder="/" /></Field>
             <Field label="Basic auth (optional)" hint="user:password per line. Passwords are hashed on save."><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field>

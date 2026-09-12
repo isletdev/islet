@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
@@ -162,11 +162,11 @@ function Diagnostics() {
   };
   return (
     <Card title="Network diagnostics" description="Run from this server, so you see what the server sees.">
-      <form onSubmit={run} className="flex flex-wrap items-end gap-2">
-        <Field label="Tool"><select value={tool} onChange={(e) => setTool(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option value="ping">ping</option><option value="traceroute">traceroute</option><option value="dig">dig</option><option value="port">port check</option></select></Field>
+      <form onSubmit={run} className="flex flex-wrap items-start gap-2">
+        <Field label="Tool"><Select value={tool} onChange={(e) => setTool(e.target.value)} className="w-auto"><option value="ping">ping</option><option value="traceroute">traceroute</option><option value="dig">dig</option><option value="port">port check</option></Select></Field>
         <Field label="Host"><Input value={host} onChange={(e) => setHost(e.target.value)} className="w-56 font-mono" placeholder="example.com" required /></Field>
         {tool === "port" && <Field label="Port"><Input value={port} onChange={(e) => setPort(e.target.value)} className="w-20 font-mono" /></Field>}
-        <Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Running…" : "Run"}</Button>
+        <FieldAction><Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Running…" : "Run"}</Button></FieldAction>
       </form>
       {out.length > 0 && <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{out.join("\n")}</pre>}
     </Card>
@@ -187,13 +187,12 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, busy }: { s: SecurityState
             {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (confirm(`Remove the rule for ${r.port}?`)) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
           </tbody></table>
           {isAdmin && <PanelRestrict cidr={s.panelCidr ?? ""} onChanged={onChanged} />}
-          {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+          {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
             <Field label="Port"><Input value={port} onChange={(e) => setPort(e.target.value)} className="w-24 font-mono" placeholder="5432" required /></Field>
-            <Field label="Proto"><select value={proto} onChange={(e) => setProto(e.target.value)} className="h-9 rounded-md border border-border-strong bg-bg px-2 text-sm"><option>tcp</option><option>udp</option></select></Field>
+            <Field label="Proto"><Select value={proto} onChange={(e) => setProto(e.target.value)} className="w-auto"><option>tcp</option><option>udp</option></Select></Field>
             <Field label="From" hint="empty = anywhere"><Input value={from} onChange={(e) => setFrom(e.target.value)} className="w-40 font-mono" placeholder="203.0.113.0/24" /></Field>
             <Field label="Comment"><Input value={comment} onChange={(e) => setComment(e.target.value)} className="w-36" placeholder="office" /></Field>
-            <Button type="submit" className="h-9 text-xs">Allow</Button>
-            {msg && <span className="text-xs text-danger">{msg}</span>}
+            <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9 text-xs">Allow</Button>{msg && <span className="text-xs text-danger">{msg}</span>}</FieldAction>
           </form>}
         </>
       )}
@@ -205,11 +204,13 @@ function PanelRestrict({ cidr, onChanged }: { cidr: string; onChanged: () => Pro
   const [v, setV] = useState(cidr); const [msg, setMsg] = useState<string | null>(null);
   const apply = async (c: string) => { if (c && !confirm(`Allow the panel port only from ${c}? Make sure you are connected through that range first, or you lock yourself out (your current IP is kept as a fallback).`)) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
   return (
-    <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+    <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
       <Field label="Panel only via VPN" hint="CIDR of your VPN: 10.8.0.0/24 for wg-easy, 100.64.0.0/10 for Tailscale."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>
-      <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply(v)} disabled={!v}>Restrict</Button>
-      {cidr && <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply("")}>Make public again</Button>}
-      {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      <FieldAction className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply(v)} disabled={!v}>Restrict</Button>
+        {cidr && <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply("")}>Make public again</Button>}
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      </FieldAction>
     </div>
   );
 }
@@ -245,7 +246,7 @@ function ScanCard({ s, isAdmin, onChanged }: { s: SecurityState; isAdmin: boolea
   const scan = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { const r = await api.scanImage(image); setMsg(`${r.critical} critical, ${r.high} high, ${r.medium} medium, ${r.low} low`); setOpen(r.target); await onChanged(); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
   return (
     <Card title="Image scans" description="Trivy runs in a container and checks an image's packages against the CVE database. The first run downloads the database.">
-      {isAdmin && <form onSubmit={scan} className="flex items-end gap-2"><Field label="Image"><Input value={image} onChange={(e) => setImage(e.target.value)} className="w-64 font-mono" placeholder="nginx:1.27-alpine" required /></Field><Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Scanning…" : "Scan"}</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</form>}
+      {isAdmin && <form onSubmit={scan} className="flex items-start gap-2"><Field label="Image"><Input value={image} onChange={(e) => setImage(e.target.value)} className="w-64 font-mono" placeholder="nginx:1.27-alpine" required /></Field><FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Scanning…" : "Scan"}</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</FieldAction></form>}
       <ul className="mt-3 divide-y divide-border text-xs">
         {s.scans.map((sc) => (
           <li key={sc.target} className="py-1.5">

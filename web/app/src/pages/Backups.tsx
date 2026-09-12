@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { api, RequestError, type BackupDestination, type BackupHost, type BackupOverview, type BackupPlan, type BackupRun, type BackupSource, type Snapshot } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 
-const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function bytes(n: number) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
@@ -104,11 +103,10 @@ function HostCard() {
           <div className="mt-2 flex gap-3 text-xs"><button type="button" onClick={() => setShow(!show)} className="text-ink-muted hover:text-ink">{show ? "Hide password" : "Show password"}</button><button type="button" onClick={() => void remove()} className="text-danger hover:underline">Stop hosting</button></div>
         </div>
       ) : (
-        <form onSubmit={setup} className="flex flex-wrap items-end gap-2">
+        <form onSubmit={setup} className="flex flex-wrap items-start gap-2">
           <Field label="Host name for the endpoint" hint="An A record to this server, e.g. backups.example.com."><Input value={domain} onChange={(e) => setDomain(e.target.value)} className="w-64 font-mono" required /></Field>
-          <Field label="TLS"><select value={tls} onChange={(e) => setTls(e.target.value)} className={SELECT}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None</option></select></Field>
-          <Button type="submit" className="h-9" disabled={busy}>{busy ? "Setting up…" : "Set up"}</Button>
-          {msg && <span className="text-xs text-danger">{msg}</span>}
+          <Field label="TLS"><Select value={tls} onChange={(e) => setTls(e.target.value)}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">None</option></Select></Field>
+          <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9" disabled={busy}>{busy ? "Setting up…" : "Set up"}</Button>{msg && <span className="text-xs text-danger">{msg}</span>}</FieldAction>
         </form>
       )}
     </Card>
@@ -132,7 +130,7 @@ function DestForm({ initial, onClose, onSaved }: { initial: Partial<BackupDestin
   return (
     <form onSubmit={submit} className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
       <Field label="Name"><Input value={d.name ?? ""} onChange={(e) => setD({ ...d, name: e.target.value })} required disabled={!!d.id} placeholder="hetzner-box" /></Field>
-      <Field label="Type"><select value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as BackupDestination["type"], config: {} })} className={SELECT} disabled={!!d.id}>{Object.entries(DEST_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
+      <Field label="Type"><Select value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as BackupDestination["type"], config: {} })} disabled={!!d.id}>{Object.entries(DEST_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
       <p className="text-xs text-ink-muted sm:col-span-2">{t.help}</p>
       {APPEND_ONLY[d.type ?? ""] && <p className="text-xs text-ink-muted sm:col-span-2">{APPEND_ONLY[d.type ?? ""]}</p>}
       {t.fields.map((f) => <Field key={f.key} label={f.label} hint={d.id && f.secret ? "Leave empty to keep the stored value." : f.hint}>{f.key === "privateKey" ? <textarea value={d.config?.[f.key] ?? ""} onChange={(e) => setCfg(f.key, e.target.value)} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /> : <Input type={f.secret ? "password" : "text"} value={d.config?.[f.key] ?? ""} onChange={(e) => setCfg(f.key, e.target.value)} placeholder={f.hint} autoComplete="off" className="font-mono" />}</Field>)}
@@ -154,13 +152,13 @@ function PlanForm({ initial, o, onClose, onSaved }: { initial: Partial<BackupPla
   return (
     <form onSubmit={submit} className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
       <Field label="Name"><Input value={p.name ?? ""} onChange={(e) => set({ name: e.target.value })} required /></Field>
-      <Field label="Destination"><select value={p.destinationId} onChange={(e) => set({ destinationId: e.target.value })} className={SELECT}>{o.destinations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+      <Field label="Destination"><Select value={p.destinationId} onChange={(e) => set({ destinationId: e.target.value })}>{o.destinations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</Select></Field>
       <div className="sm:col-span-2">
         <span className="mb-1 block text-sm font-medium">Sources</span>
         <div className="flex flex-wrap gap-1">{chip({ type: "islet", value: "" }, "Islet state (database, secrets, scripts, certificates)")}{(o.databases ?? []).map((n) => chip({ type: "database", value: n }, `database ${n}`))}{o.volumes.map((v) => chip({ type: "volume", value: v }, `volume ${v}`))}{srcs.filter((s) => s.type === "path").map((s) => chip(s, `path ${s.value}`))}</div>
         <div className="mt-2 flex gap-2"><Input value={path} onChange={(e) => setPath(e.target.value)} className="font-mono" placeholder="/srv/uploads" /><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => { if (path.startsWith("/")) { toggle({ type: "path", value: path }); setPath(""); } }}>Add path</Button></div>
       </div>
-      <Field label="Preset"><select value="" onChange={(e) => { const pr = PRESETS[+e.target.value]; if (pr) set({ schedule: pr.schedule, keepDaily: pr.keep[0], keepWeekly: pr.keep[1], keepMonthly: pr.keep[2], keepYearly: pr.keep[3] }); }} className={SELECT}><option value="">Pick a preset…</option>{PRESETS.map((pr, i) => <option key={pr.label} value={i}>{pr.label}</option>)}</select></Field>
+      <Field label="Preset"><Select value="" onChange={(e) => { const pr = PRESETS[+e.target.value]; if (pr) set({ schedule: pr.schedule, keepDaily: pr.keep[0], keepWeekly: pr.keep[1], keepMonthly: pr.keep[2], keepYearly: pr.keep[3] }); }}><option value="">Pick a preset…</option>{PRESETS.map((pr, i) => <option key={pr.label} value={i}>{pr.label}</option>)}</Select></Field>
       <Field label="Schedule" hint="Cron fields, server time."><Input value={p.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" /></Field>
       <div className="grid grid-cols-4 gap-2 sm:col-span-2">{(["keepDaily", "keepWeekly", "keepMonthly", "keepYearly"] as const).map((k) => <Field key={k} label={`Keep ${k.replace("keep", "").toLowerCase()}`}><Input type="number" min={0} value={p[k] ?? 0} onChange={(e) => set({ [k]: +e.target.value })} /></Field>)}</div>
       <p className="text-xs text-ink-muted sm:col-span-2">Keeps the last {p.keepDaily} daily, {p.keepWeekly} weekly, {p.keepMonthly} monthly and {p.keepYearly} yearly snapshots: at most {(p.keepDaily ?? 0) + (p.keepWeekly ?? 0) + (p.keepMonthly ?? 0) + (p.keepYearly ?? 0)} snapshots. Deduplication means unchanged data is stored once.</p>

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, NavLink, Route, Routes, useParams } from "react-router-dom";
+import { Link, Navigate, NavLink, Outlet, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack, type Registry } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import TermView from "@/components/TermView";
 import { bytes } from "@/lib/format";
 
@@ -18,37 +18,45 @@ export default function ContainersRoot() {
   const [status, setStatus] = useState<DockerStatus | null>(null);
   useEffect(() => { api.dockerStatus().then(setStatus).catch(() => setStatus({ available: false, version: "", composeVersion: "", error: "unreachable" })); }, []);
 
+  // The tabbed pages are static segments and the container detail is dynamic, so
+  // they sit in one Routes and React Router ranks "stacks" above ":id". Nesting
+  // the detail route under the frame, or listing ":id" first, made
+  // /containers/stacks look like a container called "stacks".
   return (
     <Routes>
+      <Route element={<Frame status={status} />}>
+        <Route index element={<List />} />
+        <Route path="stacks" element={<Stacks />} />
+        <Route path="images" element={<Images />} />
+        <Route path="volumes" element={<Volumes />} />
+        <Route path="networks" element={<Networks />} />
+      </Route>
       <Route path=":id" element={<Detail />} />
-      <Route path="*" element={
-        <div className="mx-auto max-w-6xl">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-[-0.02em]">Containers</h1>
-              <p className="mt-1 text-ink-muted">{status?.available ? `Docker ${status.version}${status.composeVersion ? `, Compose ${status.composeVersion}` : ""}` : "Everything Docker runs on this server."}</p>
-            </div>
-            <nav className="flex rounded-md border border-border-strong p-0.5 text-xs font-medium">
-              {TABS.map((t) => (
-                <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => `rounded-sm px-2.5 py-1 ${isActive ? "bg-ink text-on-ink" : "text-ink-muted hover:text-ink"}`}>{t.label}</NavLink>
-              ))}
-            </nav>
-          </div>
-          {status && !status.available && (
-            <div className="mt-4"><Alert>Docker is not reachable: {status.error}. Install it or start the daemon, then reload.</Alert></div>
-          )}
-          <div className="mt-6">
-            <Routes>
-              <Route index element={<List />} />
-              <Route path="stacks" element={<Stacks />} />
-              <Route path="images" element={<Images />} />
-              <Route path="volumes" element={<Volumes />} />
-              <Route path="networks" element={<Networks />} />
-            </Routes>
-          </div>
-        </div>
-      } />
+      <Route path="*" element={<Navigate to="/containers" replace />} />
     </Routes>
+  );
+}
+
+/** Heading and tabs shared by every list under /containers. */
+function Frame({ status }: { status: DockerStatus | null }) {
+  return (
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">Containers</h1>
+          <p className="mt-1 text-ink-muted">{status?.available ? `Docker ${status.version}${status.composeVersion ? `, Compose ${status.composeVersion}` : ""}` : "Everything Docker runs on this server."}</p>
+        </div>
+        <nav className="flex rounded-md border border-border-strong p-0.5 text-xs font-medium">
+          {TABS.map((t) => (
+            <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => `rounded-sm px-2.5 py-1 ${isActive ? "bg-ink text-on-ink" : "text-ink-muted hover:text-ink"}`}>{t.label}</NavLink>
+          ))}
+        </nav>
+      </div>
+      {status && !status.available && (
+        <div className="mt-4"><Alert>Docker is not reachable: {status.error}. Install it or start the daemon, then reload.</Alert></div>
+      )}
+      <div className="mt-6"><Outlet /></div>
+    </div>
   );
 }
 
@@ -236,9 +244,9 @@ function Limits({ c, onSaved }: { c: ContainerDetail; onSaved: () => Promise<voi
         <Field label="Memory (MB)"><Input value={mem} onChange={(e) => setMem(e.target.value)} inputMode="numeric" /></Field>
         <Field label="CPUs"><Input value={cpus} onChange={(e) => setCpus(e.target.value)} inputMode="decimal" /></Field>
         <Field label="Restart policy">
-          <select value={restart} onChange={(e) => setRestart(e.target.value)} className="h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm">
+          <Select value={restart} onChange={(e) => setRestart(e.target.value)}>
             {["no", "always", "unless-stopped", "on-failure"].map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
+          </Select>
         </Field>
         <div className="md:col-span-3 flex items-center gap-3"><Button type="submit">Apply</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
       </form>
@@ -258,10 +266,13 @@ const EXAMPLE = `services:
 
 function Stacks() {
   const { rows, err, refresh } = useList<Stack>(api.stacks, 8000);
+  const [params] = useSearchParams();
+  const wanted = params.get("stack") ?? "";
   const [editing, setEditing] = useState<{ name: string; compose: string; env: string; isNew: boolean } | null>(null);
   const [out, setOut] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [openErr, setOpenErr] = useState<string | null>(null);
 
   const run = async (name: string, action: string) => {
     setBusy(true); setOut([]); setMsg(null);
@@ -269,9 +280,14 @@ function Stacks() {
     catch (e) { setMsg(String(e instanceof Error ? e.message : e)); }
     finally { setBusy(false); await refresh(); }
   };
-  const open = async (name: string) => {
-    try { const s = await api.stack(name); setEditing({ ...s, isNew: false }); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); }
-  };
+  const open = useCallback(async (name: string) => {
+    setOpenErr(null);
+    try { const s = await api.stack(name); setEditing({ ...s, isNew: false }); }
+    catch (e) { setOpenErr(e instanceof RequestError ? `Could not open ${name}: ${e.message}` : String(e)); }
+  }, []);
+
+  // Arriving from "Manage stack" on the Apps page opens that stack directly.
+  useEffect(() => { if (wanted) void open(wanted); }, [wanted, open]);
   const save = async (e: FormEvent) => {
     e.preventDefault(); if (!editing) return;
     setBusy(true); setMsg(null);
@@ -287,6 +303,7 @@ function Stacks() {
   return (
     <div className="space-y-4">
       {err && <Alert>{err}</Alert>}
+      {openErr && <Alert tone="warning">{openErr}</Alert>}
       <div className="rounded-lg border border-border bg-surface">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <span className="font-semibold">Compose stacks</span>
@@ -294,7 +311,7 @@ function Stacks() {
         </div>
         <ul className="divide-y divide-border">
           {rows.map((s) => (
-            <li key={s.name} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+            <li key={s.name} className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm ${s.name === wanted ? "bg-surface-2" : ""}`}>
               <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!confirm(`Adopt ${s.name}? Its Compose file is copied into Islet so you can edit and update it here.`)) return; try { const r = await api.stackImport(s.name); alert(r.note); await refresh(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } }} className="ml-2 text-[11px] text-accent hover:underline">Adopt</button>}</div>
               {s.managed && (
                 <div className="flex gap-1">

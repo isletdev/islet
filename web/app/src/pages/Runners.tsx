@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, RequestError, type RunnerJob, type RunnerPool } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 
-const SELECT = "h-9 w-full rounded-md border border-border-strong bg-bg px-2 text-sm";
 const PROVIDERS: Record<string, { label: string; urlHint: string; tokenHint: string }> = {
   github: { label: "GitHub Actions", urlHint: "https://github.com/org/repo for one repository, https://github.com/org for the whole organisation.", tokenHint: "A fine-grained or classic personal access token with repo (or admin:org) scope. Stored encrypted; used only to fetch short-lived registration tokens. A GitHub App will replace this." },
   gitlab: { label: "GitLab", urlHint: "https://gitlab.com or your own instance.", tokenHint: "Runner authentication token (glrt-…) from Settings → CI/CD → Runners → New runner." },
@@ -102,7 +101,7 @@ function PoolForm({ initial, onClose, onSaved }: { initial: Partial<RunnerPool>;
     <Card title={p.id ? `Settings for ${initial.name}` : "New runner pool"} description="Runners run inside Docker on this server. Jobs get a clean container each time.">
       <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
         <Field label="Name"><Input value={p.name ?? ""} onChange={(e) => set({ name: e.target.value })} required disabled={!!p.id} placeholder="main" /></Field>
-        <Field label="Provider"><select value={p.provider} onChange={(e) => set({ provider: e.target.value })} className={SELECT} disabled={!!p.id}>{Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
+        <Field label="Provider"><Select value={p.provider} onChange={(e) => set({ provider: e.target.value })} disabled={!!p.id}>{Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
         <Field label="URL" hint={pr.urlHint}><Input value={p.url ?? ""} onChange={(e) => set({ url: e.target.value })} className="font-mono" required /></Field>
         <Field label={p.provider === "github" ? "Token (optional with the GitHub App)" : "Token"} hint={p.id ? "Leave empty to keep the stored token." : p.provider === "github" ? "Leave empty when the GitHub App in Settings is installed on this repository or organisation. Otherwise: " + pr.tokenHint : pr.tokenHint}><Input type="password" value={p.token ?? ""} onChange={(e) => set({ token: e.target.value })} autoComplete="off" /></Field>
         <Field label="Labels" hint="Comma separated, besides self-hosted."><Input value={p.labels ?? ""} onChange={(e) => set({ labels: e.target.value })} placeholder="linux, x64, islet" /></Field>
