@@ -18,6 +18,10 @@ REPO="isletdev/islet"
 BIN_DIR="/usr/local/bin"
 DATA_DIR="/var/lib/islet"
 VERSION="${ISLET_VERSION:-latest}"
+case "$VERSION" in
+  latest|v[0-9]*) ;;
+  *) printf '\nislet: ISLET_VERSION must be "latest" or a tag such as v0.1.0, got "%s"\n' "$VERSION" >&2; exit 1 ;;
+esac
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -32,14 +36,14 @@ case "$(uname -m)" in
   *) die "unsupported architecture: $(uname -m)" ;;
 esac
 
-if [ -r /etc/os-release ]; then
-  . /etc/os-release
-else
-  die "cannot read /etc/os-release"
-fi
-case "${ID:-}" in
+[ -r /etc/os-release ] || die "cannot read /etc/os-release"
+# Read it in a subshell. /etc/os-release sets VERSION and NAME, and sourcing
+# it here would overwrite this script's own VERSION with something like
+# "24.04.4 LTS (Noble Numbat)".
+DISTRO="$(. /etc/os-release && printf '%s' "${ID:-}")"
+case "$DISTRO" in
   ubuntu|debian) ;;
-  *) die "unsupported distribution: ${ID:-unknown} (Ubuntu 22.04+ and Debian 12+ for now)" ;;
+  *) die "unsupported distribution: ${DISTRO:-unknown} (Ubuntu 22.04+ and Debian 12+ for now)" ;;
 esac
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
 
