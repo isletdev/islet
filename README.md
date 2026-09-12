@@ -40,7 +40,7 @@ Everything in the single-server panel is and stays free under AGPL-3.0.
 On a Linux server (Ubuntu 22.04+ or Debian 12+) as root:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/isletdev/islet/main/installer/get.sh | sh
+curl -fsSL https://get.islet.dev | sh
 ```
 
 It installs Docker if it is missing, downloads the signed release, verifies the checksum and starts the daemon on port 9443. Nothing else on the server is touched: existing containers, volumes and web servers keep running, and the reverse proxy is only created when you add a domain. On a server where something already listens on 80 and 443, start with the panel's proxy on other ports by adding `Environment=ISLET_PROXY_PORTS=8880,8443` to `/etc/systemd/system/isletd.service` before the first domain. `installer/uninstall.sh` removes the daemon and leaves everything else alone.
