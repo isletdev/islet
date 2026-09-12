@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
@@ -204,20 +203,17 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 	}
 	_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", ContainerName)
 
-	sock := "/var/run/docker.sock"
-	if runtime.GOOS == "windows" {
-		sock = "//var/run/docker.sock"
-	}
 	dir := m.dir
 	args := []string{"run", "-d", "--name", ContainerName, "--restart", "unless-stopped",
 		"--network", NetworkName,
 		"-p", m.httpP + ":80", "-p", m.httpsP + ":443",
-		"-v", sock + ":/var/run/docker.sock:ro",
 		"-v", dir + ":" + mountPath,
 		"--add-host", "host.docker.internal:host-gateway",
-		"--label", "islet.managed=proxy", "--label", "islet.proxy.args=2",
+		"--label", "islet.managed=proxy", "--label", "islet.proxy.args=3",
 		Image,
-		"--providers.docker=true", "--providers.docker.exposedbydefault=false", "--providers.docker.network=" + NetworkName,
+		// Every route comes from the file provider below. Traefik's Docker
+		// provider would add nothing, needs the daemon socket, and its client
+		// speaks an API version Docker 29 refuses.
 		"--providers.file.directory=" + mountPath + "/dynamic", "--providers.file.watch=true",
 		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
@@ -483,7 +479,7 @@ func (m *Manager) Delete(ctx context.Context, actor, id string) error {
 
 // Reconcile writes the Traefik dynamic config from the domains table.
 func (m *Manager) Reconcile(ctx context.Context) error {
-	if res, err := m.run.Run(ctx, "system", "docker", "inspect", "--format", "{{index .Config.Labels \"islet.proxy.args\"}}", ContainerName); err == nil && strings.TrimSpace(res.Stdout) != "2" {
+	if res, err := m.run.Run(ctx, "system", "docker", "inspect", "--format", "{{index .Config.Labels \"islet.proxy.args\"}}", ContainerName); err == nil && strings.TrimSpace(res.Stdout) != "3" {
 		if err := m.Install(ctx, "system", ""); err != nil {
 			return fmt.Errorf("upgrade proxy: %w", err)
 		}
