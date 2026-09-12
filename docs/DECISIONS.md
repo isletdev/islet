@@ -163,3 +163,6 @@ NPM writes `set $server "app";` above `proxy_pass $forward_scheme://$server:$por
 
 ## 2026-09-12 — Traefik runs without the Docker provider or the daemon socket
 Every route Islet serves comes from the file provider it writes. The Docker provider added nothing, required mounting `/var/run/docker.sock` into the proxy, and its client negotiates Docker API 1.24, which Docker 29 refuses outright: the log filled with "client version 1.24 is too old" every second. Dropping the provider removes the noise and takes the daemon socket away from an internet-facing container. The `islet.proxy.args` label carries a version so existing proxies are recreated on the next reconcile.
+
+## 2026-09-12 — Attaching a container to the proxy network cannot depend on install order
+A domain can be created before the proxy container exists, which is exactly what happens when someone imports their nginx or Nginx Proxy Manager hosts and installs the proxy afterwards. The attach used to fail because the network was not there yet, and the domain was saved anyway, so the route existed and answered 502. The network is now created on demand, and installing the proxy re-attaches every enabled container target, so an install repairs whatever was saved earlier.

@@ -193,9 +193,16 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 	if err := m.writeMaintenancePage(); err != nil {
 		return err
 	}
-	if _, err := m.run.Run(ctx, actor, "docker", "network", "inspect", NetworkName); err != nil {
-		if _, err := m.run.Run(ctx, actor, "docker", "network", "create", NetworkName); err != nil {
-			return err
+	if err := m.ensureNetwork(ctx, actor); err != nil {
+		return err
+	}
+	// Domains added before the proxy existed could not be attached then.
+	if doms, err := m.Domains(ctx); err == nil {
+		for _, d := range doms {
+			if d.TargetType == "container" && d.Enabled {
+				// A container that is gone must not stop the install.
+				_ = m.Connect(ctx, actor, d.Target)
+			}
 		}
 	}
 	if _, err := m.run.Run(ctx, actor, "docker", "pull", Image); err != nil {
@@ -265,10 +272,23 @@ func (m *Manager) Remove(ctx context.Context, actor string) error {
 	return err
 }
 
+// ensureNetwork creates the proxy network if it does not exist yet. Domains
+// can be added before the proxy is installed, and the attach must still work.
+func (m *Manager) ensureNetwork(ctx context.Context, actor string) error {
+	if _, err := m.run.Run(ctx, actor, "docker", "network", "inspect", NetworkName); err == nil {
+		return nil
+	}
+	_, err := m.run.Run(ctx, actor, "docker", "network", "create", NetworkName)
+	return err
+}
+
 // Connect attaches a container to the proxy network so Traefik can reach it.
 func (m *Manager) Connect(ctx context.Context, actor, container string) error {
 	res, err := m.run.Run(ctx, actor, "docker", "inspect", "--type", "container", "--format", "{{json .NetworkSettings.Networks}}", container)
 	if err != nil {
+		return err
+	}
+	if err := m.ensureNetwork(ctx, actor); err != nil {
 		return err
 	}
 	var nets map[string]any
