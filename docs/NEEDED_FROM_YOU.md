@@ -4,7 +4,7 @@ Things only the maintainer can do. Everything else keeps moving without them. Ti
 
 ## First: read what happened while you were away
 
-The roadmap is implemented through phase 6 with the exceptions listed at the bottom. 26 commits on `main`, pushed to `isletdev/islet`. Start with `docs/ROADMAP.md` (118 items ticked, 68 open, most of them polish) and `docs/DECISIONS.md` (the calls I made, all reversible).
+Every roadmap item that can be built and checked on this machine is done: 48 commits on `main`, pushed to `isletdev/islet`, CI green on each. `docs/ROADMAP.md` has 189 items ticked and 7 open; all seven wait on you (a test VPS, the Hetzner token, GitHub Pages, the catalog repository, a decision on plugins, CrowdSec on a Linux box). Start with the checklists below, then `docs/DECISIONS.md` for the calls I made, all reversible.
 
 ## Accounts and secrets
 
