@@ -85,18 +85,33 @@ func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
 	for _, site := range sites {
 		for _, h := range site.Hosts {
 			p := proposal{Host: h}
+			// A container upstream becomes a container target, so Islet
+			// attaches it to the proxy network itself instead of relying on
+			// the two proxies sharing one.
+			dom := proxy.Domain{Host: h, TLS: "letsencrypt", Enabled: true}
 			switch {
 			case site.Upstream != "":
 				p.Target = site.Upstream
-				p.Note = "proxied to the same upstream nginx used; the app keeps running, Traefik takes over the domain"
+				dom.TargetType, dom.Target = "url", site.Upstream
+				if name, port, ok := proxy.UpstreamParts(site.Upstream); ok {
+					if _, err := s.docker.Inspect(r.Context(), u.Username, name); err == nil {
+						dom.TargetType, dom.Target, dom.Port = "container", name, port
+						p.Target = name + ":" + strconv.Itoa(port)
+						p.Note = "forwards to the container " + name + "; Islet attaches it to the proxy network when you import"
+					}
+				}
+				if p.Note == "" {
+					p.Note = "proxied to the same upstream nginx used; the app keeps running, Traefik takes over the domain"
+				}
+			case site.RawUp != "":
+				p.Note = "upstream is " + site.RawUp + " and the variables behind it are not in this text; paste the whole file, including the set directives above the server block"
 			case site.Root != "":
 				p.Note = "static site under " + site.Root + ": deploy it as an app (New app, local path) or serve it from a container; not imported"
 			default:
 				p.Note = "no proxy_pass or root; not imported"
 			}
 			if req.Save && p.Target != "" {
-				tls := "letsencrypt"
-				if _, err := s.proxy.Save(r.Context(), u.Username, &proxy.Domain{Host: h, TargetType: "url", Target: p.Target, TLS: tls, Enabled: true}); err == nil {
+				if _, err := s.proxy.Save(r.Context(), u.Username, &dom); err == nil {
 					p.Saved = true
 				} else {
 					p.Note = err.Error()

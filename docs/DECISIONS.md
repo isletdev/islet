@@ -157,3 +157,6 @@ A fresh install has every app and recipe inside the binary, so nothing depends o
 
 ## 2026-09-12 — The docs site is generated from the repository with a 200-line tool
 `tools/docsite` renders the Markdown in the repo with goldmark and one template. No static-site framework, no theme dependencies, no separate docs source of truth: what is in `docs/` is the site.
+
+## 2026-09-12 — The nginx importer resolves Nginx Proxy Manager's variables
+NPM writes `set $server "app";` above `proxy_pass $forward_scheme://$server:$port;`, so a literal read of the config yields nothing usable. The parser now resolves `set` variables inside each server block, and the importer turns an upstream that names a running container into a container target rather than a URL, which makes Islet attach that container to the proxy network itself instead of depending on the two proxies sharing one. Hosts whose variables cannot be resolved are listed with the reason instead of being imported wrong.
