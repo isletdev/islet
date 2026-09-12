@@ -198,7 +198,7 @@ export default function Shell() {
                     <div className="mt-0.5 text-[11px] capitalize text-ink-muted">{user?.role}</div>
                   </div>
                   <Link
-                    to="/settings#account"
+                    to="/settings"
                     role="menuitem"
                     onClick={() => setMenuOpen(false)}
                     className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -232,7 +232,7 @@ export default function Shell() {
             <ShieldAlertIcon className="mt-px h-[18px] w-[18px] shrink-0" />
             <div className="min-w-0 flex-1 text-[13px]">
               <p>{t("shell.2fa")}</p>
-              <Link to="/settings#account" className="mt-1 inline-block font-medium underline underline-offset-2">
+              <Link to="/settings" className="mt-1 inline-block font-medium underline underline-offset-2">
                 {t("shell.2fa.link")}
               </Link>
             </div>

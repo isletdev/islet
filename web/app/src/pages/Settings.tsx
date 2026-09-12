@@ -1,97 +1,98 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
 
-const SECTIONS = [
-  { id: "account", label: "Account" },
-  { id: "team", label: "Team" },
-  { id: "panel", label: "Panel" },
-  { id: "integrations", label: "Integrations" },
-  { id: "activity", label: "Activity" },
+const SECTIONS: { id: string; label: string; description: string; adminOnly?: boolean }[] = [
+  { id: "account", label: "Account", description: "Your sign-in, your sessions and your tokens." },
+  { id: "team", label: "Team", description: "Who can sign in, and what they may do.", adminOnly: true },
+  { id: "panel", label: "Panel", description: "How Islet itself behaves on this server." },
+  { id: "integrations", label: "Integrations", description: "Services Islet talks to on your behalf.", adminOnly: true },
+  { id: "activity", label: "Activity", description: "What has happened on this server." },
 ];
 
 export default function Settings() {
   const { state, refresh } = useAuth();
   const { hash } = useLocation();
-  const scrolled = useRef("");
+  const [params, setParams] = useSearchParams();
 
-  // A link such as /settings#account lands on that section.
+  // A link that still carries the old anchor, such as /settings#account, picks
+  // the matching tab instead of scrolling.
   useEffect(() => {
     const id = hash.replace("#", "");
-    if (!id || scrolled.current === id) return;
-    const el = document.getElementById(id);
-    if (el) { el.scrollIntoView({ block: "start", behavior: "smooth" }); scrolled.current = id; }
-  }, [hash]);
+    if (id && SECTIONS.some((s) => s.id === id)) {
+      setParams({ tab: id }, { replace: true });
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  }, [hash, setParams]);
 
   if (state.status !== "authed") return null;
   const { me } = state;
   const admin = me.user.role === "admin";
-  const shown = SECTIONS.filter((s) => s.id !== "team" || admin);
+  const shown = SECTIONS.filter((s) => !s.adminOnly || admin);
+  const wanted = params.get("tab") ?? "";
+  const tab = shown.some((s) => s.id === wanted) ? wanted : "account";
+  const current = shown.find((s) => s.id === tab)!;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold tracking-[-0.02em]">Settings</h1>
-        <p className="mt-1 text-ink-muted">Signed in as <span className="font-medium text-ink">{me.user.username}</span>, role {me.user.role}.</p>
-        <nav className="mt-4 flex flex-wrap gap-1.5" aria-label="Settings sections">
-          {shown.map((s) => (
-            <a key={s.id} href={`#${s.id}`} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink">{s.label}</a>
-          ))}
-        </nav>
+    <div className="mx-auto max-w-3xl">
+      <h1 className="text-xl font-semibold tracking-[-0.02em]">Settings</h1>
+      <p className="mt-1 text-ink-muted">Signed in as <span className="font-medium text-ink">{me.user.username}</span>, role {me.user.role}.</p>
+
+      <div className="mt-5 flex gap-1 overflow-x-auto border-b border-border text-sm" role="tablist" aria-label="Settings sections">
+        {shown.map((sec) => (
+          <button
+            key={sec.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === sec.id}
+            onClick={() => setParams(sec.id === "account" ? {} : { tab: sec.id })}
+            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 ${tab === sec.id ? "border-ink font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"}`}
+          >
+            {sec.label}
+          </button>
+        ))}
       </div>
 
-      <Section id="account" title="Account" description="Your sign-in, your sessions and your tokens.">
-        <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
-        <ChangePassword />
-        <Sessions currentId={me.sessionId} />
-        <Tokens />
-      </Section>
+      <p className="mt-3 text-xs text-ink-muted">{current.description}</p>
 
-      {admin && (
-        <Section id="team" title="Team" description="Who can sign in, and what they may do.">
+      <div className="mt-4 space-y-4">
+        {tab === "account" && <>
+          <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
+          <ChangePassword />
+          <Sessions currentId={me.sessionId} />
+          <Tokens />
+        </>}
+
+        {tab === "team" && <>
           <Users meId={me.user.id} />
           <SSO />
-        </Section>
-      )}
+        </>}
 
-      <Section id="panel" title="Panel" description="How Islet itself behaves on this server.">
-        <Updates />
-        {admin && <SidebarLinks />}
-        {admin && <LoginAlerts />}
-        {admin && <WeeklyReport />}
-      </Section>
+        {tab === "panel" && <>
+          <Updates />
+          {admin && <SidebarLinks />}
+          {admin && <LoginAlerts />}
+          {admin && <WeeklyReport />}
+        </>}
 
-      {admin && (
-        <Section id="integrations" title="Integrations" description="Services Islet talks to on your behalf.">
+        {tab === "integrations" && <>
           <CatalogSource />
           <Provider />
           <GitHubApp />
           <MCP />
-        </Section>
-      )}
+        </>}
 
-      <Section id="activity" title="Activity" description="What has happened on this server.">
-        <CommandLog />
-        <AuditLog />
-      </Section>
-    </div>
-  );
-}
-
-function Section({ id, title, description, children }: { id: string; title: string; description: string; children: ReactNode }) {
-  return (
-    <section id={id} className="scroll-mt-4 space-y-4">
-      <div className="border-b border-border pb-2">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em]">{title}</h2>
-        <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
+        {tab === "activity" && <>
+          <CommandLog />
+          <AuditLog />
+        </>}
       </div>
-      {children}
-    </section>
+    </div>
   );
 }
 

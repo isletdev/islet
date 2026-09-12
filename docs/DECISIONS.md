@@ -208,3 +208,6 @@ Three things keep it from coming back. `Opening.Commands` is the single place th
 
 ## 2026-09-13 — The panel port is not open to the internet by default
 Only the proxy ports face the world. The panel is the daemon on the host, so it never needs a forward rule, and how far it opens is the one real choice: an explicit range if one is set, otherwise the admin's own address, otherwise closed when a domain already routes to the panel. It falls back to open only when there is no domain and no known address, because closing it then would lock the admin out, and it says so in the output rather than doing it quietly.
+
+## 2026-09-13 — Settings is tabbed, not one long scroll
+Seventeen cards in a single column meant hunting by scrollbar, and the jump links only moved the scroll position rather than reducing what was on screen. Each section is a tab now and only the chosen one renders, so Account shows four cards instead of everything. The tab lives in the URL as `?tab=`, which keeps a link to a section shareable, and an old `#anchor` link selects the matching tab instead of scrolling.
