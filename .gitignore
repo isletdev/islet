@@ -34,3 +34,4 @@ internal/web/dist/assets/
 internal/web/dist/*.png
 internal/web/dist/*.ico
 internal/web/dist/*.webmanifest
+internal/web/dist/theme.js

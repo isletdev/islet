@@ -42,7 +42,7 @@ export default function Logs() {
   const groups = useMemo(() => { const g: Record<string, LogSource[]> = {}; for (const s of sources) (g[s.group] ??= []).push(s); return g; }, [sources]);
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-6xl flex-col gap-3 md:h-[calc(100vh-7rem)]">
+    <div className="mx-auto flex h-full max-w-6xl flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Logs</h1>

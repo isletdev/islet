@@ -183,7 +183,7 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
     try { const saved = await api.jobSave(j); await onSaved(saved); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); }
   };
   const runLint = async () => { const r = await api.cronLint(j.script ?? ""); setLint(r.available ? r.output || "ShellCheck found nothing to report." : "ShellCheck is not installed on this server (apt install shellcheck)."); };
-  const useTemplate = (id: string) => { const t = templates.find((x) => x.id === id); if (t) set({ type: "script", name: j.name || t.name, schedule: t.schedule, script: t.script }); };
+  const applyTemplate = (id: string) => { const t = templates.find((x) => x.id === id); if (t) set({ type: "script", name: j.name || t.name, schedule: t.schedule, script: t.script }); };
   const restore = async (v: number) => { const r = await api.jobVersion(initial.id!, v); set({ script: r.content }); };
   const chain = (j.command ?? "").split(",").filter(Boolean);
   const t = TYPES[j.type ?? "command"];
@@ -230,7 +230,7 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium">Script</span>
             <div className="flex flex-wrap gap-2 text-xs">
-              <select value="" onChange={(e) => e.target.value && useTemplate(e.target.value)} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">Start from a template</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+              <select value="" onChange={(e) => e.target.value && applyTemplate(e.target.value)} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">Start from a template</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
               <select value="" onChange={(e) => { const v = e.target.value.replace("#!", ""); if (v) set({ script: `#!${v}\n` + (j.script ?? "").replace(/^#!.*\n/, "") }); }} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">Shebang</option><option value="#!/usr/bin/env bash">bash</option><option value="#!/bin/sh">sh</option><option value="#!/usr/bin/env python3">python3</option><option value="#!/usr/bin/env node">node</option></select>
               {versions.length > 0 && <select value="" onChange={(e) => e.target.value && void restore(+e.target.value)} className="h-7 rounded-md border border-border-strong bg-bg px-2 text-xs"><option value="">History ({versions.length})</option>{versions.map((v) => <option key={v.id} value={v.id}>{fmt(v.createdAt)} · {v.actor}</option>)}</select>}
               <button type="button" onClick={() => void runLint()} className="text-ink-muted hover:text-ink">ShellCheck</button>

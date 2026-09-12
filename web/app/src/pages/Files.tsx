@@ -106,7 +106,7 @@ export default function Files() {
   const toggleAll = () => setSel(sel.size === shown.length ? new Set() : new Set(shown.map((e) => e.path)));
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-7xl flex-col">
+    <div className="mx-auto flex h-full max-w-7xl flex-col">
       <div className="flex flex-wrap items-center gap-2">
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-sm" aria-label="Path">
           {crumbs(cur).map((c, i, arr) => (

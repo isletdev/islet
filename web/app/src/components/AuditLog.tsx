@@ -20,7 +20,7 @@ export default function AuditLog() {
 
   return (
     <Card title="Audit log" description="Every action taken through Islet, newest first. This list cannot be edited.">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
         <thead className="text-left text-xs text-ink-muted">
           <tr><th className="pb-2 font-medium">When</th><th className="pb-2 font-medium">Actor</th><th className="pb-2 font-medium">Action</th><th className="pb-2 font-medium">Detail</th></tr>
         </thead>
@@ -35,7 +35,7 @@ export default function AuditLog() {
           ))}
           {rows.length === 0 && <tr><td colSpan={4} className="py-2 text-ink-muted">No entries yet.</td></tr>}
         </tbody>
-      </table>
+      </table></div>
       {!done && rows.length > 0 && (
         <div className="mt-3"><Button variant="secondary" disabled={busy} onClick={() => void load(rows[rows.length - 1].id)}>Load older</Button></div>
       )}

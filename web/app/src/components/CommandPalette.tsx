@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { NAV } from "@/nav";
+import { NAV_ICONS } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
 export interface Command {
   id: string;
   label: string;
   hint?: string;
+  icon?: string; // a key in NAV_ICONS
   run: () => void;
+}
+
+const OPEN_EVENT = "islet:palette";
+
+/** Open the palette from anywhere, such as the header's search button. */
+export function openPalette() {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT));
 }
 
 /** Cmd/Ctrl+K palette. Navigation plus a few actions; features register more later. */
@@ -19,7 +28,7 @@ export default function CommandPalette({ extra = [] }: { extra?: Command[] }) {
   const input = useRef<HTMLInputElement>(null);
 
   const commands = useMemo<Command[]>(() => [
-    ...NAV.map((n) => ({ id: `go:${n.path}`, label: `Go to ${t("nav." + n.key)}`, hint: n.ready ? undefined : `planned ${n.phase}`, run: () => nav(n.path) })),
+    ...NAV.map((n) => ({ id: `go:${n.path}`, label: `Go to ${t("nav." + n.key)}`, icon: n.key, hint: n.ready ? undefined : `planned ${n.phase}`, run: () => nav(n.path) })),
     ...extra,
   ], [nav, extra]);
 
@@ -39,8 +48,10 @@ export default function CommandPalette({ extra = [] }: { extra?: Command[] }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setOpen((o) => !o); setQ(""); setIdx(0); }
       if (e.key === "Escape") setOpen(false);
     };
+    const onOpen = () => { setOpen(true); setQ(""); setIdx(0); };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener(OPEN_EVENT, onOpen); };
   }, []);
 
   useEffect(() => { if (open) setTimeout(() => input.current?.focus(), 0); }, [open]);
@@ -76,7 +87,10 @@ export default function CommandPalette({ extra = [] }: { extra?: Command[] }) {
               onClick={() => pick(c)}
               className={`flex cursor-pointer items-center justify-between px-4 py-2 text-sm ${i === idx ? "bg-surface-2 text-ink" : "text-ink-muted"}`}
             >
-              <span>{c.label}</span>
+              <span className="flex min-w-0 items-center gap-2.5">
+                <Glyph name={c.icon} />
+                <span className="truncate">{c.label}</span>
+              </span>
               {c.hint && <span className="font-mono text-[11px] text-ink-faint">{c.hint}</span>}
             </li>
           ))}
@@ -88,4 +102,11 @@ export default function CommandPalette({ extra = [] }: { extra?: Command[] }) {
       </div>
     </div>
   );
+}
+
+/** The icon for a command, or a placeholder so labels stay on one baseline. */
+function Glyph({ name }: { name?: string }) {
+  const Icon = name ? NAV_ICONS[name] : undefined;
+  if (!Icon) return <span className="h-4 w-4 shrink-0" aria-hidden="true" />;
+  return <span className="shrink-0 text-ink-faint"><Icon className="h-4 w-4" /></span>;
 }

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, RequestError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { t, useLang } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { Alert, AuthFrame, Button, Field, Input } from "@/components/ui";
 
 /** After forward-auth sends someone here, go back to the app they wanted, but only within the session cookie domain. */
@@ -17,7 +17,6 @@ async function followNext() {
 }
 
 export default function Login({ mfa = false }: { mfa?: boolean }) {
-  useLang();
   const { refresh, signOut } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

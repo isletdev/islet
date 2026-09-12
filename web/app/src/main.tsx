@@ -4,6 +4,11 @@ import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./lib/auth";
+import { stampTheme } from "./lib/theme";
+
+// theme.js already did this before the first paint; repeating it here keeps the
+// document correct even if that file failed to load.
+stampTheme();
 
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });

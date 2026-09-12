@@ -11,7 +11,7 @@ export default function Embed() {
   if (link === undefined) return <p className="p-6 text-sm text-ink-muted">Loading…</p>;
   if (!link) return <p className="p-6 text-sm text-ink-muted">That sidebar link no longer exists. Manage links in Settings.</p>;
   return (
-    <div className="flex h-[calc(100vh-3rem)] flex-col">
+    <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-1.5 text-xs text-ink-muted">
         <span>{link.label} · <span className="font-mono">{link.url}</span></span>
         <a href={link.url} target="_blank" rel="noreferrer" className="hover:text-ink">Open in a new tab</a>

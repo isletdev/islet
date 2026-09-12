@@ -139,7 +139,7 @@ function Detail() {
     try { await api.containerAction(id, action); await load(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); }
   };
   return (
-    <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-6xl flex-col">
+    <div className="mx-auto flex h-full max-w-6xl flex-col">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link to="/containers" className="text-xs text-ink-muted hover:text-ink">← Containers</Link>

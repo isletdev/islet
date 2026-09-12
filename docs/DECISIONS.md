@@ -177,3 +177,15 @@ A domain routes HTTP; Postgres, MySQL and Redis speak their own protocols on the
 Opening a database in Adminer used to install it silently on an sslip.io host with a Let's Encrypt certificate. That name is shared by everyone using sslip.io, which is one registered domain for rate limiting, so the certificate often would not issue. The first open now asks where Adminer should answer, which certificate it should carry and whether the panel's login should guard it, and warns when the session cookie domain does not cover both hosts. One Adminer serves every database: it joins each instance's network as that database is opened.
 
 The catalog install form no longer offers a domain for database apps. Databases speak their own protocol on their own port, so an HTTP route to them can only fail, and offering the field invited exactly that.
+
+## 2026-09-12 — The theme boot script is a file, because the panel's own CSP blocked it inline
+The panel sends `default-src 'self'` with no `unsafe-inline` for scripts, so the snippet in `index.html` that stamped the saved theme before first paint never ran. The theme therefore followed the operating system on every load and the chosen one only survived until a reload. It moved to `/theme.js`, served from the same origin, and the app stamps again on mount as a fallback. The same rule means no inline script anywhere in the panel will run; put boot code in a file.
+
+## 2026-09-12 — Light or dark, never "follow the system"
+Three states made the header button a riddle: the label had to name a mode, and "System" told nobody what they were looking at. The operating system now only seeds the very first visit; after that the choice is a saved preference and the button is a single icon showing the mode it switches to.
+
+## 2026-09-12 — The panel is English only
+The German and Macedonian dictionaries were machine translated and half complete, and a partly translated control panel is harder to use than an English one. The picker is gone and `t()` reads English directly. The other files stay in `src/locales` for whoever wants to finish one properly.
+
+## 2026-09-12 — The shell holds still; only the page scrolls
+The sidebar and header are fixed panes and the content area is the only scroll container, so navigation and the server's name stay on screen on a long log or a long container list. Pages that fill the viewport ask for `h-full` instead of subtracting header heights from `100vh`, which was wrong whenever a banner appeared.

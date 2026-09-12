@@ -10,10 +10,10 @@
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script>
-      // Apply a saved theme before first paint so there is no flash.
-      try { var t = localStorage.getItem("islet.theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (e) {}
-    </script>
+    <!-- Stamps the saved theme before first paint. A file, not an inline
+         script: the panel's Content-Security-Policy allows scripts only from
+         this origin. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

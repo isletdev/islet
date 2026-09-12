@@ -51,12 +51,12 @@ export default function Sparkline({ points, max, format, height = 56, className 
       >
         <defs>
           <linearGradient id={`${id}-g`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="currentColor" stopOpacity="0.16" />
+            <stop offset="0" stopColor="currentColor" stopOpacity="0.09" />
             <stop offset="1" stopColor="currentColor" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={geo.area} fill={`url(#${id}-g)`} />
-        <path d={geo.d} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        <path d={geo.d} fill="none" stroke="currentColor" strokeWidth="1.75" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
         {hp && (
           <>
             <line x1={geo.x(hp.ts)} x2={geo.x(hp.ts)} y1={0} y2={H} stroke="currentColor" strokeOpacity="0.35" strokeWidth="1" vectorEffect="non-scaling-stroke" />

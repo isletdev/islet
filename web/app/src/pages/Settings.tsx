@@ -1,41 +1,97 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import QRCode from "qrcode";
 import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { t, useLang, setLang, coverage, LANGS } from "@/lib/i18n";
+import { useLocation } from "react-router-dom";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
 
+const SECTIONS = [
+  { id: "account", label: "Account" },
+  { id: "team", label: "Team" },
+  { id: "panel", label: "Panel" },
+  { id: "integrations", label: "Integrations" },
+  { id: "activity", label: "Activity" },
+];
+
 export default function Settings() {
   const { state, refresh } = useAuth();
+  const { hash } = useLocation();
+  const scrolled = useRef("");
+
+  // A link such as /settings#account lands on that section.
+  useEffect(() => {
+    const id = hash.replace("#", "");
+    if (!id || scrolled.current === id) return;
+    const el = document.getElementById(id);
+    if (el) { el.scrollIntoView({ block: "start", behavior: "smooth" }); scrolled.current = id; }
+  }, [hash]);
+
   if (state.status !== "authed") return null;
   const { me } = state;
+  const admin = me.user.role === "admin";
+  const shown = SECTIONS.filter((s) => s.id !== "team" || admin);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <h1 className="text-xl font-semibold tracking-[-0.02em]">Settings</h1>
         <p className="mt-1 text-ink-muted">Signed in as <span className="font-medium text-ink">{me.user.username}</span>, role {me.user.role}.</p>
+        <nav className="mt-4 flex flex-wrap gap-1.5" aria-label="Settings sections">
+          {shown.map((s) => (
+            <a key={s.id} href={`#${s.id}`} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink">{s.label}</a>
+          ))}
+        </nav>
       </div>
-      <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
-      <ChangePassword />
-      <Sessions currentId={me.sessionId} />
-      <Tokens />
-      {me.user.role === "admin" && <Users meId={me.user.id} />}
-      <Updates />
-      {me.user.role === "admin" && <SidebarLinks />}
-      {me.user.role === "admin" && <LoginAlerts />}
-      {me.user.role === "admin" && <WeeklyReport />}
-      {me.user.role === "admin" && <SSO />}
-      <Language />
-      {me.user.role === "admin" && <CatalogSource />}
-      {me.user.role === "admin" && <Provider />}
-      {me.user.role === "admin" && <GitHubApp />}
-      {me.user.role === "admin" && <MCP />}
-      <CommandLog />
-      <AuditLog />
+
+      <Section id="account" title="Account" description="Your sign-in, your sessions and your tokens.">
+        <TwoFactor enabled={me.user.totpEnabled} codesLeft={me.recoveryCodesLeft} onChange={refresh} />
+        <ChangePassword />
+        <Sessions currentId={me.sessionId} />
+        <Tokens />
+      </Section>
+
+      {admin && (
+        <Section id="team" title="Team" description="Who can sign in, and what they may do.">
+          <Users meId={me.user.id} />
+          <SSO />
+        </Section>
+      )}
+
+      <Section id="panel" title="Panel" description="How Islet itself behaves on this server.">
+        <Updates />
+        {admin && <SidebarLinks />}
+        {admin && <LoginAlerts />}
+        {admin && <WeeklyReport />}
+      </Section>
+
+      {admin && (
+        <Section id="integrations" title="Integrations" description="Services Islet talks to on your behalf.">
+          <CatalogSource />
+          <Provider />
+          <GitHubApp />
+          <MCP />
+        </Section>
+      )}
+
+      <Section id="activity" title="Activity" description="What has happened on this server.">
+        <CommandLog />
+        <AuditLog />
+      </Section>
     </div>
+  );
+}
+
+function Section({ id, title, description, children }: { id: string; title: string; description: string; children: ReactNode }) {
+  return (
+    <section id={id} className="scroll-mt-4 space-y-4">
+      <div className="border-b border-border pb-2">
+        <h2 className="text-[15px] font-semibold tracking-[-0.01em]">{title}</h2>
+        <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -314,17 +370,6 @@ function SSO() {
         <Button type="submit" className="h-9">Save</Button>
         {msg && <span className="text-xs text-ink-muted">{msg}</span>}
       </form>
-    </Card>
-  );
-}
-
-function Language() {
-  const lang = useLang();
-  return (
-    <Card title={t("settings.language")} description={t("settings.language.desc")}>
-      <div className="flex flex-wrap gap-2">
-        {LANGS.map((l) => <button key={l.code} type="button" onClick={() => setLang(l.code)} className={`rounded-md border px-3 py-1.5 text-sm ${lang === l.code ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted hover:text-ink"}`}>{l.label} <span className="ml-1 text-[11px] opacity-70">{t("settings.language.coverage", { pct: coverage(l.code) })}</span></button>)}
-      </div>
     </Card>
   );
 }

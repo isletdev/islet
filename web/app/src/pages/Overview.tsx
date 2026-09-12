@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { t, useLang } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { api, type HostInfo, type Point, type Process, type Port, type Sample } from "@/lib/api";
 import { bytes, duration, pct, rate } from "@/lib/format";
 import Sparkline, { type SparkPoint } from "@/components/Sparkline";
@@ -12,7 +12,6 @@ import { Link } from "react-router-dom";
 type Range = "1h" | "6h" | "24h" | "7d";
 
 export default function Overview() {
-  useLang();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [latest, setLatest] = useState<Sample | null>(null);
@@ -115,7 +114,7 @@ export default function Overview() {
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Card title={t("overview.processes")} description={t("overview.processes.desc")}>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
             <thead className="text-left text-xs text-ink-muted">
               <tr><th className="pb-2 font-medium">Process</th><th className="pb-2 font-medium">User</th><th className="pb-2 text-right font-medium">CPU</th><th className="pb-2 text-right font-medium">Memory</th></tr>
             </thead>
@@ -130,10 +129,10 @@ export default function Overview() {
               ))}
               {procs.length === 0 && <tr><td colSpan={4} className="py-2 text-ink-muted">Reading processes…</td></tr>}
             </tbody>
-          </table>
+          </table></div>
         </Card>
         <Card title="Listening ports" description="Sockets accepting connections on this server.">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[360px] text-sm">
             <thead className="text-left text-xs text-ink-muted">
               <tr><th className="pb-2 font-medium">Port</th><th className="pb-2 font-medium">Address</th><th className="pb-2 font-medium">Process</th></tr>
             </thead>
@@ -147,7 +146,7 @@ export default function Overview() {
               ))}
               {ports.length === 0 && <tr><td colSpan={3} className="py-2 text-ink-muted">Reading sockets…</td></tr>}
             </tbody>
-          </table>
+          </table></div>
         </Card>
       </div>
 
