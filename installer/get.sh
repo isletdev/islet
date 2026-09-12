@@ -1,5 +1,7 @@
 #!/bin/sh
-# Islet installer. Usage:  curl -fsSL https://get.islet.dev | sh
+# Islet installer. Usage:
+#   curl -fsSL https://raw.githubusercontent.com/isletdev/islet/main/installer/get.sh | sh
+#   curl -fsSL https://get.islet.dev | sh      (once the domain is live)
 #
 # What it does, in order, and nothing else:
 #   1. Checks it runs as root on a supported Linux (Ubuntu 22.04+, Debian 12+), x86_64 or arm64.
