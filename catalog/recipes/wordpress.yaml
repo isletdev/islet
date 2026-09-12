@@ -1,0 +1,13 @@
+name: WordPress
+slug: wordpress
+category: cms
+description: WordPress with MariaDB from the catalog, a domain with HTTPS, an uptime check and a nightly backup of files and database.
+time: 5 min
+inputs:
+  - { key: name, label: Site name, default: blog }
+  - { key: domain, label: Domain, type: domain, optional: true }
+steps:
+  - { type: install, slug: wordpress, as: wp, name: "{{name}}", domain: "{{domain}}", label: "Install WordPress and MariaDB as {{name}}" }
+  - { type: uptime, name: "{{name}}", target: "{{wp.url}}" }
+  - { type: backup, sources: ["volume:{{name}}_html", "volume:{{name}}_db", islet], optional: true }
+done: "Open {{wp.url}} to run the WordPress installer. Turn on the www redirect and a rate limit on the Domains page if the site is public."

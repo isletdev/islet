@@ -5,7 +5,8 @@ package catalog
 
 import "embed"
 
-// FS holds apps/<slug>/islet.yaml and apps/<slug>/compose.yaml.
+// FS holds apps/<slug>/islet.yaml, apps/<slug>/compose.yaml and
+// recipes/<slug>.yaml (multi-step wizards).
 //
-//go:embed apps/*/islet.yaml apps/*/compose.yaml
+//go:embed apps/*/islet.yaml apps/*/compose.yaml recipes/*.yaml
 var FS embed.FS

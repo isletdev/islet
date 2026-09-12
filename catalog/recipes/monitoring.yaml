@@ -1,0 +1,12 @@
+name: Monitoring for a public site
+slug: monitoring
+category: operations
+description: An uptime check with keyword verification for a site you run anywhere; alerts go to your channels and the weekly report. No containers involved.
+time: 2 min
+inputs:
+  - { key: name, label: Name, default: site }
+  - { key: url, label: URL to watch, type: url, default: "https://example.com" }
+  - { key: keyword, label: Text that must appear, optional: true, hint: Catches a 200 that shows an error page. }
+steps:
+  - { type: uptime, name: "{{name}}", target: "{{url}}", keyword: "{{keyword}}" }
+done: "Checks run every minute from this server."

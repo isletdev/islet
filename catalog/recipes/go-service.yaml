@@ -1,0 +1,17 @@
+name: Go service
+slug: go-service
+category: api
+description: A Go HTTP service from Git, built in a multi-stage image, listening on PORT, with a domain and uptime check.
+time: 5 min
+inputs:
+  - { key: name, label: Service name, default: svc }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: health, label: Health check path, default: /health }
+steps:
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", strategy: go, port: "8080", healthPath: "{{health}}" }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app, target: "{{app.url}}{{health}}" }
+done: "Open {{app.url}}."

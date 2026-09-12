@@ -1,0 +1,19 @@
+name: Next.js with Postgres
+slug: nextjs-postgres
+category: web app
+description: A Next.js (or any Node) app from Git, a Postgres database with its URL injected, a domain with HTTPS, an uptime check and a nightly backup plan.
+time: 10 min
+inputs:
+  - { key: name, label: App name, default: shop, hint: "Lowercase; becomes the container and database name." }
+  - { key: repo, label: Repository URL, type: url, hint: "https://github.com/org/repo (private: https://user:token@…)" }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true, hint: Leave empty for a free preview host. }
+  - { key: migrate, label: Migration command, default: npx prisma migrate deploy, optional: true, hint: Runs in the new image before traffic switches. }
+steps:
+  - { type: database, engine: postgres, as: db, label: "Postgres instance {{name}}-postgres with database {{name}}" }
+  - { type: app, as: app, label: "App {{name}} from {{repo}}", repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", env: "DATABASE_URL={{db.url}}", predeploy: "{{migrate}}", volumes: /app/.next/cache }
+  - { type: deploy, app: app, label: First deploy }
+  - { type: uptime, app: app, label: Uptime check on the domain }
+  - { type: backup, sources: ["database:{{db.instance}}", islet], label: Nightly backup plan, optional: true }
+done: "Open {{app.url}}. Add NEXT_PUBLIC_* variables in the app settings; they are baked in at build time."

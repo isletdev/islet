@@ -86,6 +86,7 @@ export interface Domain { id: string; host: string; targetType: "container" | "p
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
+export interface Recipe { name: string; slug: string; category: string; description: string; time: string; inputs: { key: string; label: string; type?: string; default?: string; hint?: string; optional?: boolean; options?: string }[]; steps: { type: string; label?: string }[]; done: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
 
 export interface Channel { id: string; type: string; name: string; config?: Record<string, string>; categories: string; minSeverity: "info" | "warning" | "critical"; quietFrom: string; quietTo: string; digest?: string; subjects?: string; enabled: boolean; createdAt: string }
@@ -250,6 +251,7 @@ export const api = {
   weeklyReportSend: () => post<{ body: string }>("/api/v1/report/weekly/send"),
   mcp: () => request<{ enabled: boolean; url: string }>("/api/v1/mcp"),
   mcpSet: (enabled: boolean) => post<{ enabled: boolean }>("/api/v1/mcp", { enabled }),
+  recipes: () => request<Recipe[]>("/api/v1/recipes"),
   installedApps: () => request<InstalledApp[]>("/api/v1/catalog/installed"),
   envGroups: () => request<{ name: string; keys: string[]; env?: string }[]>("/api/v1/apps/env-groups"),
   envGroupSave: (name: string, env: string) => post<void>("/api/v1/apps/env-groups", { name, env }),

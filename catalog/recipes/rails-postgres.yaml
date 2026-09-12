@@ -1,0 +1,19 @@
+name: Rails with Postgres
+slug: rails-postgres
+category: web app
+description: A Rails app with assets precompiled at build time, Puma on 3000, Postgres via DATABASE_URL, migrations before each release, a Solid Queue worker, domain, uptime and backups.
+time: 10 min
+inputs:
+  - { key: name, label: App name, default: app }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: secret, label: SECRET_KEY_BASE, type: secret, hint: "bin/rails secret" }
+steps:
+  - { type: database, engine: postgres, as: db }
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", strategy: ruby, env: "DATABASE_URL={{db.url}}\nSECRET_KEY_BASE={{secret}}\nRAILS_ENV=production\nRAILS_SERVE_STATIC_FILES=1\nRAILS_LOG_TO_STDOUT=1", predeploy: bin/rails db:migrate, healthPath: /up, processes: "jobs: bin/jobs" }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app, target: "{{app.url}}/up" }
+  - { type: backup, sources: ["database:{{db.instance}}", islet], optional: true }
+done: "Open {{app.url}}."

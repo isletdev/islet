@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	catalogFS "github.com/isletdev/islet/catalog"
 	"log/slog"
 	"net"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
+	"github.com/isletdev/islet/internal/recipes"
 	"github.com/isletdev/islet/internal/runner"
 	"github.com/isletdev/islet/internal/security"
 	"github.com/isletdev/islet/internal/store"
@@ -72,6 +74,7 @@ type Server struct {
 	runner   *cmdrun.Runner
 	proxy    *proxy.Manager
 	catalog  *catalog.Service
+	recipes  *recipes.Engine
 	notify   *notify.Bus
 	cron     *cron.Service
 	db       *db.Service
@@ -90,6 +93,7 @@ type Server struct {
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s.recipes = recipes.New(catalogFS.FS, s.recipeHooks())
 	s.loadCookieDomain()
 	s.StartWeeklyReport(context.Background())
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
@@ -185,6 +189,8 @@ func New(d Deps) http.Handler {
 
 	// Catalog
 	mux.HandleFunc("GET /api/v1/catalog", s.requireAuth(s.handleCatalog))
+	mux.HandleFunc("GET /api/v1/recipes", s.requireAuth(s.handleRecipes))
+	mux.HandleFunc("POST /api/v1/recipes/{slug}/run", requireJSON(s.requireAuth(s.handleRecipeRun)))
 	mux.HandleFunc("GET /api/v1/catalog/installed", s.requireAuth(s.handleInstalledApps))
 	mux.HandleFunc("GET /api/v1/catalog/installed/updates", s.requireAuth(s.handleInstalledUpdates))
 	mux.HandleFunc("POST /api/v1/catalog/installed/{name}/update", requireJSON(s.requireAuth(s.handleInstalledUpdate)))

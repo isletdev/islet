@@ -101,9 +101,9 @@ After this phase a user can: point a domain at any container, get a certificate 
 - [x] Update checks for installed catalog apps with digest diff and a one-click update
 
 **Recipes**
-- [ ] Recipe engine: multi-step wizards with progress and rollback
+- [x] Recipe engine: multi-step wizards with progress and rollback (`internal/recipes`, YAML in `catalog/recipes`)
 - [x] First recipes as guides in `docs/recipes/`: static site, Docker image, WordPress
-- [ ] Recipes as in-panel wizards
+- [x] Recipes as in-panel wizards (Apps → Recipes: ten wizards)
 
 **Not in this phase:** git-based deploys, databases as first-class objects.
 
@@ -315,7 +315,7 @@ After this phase a user can: adopt a server that already runs things, extend the
 **Guides and content**
 - [x] Inline "Why this matters" on every security and infra toggle (each check carries its reason)
 - [x] Teaching empty states across the app
-- [ ] 15 recipes total, docs site generated from the repo, screencasts for the top five flows
+- [ ] 15 recipes total (done: 15 guides, 10 wizards), docs site generated from the repo (needs GitHub Pages), screencasts for the top five flows
 - [x] Weekly "your server this week" email report
 
 **Quality**

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from "re
 import { Link, useSearchParams } from "react-router-dom";
 
 const Deploys = lazy(() => import("./Deploys"));
+const RecipesPage = lazy(() => import("./Recipes"));
 import { api, RequestError, type CatalogApp, type InstalledApp } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { postStream } from "@/lib/stream";
@@ -19,7 +20,7 @@ export default function Apps() {
   const [updates, setUpdates] = useState<Record<string, string[]>>({});
   const [updating, setUpdating] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "catalog" ? "catalog" : "deploys";
+  const tab = params.get("tab") === "catalog" ? "catalog" : params.get("tab") === "recipes" ? "recipes" : "deploys";
 
   const load = () => Promise.all([api.catalog(), api.installedApps()]).then(([a, i]) => { setApps(a); setInstalled(i); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e)));
   useEffect(() => { void load(); void api.installedUpdates().then(setUpdates).catch(() => {}); }, []);
@@ -34,9 +35,10 @@ export default function Apps() {
         <p className="mt-1 text-ink-muted">Deploy your own code from Git, or install one-click apps from the catalog.</p>
       </div>
       <div className="flex gap-1 border-b border-border text-sm">
-        {(["deploys", "catalog"] as const).map((t) => <button key={t} type="button" onClick={() => setParams(t === "deploys" ? {} : { tab: t })} className={`-mb-px border-b-2 px-3 py-2 ${tab === t ? "border-ink font-medium" : "border-transparent text-ink-muted hover:text-ink"}`}>{t === "deploys" ? "Your apps" : "Catalog"}</button>)}
+        {(["deploys", "catalog", "recipes"] as const).map((t) => <button key={t} type="button" onClick={() => setParams(t === "deploys" ? {} : { tab: t })} className={`-mb-px border-b-2 px-3 py-2 ${tab === t ? "border-ink font-medium" : "border-transparent text-ink-muted hover:text-ink"}`}>{t === "deploys" ? "Your apps" : t === "catalog" ? "Catalog" : "Recipes"}</button>)}
       </div>
       {tab === "deploys" && <Suspense fallback={<p className="text-sm text-ink-muted">Loading…</p>}><Deploys /></Suspense>}
+      {tab === "recipes" && <Suspense fallback={<p className="text-sm text-ink-muted">Loading…</p>}><RecipesPage /></Suspense>}
       {tab === "catalog" && <>
       {err && <Alert>{err}</Alert>}
 

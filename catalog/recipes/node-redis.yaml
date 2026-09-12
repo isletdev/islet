@@ -1,0 +1,18 @@
+name: Node API with Redis
+slug: node-redis
+category: api
+description: A Node service from Git with a Redis instance (REDIS_URL injected), a domain and an uptime check on its health path.
+time: 5 min
+inputs:
+  - { key: name, label: App name, default: api }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: health, label: Health check path, default: /health }
+steps:
+  - { type: database, engine: redis, as: cache, label: "Redis instance {{name}}-redis" }
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", env: "REDIS_URL={{cache.url}}", healthPath: "{{health}}" }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app, target: "{{app.url}}{{health}}" }
+done: "Open {{app.url}}. Redis is reachable from the app as REDIS_URL."

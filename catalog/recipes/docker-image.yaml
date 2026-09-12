@@ -1,0 +1,16 @@
+name: Docker image with a domain
+slug: docker-image
+category: web app
+description: Run any public or private image behind HTTPS with health checks and an uptime check; new digests create new releases.
+time: 3 min
+inputs:
+  - { key: name, label: Name, default: app }
+  - { key: image, label: Image, default: "traefik/whoami:v1.10", hint: "ghcr.io/org/app:1.2" }
+  - { key: port, label: Port the container listens on, default: "80" }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: env, label: Environment variables, optional: true, hint: KEY=VALUE lines }
+steps:
+  - { type: app, as: app, source: image, image: "{{image}}", port: "{{port}}", domain: "{{domain}}", env: "{{env}}" }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app }
+done: "Open {{app.url}}. Redeploy pulls the tag again; a changed digest becomes a new release you can roll back."

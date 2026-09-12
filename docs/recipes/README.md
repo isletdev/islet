@@ -1,6 +1,6 @@
 # Recipes
 
-Short, ordered guides for the setups people ask about most. Each one uses only what the panel already does; nothing here needs SSH.
+Short, ordered guides for the setups people ask about most. Each one uses only what the panel already does; nothing here needs SSH. Most of them also exist as one-form wizards under Apps → Recipes, which create everything and undo it on failure.
 
 | Recipe | Time |
 |---|---|
@@ -15,3 +15,7 @@ Short, ordered guides for the setups people ask about most. Each one uses only w
 | [WordPress with a domain](wordpress-with-a-domain.md) | 5 min |
 | [Harden a fresh server](harden-a-fresh-server.md) | 10 min |
 | [Nightly backups off-site](nightly-backups-off-site.md) | 5 min |
+| [Umami analytics](umami-analytics.md) | 3 min |
+| [n8n automation](n8n-automation.md) | 3 min |
+| [Gitea with CI runners](gitea-with-runners.md) | 10 min |
+| [Vaultwarden password manager](vaultwarden.md) | 5 min |

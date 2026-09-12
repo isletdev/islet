@@ -1,0 +1,16 @@
+name: Static site
+slug: static-site
+category: web app
+description: Any static site or SPA from Git (Vite, Astro, Hugo, plain HTML) built and served by nginx behind HTTPS, with an uptime check.
+time: 3 min
+inputs:
+  - { key: name, label: Site name, default: site }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+steps:
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", strategy: auto }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app }
+done: "Open {{app.url}}. Redirect rules go in a _redirects file at the site root."

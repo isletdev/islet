@@ -121,3 +121,6 @@ A dump from a snapshot is restored to disk, a fresh engine is installed from the
 
 ## 2026-09-12 — DCO instead of a CLA, two signatures on releases
 Contributors keep their copyright and sign off commits (Developer Certificate of Origin), checked by a small workflow rather than a bot that needs installing. Releases carry Islet's own Ed25519 signature (what the updater checks) plus a keyless cosign signature and SLSA provenance, so anyone can verify a download with standard tools even if they distrust the embedded key.
+
+## 2026-09-12 — Recipes are declarative YAML run by a small engine with undo
+A recipe is inputs plus a list of typed steps (database, app, deploy, install, uptime, cron, backup) with `{{templates}}` for inputs and earlier outputs. The engine streams progress and keeps an undo list; a failed step removes everything the run created, in reverse order, so a half-finished setup never lingers. Steps call the same service methods as the API, so a wizard can do nothing the user could not do by hand.

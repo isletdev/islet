@@ -387,3 +387,7 @@ paths:
     get: { tags: [Backups], summary: The rest-server this panel hosts for other Islet servers (admin), responses: { "200": { description: OK } } }
     post: { tags: [Backups], summary: Host an append-only restic rest-server behind a domain (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { domain: { type: string }, tls: { type: string } } } } } }, responses: { "200": { description: "{ domain, user, password, url }" } } }
     delete: { tags: [Backups], summary: Stop hosting (repositories stay in the volume), responses: { "204": { description: Done } } }
+  /api/v1/recipes:
+    get: { tags: [Apps], summary: Guided setups (wizards) with their inputs and steps, responses: { "200": { description: OK } } }
+  /api/v1/recipes/{slug}/run:
+    post: { tags: [Apps], summary: Run a recipe with the given inputs; streams progress and undoes everything on failure (admin), parameters: [{ name: slug, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, additionalProperties: { type: string } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }

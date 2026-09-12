@@ -1,0 +1,20 @@
+name: Laravel with MySQL
+slug: laravel-mysql
+category: web app
+description: A Laravel app served by nginx and PHP-FPM, MySQL with DB_URL set, migrations before each release, a queue worker and the scheduler, domain, uptime and backups.
+time: 10 min
+inputs:
+  - { key: name, label: App name, default: shop }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: appkey, label: APP_KEY, type: secret, hint: "php artisan key:generate --show" }
+steps:
+  - { type: database, engine: mysql, as: db }
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", strategy: php, env: "APP_KEY={{appkey}}\nAPP_ENV=production\nAPP_URL=https://{{domain}}\nDB_URL={{db.url}}\nDB_CONNECTION=mysql", predeploy: php artisan migrate --force, processes: "worker: php artisan queue:work --tries=3" }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app }
+  - { type: cron, name: "{{name}}-schedule", schedule: "* * * * *", container: "{{app.container}}", command: php artisan schedule:run, label: Laravel scheduler every minute, optional: true }
+  - { type: backup, sources: ["database:{{db.instance}}", islet], optional: true }
+done: "Open {{app.url}}. Laravel reads DB_URL; add mail and cache settings in the app environment."

@@ -1,0 +1,19 @@
+name: Django with Postgres
+slug: django-postgres
+category: web app
+description: A Django project served by gunicorn, Postgres with DATABASE_URL, migrations before every release, a domain, uptime and backups.
+time: 10 min
+inputs:
+  - { key: name, label: App name, default: site }
+  - { key: repo, label: Repository URL, type: url }
+  - { key: branch, label: Branch, default: main }
+  - { key: rootDir, label: Root directory, optional: true, hint: For monorepos, e.g. apps/web. }
+  - { key: domain, label: Domain, type: domain, optional: true }
+  - { key: secret, label: SECRET_KEY, type: secret, optional: true, hint: Generated when empty. }
+steps:
+  - { type: database, engine: postgres, as: db }
+  - { type: app, as: app, repo: "{{repo}}", branch: "{{branch}}", rootDir: "{{rootDir}}", domain: "{{domain}}", env: "DATABASE_URL={{db.url}}\nSECRET_KEY={{secret}}\nDEBUG=0\nALLOWED_HOSTS={{domain}}\nCSRF_TRUSTED_ORIGINS=https://{{domain}}", predeploy: python manage.py migrate --noinput }
+  - { type: deploy, app: app }
+  - { type: uptime, app: app }
+  - { type: backup, sources: ["database:{{db.instance}}", islet], optional: true }
+done: "Open {{app.url}}. Create the first admin with python manage.py createsuperuser from the container terminal."
