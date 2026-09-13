@@ -25,8 +25,21 @@ server {
 	if len(sites) != 2 {
 		t.Fatalf("got %d sites: %+v", len(sites), sites)
 	}
-	if sites[1].Upstream != "http://127.0.0.1:3000" || !sites[1].TLS || sites[1].Root != "/var/www/site" || len(sites[1].Hosts) != 2 {
+	// The /api block forwards and the / block serves files. Reading the first
+	// proxy_pass as the site's own target, which is what this used to do,
+	// turned a mostly-static site into one that sends everything to :3000.
+	if sites[1].Upstream != "" || !sites[1].TLS || sites[1].Root != "/var/www/site" || len(sites[1].Hosts) != 2 {
 		t.Errorf("second site wrong: %+v", sites[1])
+	}
+	if len(sites[1].Locations) != 1 {
+		t.Fatalf("want one location, got %+v", sites[1].Locations)
+	}
+	// proxy_pass ends in a slash, so nginx sends /api/things on as /things.
+	if l := sites[1].Locations[0]; l.Path != "/api" || l.Upstream != "http://127.0.0.1:3000" || !l.StripPath {
+		t.Errorf("location wrong: %+v", l)
+	}
+	if sites[1].NoRoot {
+		t.Error("the root is served from a directory, so it is not rootless")
 	}
 	if sites[0].TLS || sites[0].Upstream != "" {
 		t.Errorf("first site wrong: %+v", sites[0])

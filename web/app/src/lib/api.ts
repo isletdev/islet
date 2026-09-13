@@ -90,7 +90,24 @@ export interface FileEntry { name: string; path: string; isDir: boolean; size: n
 export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
 
 export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string; needsRestart?: boolean }
-export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; enabled: boolean; createdAt: string; updatedAt: string }
+export type TargetType = "container" | "panel" | "url";
+/** One extra path on a host, forwarded somewhere of its own. */
+export interface DomainLocation { id?: string; path: string; targetType: TargetType; target: string; port: number; stripPath: boolean }
+export interface Domain { id: string; host: string; targetType: TargetType; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "letsencrypt-dns" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; enabled: boolean; locations?: DomainLocation[]; createdAt: string; updatedAt: string }
+/** One host found in another proxy's configuration. */
+export interface FoundSite {
+  hosts: string[]; upstream: string; root: string; rawUpstream?: string; tls: boolean; file: string; source?: string;
+  locations?: { path: string; upstream: string; rawUpstream?: string; stripPath?: boolean }[];
+  noRoot?: boolean; skipped?: string[];
+}
+export interface FoundProxy { source: string; files: string[]; sites: FoundSite[] }
+/** What importing one host would do, before anything is written. */
+export interface ImportProposal {
+  host: string; target: string; note: string; source?: string; file?: string; saved: boolean;
+  locations?: { path: string; target: string; stripPath: boolean; note?: string }[];
+  skipped?: string[];
+}
+
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; proxiedBy?: string; suggestion: string }
 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
@@ -424,9 +441,9 @@ export const api = {
   cronLint: (script: string) => post<{ available: boolean; output: string }>("/api/v1/cron/lint", { script }),
   cronImport: (text: string, save: boolean, source = "crontab") => post<Job[]>("/api/v1/cron/import", { text, save, source }),
   /** Everything a known reverse proxy is already serving on this server. */
-  importScan: () => request<{ found: { source: string; files: string[]; sites: { hosts: string[]; upstream: string; root: string; rawUpstream?: string; tls: boolean; file: string; source?: string }[] }[] }>("/api/v1/domains/import/scan"),
+  importScan: () => request<{ found: FoundProxy[] }>("/api/v1/domains/import/scan"),
   importSites: (b: { text: string; save: boolean; hosts?: string[] }) =>
-    post<{ host: string; target: string; note: string; source?: string; file?: string; saved: boolean }[]>("/api/v1/domains/import", { text: b.text, save: b.save, hosts: b.hosts ?? [] }),
+    post<ImportProposal[]>("/api/v1/domains/import", { text: b.text, save: b.save, hosts: b.hosts ?? [] }),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),

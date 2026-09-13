@@ -37,6 +37,10 @@ interface Proposal {
   note: string;
   source?: string;
   file?: string;
+  /** Extra paths on this host, each going somewhere of its own. */
+  locations?: { path: string; target: string; stripPath: boolean; note?: string }[];
+  /** Parts that were found and cannot be translated. Shown, never dropped. */
+  skipped?: string[];
   saved: boolean;
 }
 
@@ -237,8 +241,32 @@ export default function DomainImport() {
                       {p.host}
                       {p.source && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">{p.source}</span>}
                     </td>
-                    <td className="py-2 font-mono text-xs text-ink-muted">{p.target || "—"}</td>
-                    <td className="max-w-[40ch] py-2 pr-4 text-xs text-ink-muted">{p.note}</td>
+                    <td className="py-2 font-mono text-xs text-ink-muted">
+                      <span className="block">{p.target || "—"}</span>
+                      {/* Locations come across with the host, so they belong
+                          on its row rather than in a place you have to go and
+                          look. Seeing them is how somebody knows the import
+                          understood their setup. */}
+                      {(p.locations ?? []).map((l) => (
+                        <span key={l.path} className="mt-0.5 block">
+                          <span className="text-ink-faint">{l.path}</span>
+                          {" → "}
+                          {l.target || <span className="text-warning">?</span>}
+                          {l.stripPath && <span className="ml-1 text-ink-faint" title="The path is removed before forwarding">(stripped)</span>}
+                        </span>
+                      ))}
+                    </td>
+                    <td className="max-w-[40ch] py-2 pr-4 text-xs text-ink-muted">
+                      {p.note}
+                      {(p.locations ?? []).filter((l) => l.note).map((l) => (
+                        <span key={l.path} className="mt-0.5 block text-warning">{l.path}: {l.note}</span>
+                      ))}
+                      {(p.skipped ?? []).length > 0 && (
+                        <span className="mt-0.5 block text-warning">
+                          Not imported, because Islet has no equivalent: {(p.skipped ?? []).join(", ")}. Recreate these by hand if you need them.
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

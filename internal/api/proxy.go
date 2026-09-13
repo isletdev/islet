@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -99,13 +100,37 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	for _, h := range req.Hosts {
 		wanted[strings.ToLower(strings.TrimSpace(h))] = true
 	}
+	type proposalLocation struct {
+		Path      string `json:"path"`
+		Target    string `json:"target"`
+		StripPath bool   `json:"stripPath"`
+		Note      string `json:"note,omitempty"`
+	}
 	type proposal struct {
-		Host   string `json:"host"`
-		Target string `json:"target"`
-		Note   string `json:"note"`
-		Source string `json:"source,omitempty"`
-		File   string `json:"file,omitempty"`
-		Saved  bool   `json:"saved"`
+		Host      string             `json:"host"`
+		Target    string             `json:"target"`
+		Note      string             `json:"note"`
+		Source    string             `json:"source,omitempty"`
+		File      string             `json:"file,omitempty"`
+		Locations []proposalLocation `json:"locations,omitempty"`
+		// Skipped names the parts of this host that were found and could not
+		// be translated. Saying so is the point: an import that drops a path
+		// in silence looks complete and is not.
+		Skipped []string `json:"skipped,omitempty"`
+		Saved   bool     `json:"saved"`
+	}
+
+	// resolve turns an upstream into the best target Islet can express. A
+	// container by that name becomes a container target, so Islet attaches it
+	// to the proxy network itself rather than relying on the two proxies
+	// happening to share one.
+	resolve := func(upstream string) (kind, target string, port int, label string, container bool) {
+		if name, p, ok := proxy.UpstreamParts(upstream); ok {
+			if _, err := s.docker.Inspect(r.Context(), u.Username, name); err == nil {
+				return "container", name, p, name + ":" + strconv.Itoa(p), true
+			}
+		}
+		return "url", upstream, 0, upstream, false
 	}
 	out := []proposal{}
 	for _, site := range sites {
@@ -115,24 +140,64 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			// attaches it to the proxy network itself instead of relying on
 			// the two proxies sharing one.
 			dom := proxy.Domain{Host: h, TLS: "letsencrypt", Enabled: true}
-			switch {
-			case site.Upstream != "":
-				p.Target = site.Upstream
-				dom.TargetType, dom.Target = "url", site.Upstream
-				if name, port, ok := proxy.UpstreamParts(site.Upstream); ok {
-					if _, err := s.docker.Inspect(r.Context(), u.Username, name); err == nil {
-						dom.TargetType, dom.Target, dom.Port = "container", name, port
-						p.Target = name + ":" + strconv.Itoa(port)
-						p.Note = "forwards to the container " + name + "; Islet attaches it to the proxy network when you import"
+			p.Skipped = site.Skipped
+
+			// Locations first: one of them may have to stand in as the root.
+			locs := site.Locations
+			root := site.Upstream
+			rootNote := ""
+			if root == "" && site.NoRoot && len(locs) > 0 {
+				// Nothing served the root there either. The shortest path is
+				// the closest thing to a root, and taking it keeps the host
+				// answering instead of returning 404 at the top.
+				pick := 0
+				for i := range locs {
+					if len(locs[i].Path) < len(locs[pick].Path) {
+						pick = i
 					}
 				}
-				if p.Note == "" {
+				root = locs[pick].Upstream
+				rootNote = "nothing served / there, so " + locs[pick].Path + " stands in as the root; change it after importing if that is wrong"
+				locs = append(append([]proxy.SiteLocation{}, locs[:pick]...), locs[pick+1:]...)
+			}
+			for _, l := range locs {
+				pl := proposalLocation{Path: l.Path, StripPath: l.StripPath}
+				if l.Upstream == "" {
+					pl.Note = "the upstream is " + l.RawUp + " and the lines that define it are not in this text"
+					p.Locations = append(p.Locations, pl)
+					continue
+				}
+				kind, target, port, label, _ := resolve(l.Upstream)
+				pl.Target = label
+				p.Locations = append(p.Locations, pl)
+				dom.Locations = append(dom.Locations, proxy.Location{
+					Path: l.Path, TargetType: kind, Target: target, Port: port, StripPath: l.StripPath,
+				})
+			}
+
+			switch {
+			case root != "":
+				kind, target, port, label, container := resolve(root)
+				dom.TargetType, dom.Target, dom.Port = kind, target, port
+				p.Target = label
+				if container {
+					p.Note = "forwards to the container " + target + "; Islet attaches it to the proxy network when you import"
+				} else {
 					p.Note = "proxied to the same place " + sourceName(site.Source) + " sends it; the app keeps running and Traefik takes over the domain"
+				}
+				if rootNote != "" {
+					p.Note = rootNote
+				}
+				if n := len(dom.Locations); n > 0 {
+					p.Note += fmt.Sprintf(". %d custom location(s) come across with it", n)
 				}
 			case site.RawUp != "":
 				p.Note = "the upstream is " + site.RawUp + " and the variables behind it are not in this text; paste the whole file, including the lines that define them"
 			case site.Root != "":
 				p.Note = "static site under " + site.Root + ": deploy it as an app (New app, local path) or serve it from a container; not imported"
+				if len(p.Locations) > 0 {
+					p.Note += ". Its " + strconv.Itoa(len(p.Locations)) + " forwarded path(s) cannot come across on their own, because nothing would answer the root"
+				}
 			default:
 				p.Note = "no proxy_pass or root; not imported"
 			}

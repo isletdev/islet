@@ -35,6 +35,28 @@ type Site struct {
 	File     string   `json:"file"`
 	// Source is the software whose configuration this came out of.
 	Source string `json:"source,omitempty"`
+	// RootStrip is true when the root forward replaces the path rather than
+	// passing it through — nginx's trailing slash, Caddy's handle_path.
+	RootStrip bool `json:"rootStrip,omitempty"`
+	// Locations are the extra paths on this host that go somewhere else.
+	Locations []SiteLocation `json:"locations,omitempty"`
+	// NoRoot marks a host that forwards only on paths, with nothing serving
+	// the root. Every product here allows that and Islet does not, so the
+	// import has to decide what the root becomes and say that it did.
+	NoRoot bool `json:"noRoot,omitempty"`
+	// Skipped names the location blocks that were understood well enough to
+	// see they forward somewhere, but not well enough to translate: regular
+	// expressions, named locations, exact matches. Reporting them is the
+	// point — a silent omission is how an import looks complete and is not.
+	Skipped []string `json:"skipped,omitempty"`
+}
+
+// SiteLocation is one extra path on a host, forwarded somewhere of its own.
+type SiteLocation struct {
+	Path      string `json:"path"`
+	Upstream  string `json:"upstream"`
+	RawUp     string `json:"rawUpstream,omitempty"`
+	StripPath bool   `json:"stripPath,omitempty"`
 }
 
 // NginxSite is the old name for a Site, kept so the nginx parser reads the way
@@ -172,9 +194,33 @@ func ParseText(text string) (Site []Site, source string) {
 // ---- Caddy ---------------------------------------------------------------
 
 var (
-	caddyReverse = regexp.MustCompile(`(?m)^\s*reverse_proxy\s+(?:[^\s]+\s+)?([^\s{]+)`)
+	caddyReverse = regexp.MustCompile(`(?m)^\s*reverse_proxy\s+(?:([/*][^\s{]*)\s+)?([^\s{]+)`)
 	caddyRoot    = regexp.MustCompile(`(?m)^\s*root\s+(?:\*\s+)?([^\s]+)`)
+	// handle_path strips the matched prefix before proxying; handle and route
+	// do not. That difference is the whole reason to tell them apart.
+	caddyHandle = regexp.MustCompile(`(?m)^\s*(handle_path|handle|route)\s+([/*][^\s{]*)\s*\{`)
 )
+
+// caddyPath turns a Caddy path matcher into a prefix.
+//
+// "/" is returned for the matchers that mean the whole site — "/" and "/*" —
+// which is a different answer from "this is a matcher Islet cannot express",
+// and ok is what tells them apart. Collapsing the two would file a site's own
+// root handler under the paths that were skipped.
+func caddyPath(m string) (string, bool) {
+	m = strings.TrimSpace(m)
+	if m == "" || !strings.HasPrefix(m, "/") {
+		return "", false
+	}
+	m = strings.TrimSuffix(m, "*")
+	if strings.ContainsAny(m, "*? \t") {
+		return "", false // a wildcard in the middle, or several matchers
+	}
+	if m = strings.TrimSuffix(m, "/"); m == "" {
+		return "/", true
+	}
+	return m, true
+}
 
 // ParseCaddy reads site blocks out of a Caddyfile.
 //
@@ -216,11 +262,59 @@ func ParseCaddy(text, file string) []Site {
 			}
 		}
 		block := strings.Join(body, "\n")
-		if m := caddyReverse.FindStringSubmatch(block); m != nil {
-			site.Upstream = normaliseUpstream(m[1])
+		// handle/handle_path/route blocks first, and cut out as they are read,
+		// so the reverse_proxy inside one is not mistaken for the site's own.
+		outer := block
+		for {
+			hm := caddyHandle.FindStringSubmatchIndex(outer)
+			if hm == nil {
+				break
+			}
+			kind := outer[hm[2]:hm[3]]
+			path, ok := caddyPath(outer[hm[4]:hm[5]])
+			inner, end := matchBrace(outer, hm[1])
+			if rp := caddyReverse.FindStringSubmatch(inner); rp != nil {
+				up := normaliseUpstream(rp[2])
+				switch {
+				case !ok:
+					site.Skipped = append(site.Skipped, strings.TrimSpace(outer[hm[2]:hm[5]]))
+				case path == "/":
+					if site.Upstream == "" {
+						site.Upstream, site.RootStrip = up, kind == "handle_path"
+					}
+				default:
+					site.Locations = append(site.Locations, SiteLocation{
+						Path: path, Upstream: up, StripPath: kind == "handle_path"})
+				}
+			}
+			outer = outer[:hm[0]] + outer[end:]
 		}
-		if m := caddyRoot.FindStringSubmatch(block); m != nil {
+		// A reverse_proxy with an inline path matcher is a location too.
+		for _, m := range caddyReverse.FindAllStringSubmatch(outer, -1) {
+			up := normaliseUpstream(m[2])
+			if m[1] == "" {
+				if site.Upstream == "" {
+					site.Upstream = up
+				}
+				continue
+			}
+			p, ok := caddyPath(m[1])
+			switch {
+			case !ok:
+				site.Skipped = append(site.Skipped, strings.TrimSpace(m[1]))
+			case p == "/":
+				if site.Upstream == "" {
+					site.Upstream = up
+				}
+			default:
+				site.Locations = append(site.Locations, SiteLocation{Path: p, Upstream: up})
+			}
+		}
+		if m := caddyRoot.FindStringSubmatch(outer); m != nil {
 			site.Root = m[1]
+		}
+		if site.Upstream == "" && len(site.Locations) > 0 {
+			site.NoRoot = true
 		}
 		if len(site.Hosts) > 0 {
 			out = append(out, site)
@@ -252,8 +346,10 @@ var (
 	apacheVHost = regexp.MustCompile(`(?is)<VirtualHost[^>]*>(.*?)</VirtualHost>`)
 	apacheName  = regexp.MustCompile(`(?mi)^\s*Server(?:Name|Alias)\s+(.+?)\s*$`)
 	apacheProxy = regexp.MustCompile(`(?mi)^\s*ProxyPass\s+(?:/\S*\s+)?([^\s]+)`)
-	apacheRoot  = regexp.MustCompile(`(?mi)^\s*DocumentRoot\s+(.+?)\s*$`)
-	apacheSSL   = regexp.MustCompile(`(?mi)^\s*SSLEngine\s+on`)
+	// The path and the target together, which is what a location needs.
+	apacheProxyPair = regexp.MustCompile(`(?mi)^\s*ProxyPass\s+(/\S*)\s+([^\s]+)`)
+	apacheRoot      = regexp.MustCompile(`(?mi)^\s*DocumentRoot\s+(.+?)\s*$`)
+	apacheSSL       = regexp.MustCompile(`(?mi)^\s*SSLEngine\s+on`)
 )
 
 // ParseApache reads virtual hosts out of an Apache configuration.
@@ -270,8 +366,30 @@ func ParseApache(text, file string) []Site {
 				}
 			}
 		}
-		if p := apacheProxy.FindStringSubmatch(body); p != nil && !strings.EqualFold(p[1], "!") {
-			site.Upstream = normaliseUpstream(p[1])
+		// Every ProxyPass is a path and a target. The one on / is the site;
+		// the rest are locations. Apache replaces the matched prefix with the
+		// target's path, so a target ending at the root strips the prefix.
+		for _, p := range apacheProxyPair.FindAllStringSubmatch(body, -1) {
+			path, target := strings.TrimSpace(p[1]), unquote(strings.TrimSpace(p[2]))
+			if strings.EqualFold(target, "!") || target == "" {
+				continue
+			}
+			up := normaliseUpstream(target)
+			strip := apacheStrips(path, target)
+			switch {
+			case path == "/" || path == "":
+				if site.Upstream == "" {
+					site.Upstream, site.RootStrip = up, false
+				}
+			case strings.HasPrefix(path, "/") && !strings.ContainsAny(path, " \t*?"):
+				site.Locations = append(site.Locations, SiteLocation{
+					Path: strings.TrimSuffix(path, "/"), Upstream: up, StripPath: strip})
+			default:
+				site.Skipped = append(site.Skipped, path)
+			}
+		}
+		if site.Upstream == "" && len(site.Locations) > 0 {
+			site.NoRoot = true
 		}
 		if r := apacheRoot.FindStringSubmatch(body); r != nil {
 			site.Root = unquote(r[1])
@@ -281,6 +399,26 @@ func ParseApache(text, file string) []Site {
 		}
 	}
 	return out
+}
+
+// apacheStrips says whether a ProxyPass replaces the matched prefix.
+//
+// Apache appends what is left of the request after the path to the target, so
+// `ProxyPass /api http://app:3000/` turns /api/things into /things, while
+// `ProxyPass /api http://app:3000/api` leaves it alone. Only the first of
+// those has a Traefik equivalent, and it is stripPrefix.
+func apacheStrips(path, target string) bool {
+	i := strings.Index(target, "://")
+	if i < 0 {
+		return false
+	}
+	rest := target[i+3:]
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return false // no path on the target: Apache passes the URI through
+	}
+	tail := strings.TrimSuffix(rest[slash:], "/")
+	return tail == "" && strings.TrimSuffix(path, "/") != ""
 }
 
 // ---- shared --------------------------------------------------------------

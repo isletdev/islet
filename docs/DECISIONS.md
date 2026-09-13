@@ -616,3 +616,55 @@ values, keywords carry weight, everything else is ink.
 The environment column on a saved connection went at the same time. 0022
 dropped the marks table; the column outlived it, defaulting every row to
 "development" and read by nothing.
+
+## 2026-09-13 — A certificate method is a choice, and a host can have more than one target
+Two gaps against Nginx Proxy Manager, both reported by somebody moving off it,
+and both the same shape: a thing the panel could already do, reachable only
+down one path.
+
+**DNS-01 was reachable only by asking for a wildcard.** The provider
+credentials, the resolver, the encrypted storage were all there; `Render` chose
+the DNS resolver if and only if the host started with `*.`. So a plain host
+behind Cloudflare — whose port 80 does not reach the origin, which is the whole
+point of Cloudflare — had no way to be issued at all. The Cloudflare fix
+shipped in v0.6.0 made that worse by advising exactly the thing the panel would
+not do: "issue the certificate over DNS-01".
+
+`tls` gains `letsencrypt-dns`, so the challenge is a stored choice rather than
+a consequence of the hostname. A wildcard is normalised to it in `Validate`,
+which turns the old special case into the ordinary one and leaves a single
+check for the missing provider instead of two. `tlsFor` is the one place that
+decides, and every router on a host — root, locations, www — takes the same
+block, because a path presenting a different certificate from the page linking
+to it is not a configuration anybody wants.
+
+**A host had one target.** `path_prefix` scoped a host to a single path, which
+is not the same feature: NPM's custom locations put `/` on one backend and
+`/api` on another, and Islet refused the second row with "that host is already
+routed". Importing such a host kept the root and dropped the rest, in silence.
+
+Locations are their own table, owned by the domain, rather than more rows in
+`domains`. The host is what holds the certificate, the login, the allowlist and
+the limits — those guard a name, and a path is not a different name — so they
+stay in one place and locations inherit them. Only the path, the target and
+whether the prefix is stripped belong to a location.
+
+Priority is the part that needed thought. Traefik ranks by rule length only
+when no priority is set, and the root already sets one. Two bands: exact hosts
+at 100+, wildcards at 1+, each location at its band's base plus its path
+length. That keeps a longer path beating a shorter one within a host, and any
+route on a named host beating any route on a wildcard — so a location under
+`*.example.com` cannot take `/api` away from `shop.example.com`.
+
+**The importer had to learn the same thing four times.** nginx location blocks,
+NPM's per-location `set $server`, Caddy's `handle`/`handle_path`/`route` and
+inline matchers, Apache's repeated `ProxyPass`. The detail every one of them
+hinges on is whether the prefix reaches the backend: nginx says it with a
+trailing slash on `proxy_pass`, Caddy with `handle_path` rather than `handle`,
+Apache with a target path of `/`. All three mean Traefik's `stripPrefix`, and
+reading a trailing slash as decoration silently changes every URL the app sees.
+
+What cannot be translated is now named rather than dropped: regular-expression
+locations, named locations, exact matches. An import that quietly loses a path
+looks complete and is not, and the person has no way to find out except in
+production.

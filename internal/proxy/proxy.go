@@ -416,7 +416,7 @@ type Domain struct {
 	Target      string `json:"target"`
 	Port        int    `json:"port"`
 	PathPrefix  string `json:"pathPrefix"`
-	TLS         string `json:"tls"` // letsencrypt | self | none
+	TLS         string `json:"tls"` // letsencrypt | letsencrypt-dns | self | none
 	RedirectWWW bool   `json:"redirectWww"`
 	BasicAuth   string `json:"basicAuth"` // user:hash lines; API accepts user:password and hashes
 	IPAllowlist string `json:"ipAllowlist"`
@@ -427,6 +427,79 @@ type Domain struct {
 	Enabled     bool   `json:"enabled"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
+	// Locations are extra paths on this host that go somewhere else. The
+	// domain's own target stays the root; a location is an exception to it.
+	Locations []Location `json:"locations"`
+}
+
+// Location is one path on a host forwarded somewhere of its own — what Nginx
+// Proxy Manager calls a custom location and nginx calls a location block.
+//
+// Everything that guards the host guards its locations too: the same
+// certificate, the same basic auth, allowlist, rate limit and headers. Those
+// are properties of who may reach the name, and a path is not a different name.
+type Location struct {
+	ID         string `json:"id"`
+	Path       string `json:"path"`       // /api
+	TargetType string `json:"targetType"` // container | panel | url
+	Target     string `json:"target"`
+	Port       int    `json:"port"`
+	// StripPath sends /api/things on as /things. nginx does this when
+	// proxy_pass ends in a slash, Caddy when the block is handle_path.
+	StripPath bool `json:"stripPath"`
+}
+
+// validateTarget checks the three ways to name a backend. It is shared so a
+// location cannot drift into accepting something a domain would refuse.
+func validateTarget(kind string, target *string, port *int) error {
+	switch kind {
+	case "container":
+		if !containerRe.MatchString(*target) {
+			return errors.New("target must be a container name")
+		}
+		if *port < 1 || *port > 65535 {
+			return errors.New("port must be between 1 and 65535")
+		}
+	case "panel":
+		*target, *port = "", 0
+	case "url":
+		if !strings.HasPrefix(*target, "http://") && !strings.HasPrefix(*target, "https://") {
+			return errors.New("target must be an http(s) URL")
+		}
+	default:
+		return errors.New("targetType must be container, panel or url")
+	}
+	return nil
+}
+
+var containerRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// validPath checks a path that will be interpolated into a Traefik rule.
+//
+// The characters refused here are the ones that would end the backtick literal
+// the path sits inside and let the rest of the value become rule syntax, which
+// is how one site could otherwise claim another site's host.
+func validPath(p string) error {
+	if !strings.HasPrefix(p, "/") {
+		return errors.New("a path must start with /")
+	}
+	if strings.ContainsAny(p, "`$\\ \t\n\r\"'") {
+		return errors.New("a path may not contain quotes, backticks or spaces")
+	}
+	return nil
+}
+
+// Validate normalises and checks one location.
+func (l *Location) Validate() error {
+	l.Path = strings.TrimSpace(l.Path)
+	l.Path = strings.TrimSuffix(l.Path, "/")
+	if l.Path == "" {
+		return errors.New("a location needs a path, e.g. /api. The root is the domain's own target")
+	}
+	if err := validPath(l.Path); err != nil {
+		return err
+	}
+	return validateTarget(l.TargetType, &l.Target, &l.Port)
 }
 
 // Validate normalises and checks a domain.
@@ -435,40 +508,39 @@ func (d *Domain) Validate() error {
 	if !hostRe.MatchString(d.Host) {
 		return errors.New("host must be a valid domain name, e.g. app.example.com")
 	}
-	switch d.TargetType {
-	case "container":
-		if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`).MatchString(d.Target) {
-			return errors.New("target must be a container name")
-		}
-		if d.Port < 1 || d.Port > 65535 {
-			return errors.New("port must be between 1 and 65535")
-		}
-	case "panel":
-		d.Target, d.Port = "", 0
-	case "url":
-		if !strings.HasPrefix(d.Target, "http://") && !strings.HasPrefix(d.Target, "https://") {
-			return errors.New("target must be an http(s) URL")
-		}
-	default:
-		return errors.New("targetType must be container, panel or url")
+	if err := validateTarget(d.TargetType, &d.Target, &d.Port); err != nil {
+		return err
 	}
 	if d.TLS == "" {
 		d.TLS = "letsencrypt"
 	}
-	if d.TLS != "letsencrypt" && d.TLS != "self" && d.TLS != "none" {
-		return errors.New("tls must be letsencrypt, self or none")
+	// A wildcard has no other way to be issued: HTTP-01 would need a request
+	// for every name under it. Recording that as the stored value rather than
+	// working it out at render time means the page can say which challenge a
+	// host uses without repeating the rule.
+	if strings.HasPrefix(d.Host, "*.") && d.TLS == "letsencrypt" {
+		d.TLS = "letsencrypt-dns"
+	}
+	switch d.TLS {
+	case "letsencrypt", "letsencrypt-dns", "self", "none":
+	default:
+		return errors.New("tls must be letsencrypt, letsencrypt-dns, self or none")
 	}
 	if d.PathPrefix != "" {
-		if !strings.HasPrefix(d.PathPrefix, "/") {
-			return errors.New("pathPrefix must start with /")
+		if err := validPath(d.PathPrefix); err != nil {
+			return err
 		}
-		// The prefix is interpolated into Traefik's rule expression between
-		// backticks. A backtick or whitespace closes the literal and lets the
-		// rest of the value become rule syntax, which is how one site could
-		// claim another site's host.
-		if strings.ContainsAny(d.PathPrefix, "`$\\ \t\n\r\"'") {
-			return errors.New("pathPrefix may not contain quotes, backticks or spaces")
+	}
+	seen := map[string]bool{}
+	for i := range d.Locations {
+		if err := d.Locations[i].Validate(); err != nil {
+			return fmt.Errorf("location %d: %w", i+1, err)
 		}
+		p := d.Locations[i].Path
+		if seen[p] {
+			return fmt.Errorf("two locations both claim %s", p)
+		}
+		seen[p] = true
 	}
 	if d.RateLimit < 0 {
 		return errors.New("rateLimit must be >= 0")
@@ -525,7 +597,7 @@ func scan(sc interface{ Scan(...any) error }) (*Domain, error) {
 	return &d, nil
 }
 
-// Domains lists every domain on this server.
+// Domains lists every domain on this server, with its locations.
 func (m *Manager) Domains(ctx context.Context) ([]Domain, error) {
 	rows, err := m.st.DB.QueryContext(ctx, `SELECT `+cols+` FROM domains WHERE server_id = ? ORDER BY host`, m.st.ServerID)
 	if err != nil {
@@ -540,12 +612,99 @@ func (m *Manager) Domains(ctx context.Context) ([]Domain, error) {
 		}
 		out = append(out, *d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// One query for every location rather than one per domain: this runs on
+	// every reconcile, which is every save.
+	byDomain, err := m.allLocations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Locations = byDomain[out[i].ID]
+	}
+	return out, nil
+}
+
+// allLocations groups every location on this server by its domain.
+func (m *Manager) allLocations(ctx context.Context) (map[string][]Location, error) {
+	rows, err := m.st.DB.QueryContext(ctx, `SELECT l.id, l.domain_id, l.path, l.target_type, l.target, l.port, l.strip_path
+		FROM domain_locations l JOIN domains d ON d.id = l.domain_id
+		WHERE d.server_id = ? ORDER BY l.domain_id, l.position, l.path`, m.st.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]Location{}
+	for rows.Next() {
+		var l Location
+		var domainID string
+		var strip int
+		if err := rows.Scan(&l.ID, &domainID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip); err != nil {
+			return nil, err
+		}
+		l.StripPath = strip == 1
+		out[domainID] = append(out[domainID], l)
+	}
 	return out, rows.Err()
 }
 
-// Domain loads one.
+// Domain loads one, with its locations.
 func (m *Manager) Domain(ctx context.Context, id string) (*Domain, error) {
-	return scan(m.st.DB.QueryRowContext(ctx, `SELECT `+cols+` FROM domains WHERE id = ? AND server_id = ?`, id, m.st.ServerID))
+	d, err := scan(m.st.DB.QueryRowContext(ctx, `SELECT `+cols+` FROM domains WHERE id = ? AND server_id = ?`, id, m.st.ServerID))
+	if err != nil {
+		return nil, err
+	}
+	rows, err := m.st.DB.QueryContext(ctx,
+		`SELECT id, path, target_type, target, port, strip_path FROM domain_locations
+		 WHERE domain_id = ? ORDER BY position, path`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var l Location
+		var strip int
+		if err := rows.Scan(&l.ID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip); err != nil {
+			return nil, err
+		}
+		l.StripPath = strip == 1
+		d.Locations = append(d.Locations, l)
+	}
+	return d, rows.Err()
+}
+
+// saveLocations replaces a domain's locations with the ones given.
+//
+// Replacing rather than diffing: the set is small, the form sends the whole
+// list, and a diff would have to answer what an edited path means — a rename
+// or a new location — for no gain anybody can see.
+func (m *Manager) saveLocations(ctx context.Context, domainID string, locs []Location) error {
+	tx, err := m.st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM domain_locations WHERE domain_id = ?`, domainID); err != nil {
+		return err
+	}
+	for i, l := range locs {
+		if l.ID == "" {
+			l.ID = newID()
+		}
+		strip := 0
+		if l.StripPath {
+			strip = 1
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_locations
+			(id, domain_id, path, target_type, target, port, strip_path, position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			l.ID, domainID, l.Path, l.TargetType, l.Target, l.Port, strip, i); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Save inserts or updates a domain, connects the target to the proxy
@@ -554,8 +713,13 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
-	if strings.HasPrefix(d.Host, "*.") && d.TLS == "letsencrypt" && m.DNSProvider(ctx) == "" {
-		return nil, errors.New("wildcard certificates need a DNS provider: set one on the proxy card first, or use a self-signed certificate")
+	// Validate has already turned a wildcard asking for Let's Encrypt into a
+	// DNS-01 request, so this one check covers both ways of getting here.
+	if d.TLS == "letsencrypt-dns" && m.DNSProvider(ctx) == "" {
+		if strings.HasPrefix(d.Host, "*.") {
+			return nil, errors.New("a wildcard certificate can only be issued over DNS, which needs a DNS provider: set one under Domains, Settings, or use a self-signed certificate")
+		}
+		return nil, errors.New("the DNS challenge needs a DNS provider: set one under Domains, Settings, or issue this certificate over HTTP instead")
 	}
 	b := func(v bool) int {
 		if v {
@@ -582,9 +746,29 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 			return nil, err
 		}
 	}
+	if err := m.saveLocations(ctx, d.ID, d.Locations); err != nil {
+		return nil, err
+	}
+	// A location's container needs the proxy network as much as the root's
+	// does, and forgetting one is a 502 on that path only — the hardest kind
+	// of half-working to diagnose from the outside.
+	attach := []string{}
 	if d.TargetType == "container" {
-		if err := m.Connect(ctx, actor, d.Target); err != nil {
-			return nil, fmt.Errorf("attach %s to the proxy network: %w", d.Target, err)
+		attach = append(attach, d.Target)
+	}
+	for _, l := range d.Locations {
+		if l.TargetType == "container" {
+			attach = append(attach, l.Target)
+		}
+	}
+	done := map[string]bool{}
+	for _, name := range attach {
+		if done[name] {
+			continue
+		}
+		done[name] = true
+		if err := m.Connect(ctx, actor, name); err != nil {
+			return nil, fmt.Errorf("attach %s to the proxy network: %w", name, err)
 		}
 	}
 	if err := m.Reconcile(ctx); err != nil {
@@ -634,6 +818,51 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return os.Rename(p+".tmp", p)
 }
 
+// tlsFor gives the TLS block every router on a host shares, and says when the
+// host is on plain HTTP instead.
+//
+// A wildcard is checked as well as the stored value: rows written before the
+// certificate method became a choice carry "letsencrypt" and still cannot be
+// issued any way but over DNS.
+func tlsFor(d Domain, wildcard bool) (map[string]any, bool) {
+	switch {
+	case d.TLS == "none":
+		return nil, true
+	case d.TLS == "self":
+		return map[string]any{}, false
+	case d.TLS == "letsencrypt-dns" || wildcard:
+		block := map[string]any{"certResolver": "letsencrypt-dns"}
+		if wildcard {
+			// Ask for the wildcard and the bare name together, so
+			// example.com and anything.example.com share one certificate.
+			block["domains"] = []map[string]any{{"main": d.Host, "sans": []string{strings.TrimPrefix(d.Host, "*.")}}}
+		}
+		return block, false
+	default:
+		return map[string]any{"certResolver": "letsencrypt"}, false
+	}
+}
+
+// backendService builds the load balancer for one target, whichever of the
+// three kinds it is. Shared so a location cannot reach a backend in a way the
+// root could not.
+func backendService(kind, target string, port int, panelURL string) map[string]any {
+	switch kind {
+	case "container":
+		return map[string]any{"loadBalancer": map[string]any{
+			"servers": []map[string]string{{"url": fmt.Sprintf("http://%s:%d", target, port)}}, "passHostHeader": true}}
+	case "panel":
+		return map[string]any{"loadBalancer": map[string]any{
+			"servers": []map[string]string{{"url": panelURL}}, "serversTransport": "islet-insecure", "passHostHeader": true}}
+	default: // url
+		svc := map[string]any{"servers": []map[string]string{{"url": target}}, "passHostHeader": false}
+		if strings.HasPrefix(target, "https://") {
+			svc["serversTransport"] = "islet-insecure"
+		}
+		return map[string]any{"loadBalancer": svc}
+	}
+}
+
 // Render turns domains into Traefik dynamic YAML. panelURL is the daemon as
 // reachable from inside the proxy container.
 func Render(domains []Domain, panelURL string) ([]byte, error) {
@@ -652,7 +881,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			continue
 		}
 		name := "d-" + d.ID
-		rule := fmt.Sprintf("Host(`%s`)", d.Host)
+		hostRule := fmt.Sprintf("Host(`%s`)", d.Host)
 		wildcard := strings.HasPrefix(d.Host, "*.")
 		// Traefik ranks routers by rule length unless a priority is set, and the
 		// wildcard regex is always longer than an exact host. Without these two
@@ -660,9 +889,10 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		// included.
 		priority := 100
 		if wildcard {
-			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(strings.TrimPrefix(d.Host, "*."), ".", "\\."))
+			hostRule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(strings.TrimPrefix(d.Host, "*."), ".", "\\."))
 			priority = 1
 		}
+		rule := hostRule
 		if d.PathPrefix != "" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", d.PathPrefix)
 		}
@@ -694,17 +924,16 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		if d.Protect {
 			mws = append(mws, "islet-forward-auth")
 		}
+		// The TLS block is settled once and reused by every router on this
+		// host — the root, each location, and www. A location presenting a
+		// different certificate from the page that links to it is not a
+		// configuration anybody wants.
+		tlsBlock, onHTTP := tlsFor(d, wildcard)
 		router := map[string]any{"rule": rule, "entryPoints": []string{"websecure"}, "middlewares": mws}
-		switch d.TLS {
-		case "letsencrypt":
-			router["tls"] = map[string]any{"certResolver": "letsencrypt"}
-			if wildcard {
-				router["tls"] = map[string]any{"certResolver": "letsencrypt-dns", "domains": []map[string]any{{"main": d.Host, "sans": []string{strings.TrimPrefix(d.Host, "*.")}}}}
-			}
-		case "self":
-			router["tls"] = map[string]any{}
-		case "none":
+		if onHTTP {
 			router["entryPoints"] = []string{"web"}
+		} else {
+			router["tls"] = tlsBlock
 		}
 		if d.TLS != "none" {
 			// Plain HTTP for this host redirects to HTTPS; ACME challenges are answered before routing.
@@ -721,39 +950,73 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		router["priority"] = priority
 		routers[name] = router
 
+		// A location is a longer rule on the same host, and has to win against
+		// the root. Traefik ranks by rule length only when no priority is set,
+		// and the root already sets one, so every location sets its own.
+		//
+		// The bands keep two invariants. Inside a host, a longer path beats a
+		// shorter one, so /api/v2 is not swallowed by /api. Across hosts, any
+		// route on an exact name still beats any route on a wildcard, so a
+		// location under *.example.com cannot take a path away from a site
+		// named outright.
+		for i, l := range d.Locations {
+			ln := fmt.Sprintf("%s-l%d", name, i)
+			lrule := hostRule + fmt.Sprintf(" && PathPrefix(`%s`)", l.Path)
+			lpri := priority + 1 + min(len(l.Path), 98)
+
+			// A copy, not a reslice of mws: appending to a shared backing
+			// array would let one location's middleware appear on another's.
+			lmws := append([]string{}, mws...)
+			if l.StripPath {
+				middlewares[ln+"-strip"] = map[string]any{"stripPrefix": map[string]any{"prefixes": []string{l.Path}}}
+				lmws = append(lmws, ln+"-strip")
+			}
+			lrouter := map[string]any{"rule": lrule, "entryPoints": []string{"websecure"}, "middlewares": lmws, "priority": lpri}
+			if onHTTP {
+				lrouter["entryPoints"] = []string{"web"}
+			} else {
+				lrouter["tls"] = tlsBlock
+				routers[ln+"-http"] = map[string]any{"rule": lrule, "entryPoints": []string{"web"}, "middlewares": []string{"islet-https-redirect"}, "service": "noop@internal", "priority": lpri}
+			}
+			// Maintenance covers the whole host. A location still answering
+			// while the site it belongs to says it is down is worse than
+			// either state on its own.
+			if d.Maintenance {
+				lrouter["middlewares"] = append(lmws, name+"-maint")
+				lrouter["service"] = "islet-panel"
+			} else {
+				lrouter["service"] = ln
+				services[ln] = backendService(l.TargetType, l.Target, l.Port, panelURL)
+			}
+			routers[ln] = lrouter
+		}
+
 		// www rides on its own router and its own certificate: a missing www
 		// DNS record then breaks only the redirect, not this host's TLS.
 		if d.RedirectWWW && !wildcard {
 			middlewares[name+"-www"] = map[string]any{"redirectRegex": map[string]any{"regex": fmt.Sprintf(`^https?://www\.%s/(.*)`, regexp.QuoteMeta(d.Host)), "replacement": fmt.Sprintf("https://%s/${1}", d.Host), "permanent": true}}
 			wwwRule := fmt.Sprintf("Host(`www.%s`)", d.Host)
 			wwwRouter := map[string]any{"rule": wwwRule, "entryPoints": []string{"websecure"}, "middlewares": []string{name + "-www"}, "service": "noop@internal"}
-			if d.TLS == "letsencrypt" {
-				wwwRouter["tls"] = map[string]any{"certResolver": "letsencrypt"}
-			} else if d.TLS == "self" {
-				wwwRouter["tls"] = map[string]any{}
-			}
-			if d.TLS == "none" {
+			if onHTTP {
 				wwwRouter["entryPoints"] = []string{"web"}
 			} else {
+				// www gets a certificate of its own rather than a SAN on the
+				// site's: a missing www record then breaks the redirect only,
+				// not the host people actually visit.
+				if d.TLS == "letsencrypt-dns" {
+					wwwRouter["tls"] = map[string]any{"certResolver": "letsencrypt-dns"}
+				} else {
+					wwwRouter["tls"] = map[string]any{"certResolver": "letsencrypt"}
+				}
+				if d.TLS == "self" {
+					wwwRouter["tls"] = map[string]any{}
+				}
 				routers[name+"-www-http"] = map[string]any{"rule": wwwRule, "entryPoints": []string{"web"}, "middlewares": []string{name + "-www"}, "service": "noop@internal"}
 			}
 			routers[name+"-www"] = wwwRouter
 		}
 
-		var url string
-		switch d.TargetType {
-		case "container":
-			url = fmt.Sprintf("http://%s:%d", d.Target, d.Port)
-			services[name] = map[string]any{"loadBalancer": map[string]any{"servers": []map[string]string{{"url": url}}, "passHostHeader": true}}
-		case "panel":
-			services[name] = map[string]any{"loadBalancer": map[string]any{"servers": []map[string]string{{"url": panelURL}}, "serversTransport": "islet-insecure", "passHostHeader": true}}
-		case "url":
-			svc := map[string]any{"servers": []map[string]string{{"url": d.Target}}, "passHostHeader": false}
-			if strings.HasPrefix(d.Target, "https://") {
-				svc["serversTransport"] = "islet-insecure"
-			}
-			services[name] = map[string]any{"loadBalancer": svc}
-		}
+		services[name] = backendService(d.TargetType, d.Target, d.Port, panelURL)
 	}
 	// The daemon itself, reachable from the container through the host gateway.
 	services["islet-panel"] = map[string]any{"loadBalancer": map[string]any{"servers": []map[string]string{{"url": panelURL}}, "serversTransport": "islet-insecure", "passHostHeader": true}}

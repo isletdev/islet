@@ -1,11 +1,76 @@
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, RequestError, type Container, type Domain, type ProxyStatus , type DNSCheck } from "@/lib/api";
+import { api, RequestError, type Container, type Domain, type DomainLocation, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { useDialog } from "@/lib/dialogs";
 
-const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, createdAt: "", updatedAt: "" };
+const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, locations: [], createdAt: "", updatedAt: "" };
+
+/**
+ * Extra paths on one host, each forwarded somewhere of its own.
+ *
+ * Nginx Proxy Manager calls these custom locations and nginx calls them
+ * location blocks; they are the reason one hostname can put an API on /api and
+ * the site itself on /. Everything guarding the host guards them too — the
+ * same certificate, login, allowlist and limits — so there is nothing to
+ * repeat here beyond the path and where it goes.
+ */
+function Locations({ value, containers, onChange }: { value: DomainLocation[]; containers: Container[]; onChange: (v: DomainLocation[]) => void }) {
+  const set = (i: number, patch: Partial<DomainLocation>) =>
+    onChange(value.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <span className="text-sm font-medium">Custom locations</span>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Paths on this host that go somewhere else. Everything above applies to them too:
+            the same certificate, login and limits. A longer path wins, so /api/v2 beats /api.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-8 px-2.5 text-xs"
+          onClick={() => onChange([...value, { path: "", targetType: "container", target: "", port: 80, stripPath: false }])}
+        >
+          Add a location
+        </Button>
+      </div>
+      {value.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {value.map((l, i) => (
+            <li key={i} className="grid grid-cols-1 gap-2 rounded-md border border-border bg-surface p-2 sm:grid-cols-[8rem_7rem_minmax(0,1fr)_6rem_auto]">
+              <Input value={l.path} onChange={(e) => set(i, { path: e.target.value })} placeholder="/api" className="h-8 font-mono text-xs" aria-label="Path" />
+              <Select value={l.targetType} onChange={(e) => set(i, { targetType: e.target.value as DomainLocation["targetType"], target: "" })} className="h-8 text-xs" aria-label="Goes to">
+                <option value="container">Container</option><option value="url">URL</option><option value="panel">Islet panel</option>
+              </Select>
+              {l.targetType === "container" && (
+                <Select value={l.target} onChange={(e) => set(i, { target: e.target.value })} className="h-8 text-xs" aria-label="Container">
+                  <option value="">Choose…</option>
+                  {containers.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </Select>
+              )}
+              {l.targetType === "url" && (
+                <Input value={l.target} onChange={(e) => set(i, { target: e.target.value })} placeholder="http://10.0.0.5:8080" className="h-8 text-xs" aria-label="URL" />
+              )}
+              {l.targetType === "panel" && <span className="self-center text-xs text-ink-muted">The Islet panel itself.</span>}
+              {l.targetType === "container"
+                ? <Input value={String(l.port)} onChange={(e) => set(i, { port: Number(e.target.value) || 0 })} inputMode="numeric" className="h-8 text-xs" aria-label="Port" />
+                : <span />}
+              <button type="button" onClick={() => onChange(value.filter((_, n) => n !== i))} className="self-center px-1 text-xs text-danger hover:underline">Remove</button>
+              <label className="col-span-full flex items-center gap-1.5 text-xs text-ink-muted" title="With this on, /api/things reaches the app as /things.">
+                <input type="checkbox" checked={l.stripPath} onChange={(e) => set(i, { stripPath: e.target.checked })} />
+                Remove {l.path || "the path"} before forwarding
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export default function Domains() {
   const ask = useDialog();
@@ -167,10 +232,21 @@ export default function Domains() {
         </table></div>
       </div>
 
-      {editing && (
+      {editing && (() => {
+        // A wildcard is decided by the host being typed, not by what was
+        // saved, so the certificate field answers while the person types.
+        const editingWildcard = editing.host.trim().startsWith("*.");
+        const savedProvider = status?.dnsProvider ?? "";
+        return (
         <Card title={editing.id ? `Edit ${editing.host}` : "Add domain"} description="Create the DNS A record first; the helper checks it for you.">
+          {editingWildcard && !savedProvider && (
+            <Alert>
+              A wildcard certificate is issued by proving control of the DNS zone, so it needs a DNS
+              provider. Set one under Settings above, or give this host a self-signed certificate.
+            </Alert>
+          )}
           <form onSubmit={save} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Host" hint="e.g. app.example.com. Wildcards need a DNS provider (later)."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => setEditing({ ...editing, host: e.target.value })} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
+            <Field label="Host" hint="e.g. app.example.com, or *.example.com for every name in the zone."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => setEditing({ ...editing, host: e.target.value })} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
             <Field label="Target">
               <Select value={editing.targetType} onChange={(e) => setEditing({ ...editing, targetType: e.target.value as Domain["targetType"] })}>
                 <option value="container">Container</option><option value="panel">Islet panel</option><option value="url">Any URL</option>
@@ -181,12 +257,35 @@ export default function Domains() {
               <Field label="Container port" hint="The port the app listens on inside the container, not a published port."><Input value={String(editing.port)} onChange={(e) => setEditing({ ...editing, port: Number(e.target.value) })} inputMode="numeric" required /></Field>
             </>}
             {editing.targetType === "url" && <Field label="URL"><Input value={editing.target} onChange={(e) => setEditing({ ...editing, target: e.target.value })} placeholder="http://10.0.0.5:8080" required /></Field>}
-            <Field label="Certificate">
+            <Field
+              label="Certificate"
+              hint={
+                editingWildcard
+                  ? "A wildcard can only be issued over DNS: there is no single name to answer an HTTP challenge on."
+                  : editing.tls === "letsencrypt-dns"
+                    ? savedProvider
+                      ? `Proved through ${savedProvider}, so port 80 does not have to reach this server. This is the one to use behind Cloudflare or on a private network.`
+                      : "No DNS provider is set yet — add one under Settings above, or issue this certificate over HTTP."
+                    : "Proved over HTTP on port 80, which has to reach this server from the internet."
+              }
+            >
               <Select value={editing.tls} onChange={(e) => setEditing({ ...editing, tls: e.target.value as Domain["tls"] })}>
-                <option value="letsencrypt">Let's Encrypt (public)</option><option value="self">Self-signed (previews, sslip.io)</option><option value="none">HTTP only</option>
+                {/* A wildcard has no HTTP-01 option at all: there is no single
+                    name to answer a challenge on. */}
+                {!editingWildcard && <option value="letsencrypt">Let's Encrypt (HTTP challenge)</option>}
+                <option value="letsencrypt-dns">Let's Encrypt (DNS challenge){savedProvider ? ` · ${savedProvider}` : " · needs a provider"}</option>
+                <option value="self">Self-signed (previews, sslip.io)</option>
+                <option value="none">HTTP only</option>
               </Select>
             </Field>
-            <Field label="Path prefix (optional)" hint="Route only this path, e.g. /api"><Input value={editing.pathPrefix} onChange={(e) => setEditing({ ...editing, pathPrefix: e.target.value })} placeholder="/" /></Field>
+            <Field label="Path prefix (optional)" hint="Serve only this path on this host, e.g. /api. Leave empty for the whole host."><Input value={editing.pathPrefix} onChange={(e) => setEditing({ ...editing, pathPrefix: e.target.value })} placeholder="/" /></Field>
+            <div className="md:col-span-2">
+              <Locations
+                value={editing.locations ?? []}
+                containers={containers}
+                onChange={(locations) => setEditing({ ...editing, locations })}
+              />
+            </div>
             <Field label="Basic auth (optional)" hint="user:password per line. Passwords are hashed on save."><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field>
             <Field label="IP allowlist (optional)" hint="CIDRs, comma separated. Everyone else gets 403."><Input value={editing.ipAllowlist} onChange={(e) => setEditing({ ...editing, ipAllowlist: e.target.value })} placeholder="203.0.113.7/32, 10.0.0.0/8" /></Field>
             <Field label="Rate limit (req/s, 0 = off)"><Input value={String(editing.rateLimit)} onChange={(e) => setEditing({ ...editing, rateLimit: Number(e.target.value) || 0 })} inputMode="numeric" /></Field>
@@ -200,7 +299,8 @@ export default function Domains() {
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
           </form>
         </Card>
-      )}
+        );
+      })()}
     </div>
   );
 }
