@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { ColumnInfo, Table, Tree } from "@/lib/sql";
-import { DatabasesIcon, RefreshIcon, SearchIcon, TableIcon } from "@/components/icons";
+import { DatabasesIcon, RefreshIcon, SearchIcon } from "@/components/icons";
 
 /**
  * The schema, as a tree.
@@ -132,36 +132,36 @@ export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTabl
               const columns = q && hit.columns.length > 0 && !hit.byName ? hit.columns : (t.columns ?? []);
               return (
                 <div key={key} className="ml-3">
-                  <div className={`group flex items-center rounded-md pr-1 ${here ? "bg-surface-2" : "hover:bg-surface-2/70"}`}>
-                    <button
-                      type="button"
-                      onClick={() => setOpenTables((o) => ({ ...o, [key]: !on }))}
+                  {/* Clicking the table opens it and shows its columns. The
+                      chevron on its own only opens the columns, for looking at
+                      the shape without loading rows. */}
+                  <button
+                    type="button"
+                    onClick={() => { setOpenTables((o) => ({ ...o, [key]: true })); onOpenTable(t); }}
+                    className={`flex w-full items-center rounded-md py-1 pl-1 pr-2 text-left text-xs ${here ? "bg-surface-2" : "hover:bg-surface-2/70"}`}
+                    title={t.comment || `Open ${t.schema}.${t.name}`}
+                  >
+                    <span
+                      role="button"
+                      tabIndex={-1}
                       aria-expanded={on}
-                      className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-1 pr-1 text-left text-xs"
-                      title={t.comment || `${t.kind} ${t.schema}.${t.name}`}
+                      aria-label={on ? "Hide the columns" : "Show the columns"}
+                      onClick={(e) => { e.stopPropagation(); setOpenTables((o) => ({ ...o, [key]: !on })); }}
+                      className="-my-1 shrink-0 rounded-sm px-0.5 py-1 text-ink-faint hover:text-ink"
                     >
                       <Caret open={on} />
-                      <span className={`truncate ${t.kind === "table" ? "" : "italic text-ink-muted"}`}>
-                        <Mark text={t.name} match={q} />
+                    </span>
+                    <span className={`ml-1 truncate ${t.kind === "table" ? "" : "italic text-ink-muted"}`}>
+                      <Mark text={t.name} match={q} />
+                    </span>
+                    {t.kind !== "table" && <span className="ml-1.5 shrink-0 text-[10px] text-ink-faint">{t.kind}</span>}
+                    {q && !hit.byName && hit.columns.length > 0 && (
+                      <span className="ml-1.5 shrink-0 text-[10px] text-accent">
+                        {hit.columns.length} column{hit.columns.length === 1 ? "" : "s"}
                       </span>
-                      {t.kind !== "table" && <span className="shrink-0 text-[10px] text-ink-faint">{t.kind}</span>}
-                      {q && !hit.byName && hit.columns.length > 0 && (
-                        <span className="shrink-0 text-[10px] text-accent">
-                          {hit.columns.length} column{hit.columns.length === 1 ? "" : "s"}
-                        </span>
-                      )}
-                      {t.rows >= 0 && <span className="ml-auto shrink-0 pl-1.5 font-mono text-[10px] tabular-nums text-ink-faint">{compact(t.rows)}</span>}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenTable(t)}
-                      title={`Open the rows of ${t.schema}.${t.name}`}
-                      aria-label={`Open the rows of ${t.schema}.${t.name}`}
-                      className="-my-1 shrink-0 rounded-md p-1 text-ink-faint opacity-0 hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
-                    >
-                      <TableIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                    )}
+                    {t.rows >= 0 && <span className="ml-auto shrink-0 pl-1.5 font-mono text-[10px] tabular-nums text-ink-faint">{compact(t.rows)}</span>}
+                  </button>
 
                   {on && (
                     <div className="ml-5 border-l border-border pl-2">

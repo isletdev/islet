@@ -12,12 +12,11 @@ import (
 // change what is allowed: read-only refuses writes, production makes every
 // write ask first.
 type Target struct {
-	Ref        string // instance name or saved connection id
-	User       string // the Islet user, for the pool key and the audit trail
-	Engine     string
-	ReadOnly   bool
-	Production bool
-	Config     Config
+	Ref      string // instance name or saved connection id
+	User     string // the Islet user, for the pool key and the audit trail
+	Engine   string
+	ReadOnly bool
+	Config   Config
 }
 
 // RunOptions are the knobs one press of Run carries.
@@ -71,7 +70,7 @@ func Preflight(doc string, t Target, opt RunOptions) ([]Statement, error) {
 		if t.ReadOnly && !st.AllowedReadOnly() {
 			return nil, fmt.Errorf("%w: %s", ErrReadOnly, firstWords(st.SQL))
 		}
-		if !opt.Confirmed && st.NeedsConfirmation(t.Production) {
+		if !opt.Confirmed && st.NeedsConfirmation() {
 			return nil, fmt.Errorf("%w: %s", ErrNeedsConfirmation, firstWords(st.SQL))
 		}
 	}

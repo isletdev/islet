@@ -144,7 +144,6 @@ func (s *Server) registerSQLRoutes(mux *http.ServeMux, wrap func(http.HandlerFun
 	r("POST /api/v1/sql/saved", s.createSaved)
 	r("PUT /api/v1/sql/saved/{id}", s.updateSaved)
 	r("DELETE /api/v1/sql/saved/{id}", s.deleteSaved)
-	r("PUT /api/v1/sql/connections/{ref}/mark", s.markConnection)
 }
 
 // StartSQLHistoryPrune keeps the history table from growing forever, which is
@@ -217,16 +216,15 @@ func sqlErr(w http.ResponseWriter, err error) {
 // and saved external ones look the same to the client apart from Managed,
 // which is what lets the interface say where a connection came from.
 type sqlConnectionView struct {
-	Ref         string `json:"ref"`
-	Name        string `json:"name"`
-	Engine      string `json:"engine"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Database    string `json:"database"`
-	Managed     bool   `json:"managed"` // installed by Islet: no configuration, no stored password
-	ReadOnly    bool   `json:"readOnly"`
-	Environment string `json:"environment"`
-	State       string `json:"state,omitempty"`
+	Ref      string `json:"ref"`
+	Name     string `json:"name"`
+	Engine   string `json:"engine"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	Managed  bool   `json:"managed"` // installed by Islet: no configuration, no stored password
+	ReadOnly bool   `json:"readOnly"`
+	State    string `json:"state,omitempty"`
 }
 
 func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
@@ -241,25 +239,14 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	marks, err := s.sqlStore.Marks(r.Context())
-	if err != nil {
-		fail(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
 	for _, in := range instances {
 		if _, err := sqlclient.EngineSupported(in.Engine); err != nil {
 			continue // Redis and Mongo are Adminer's job; see the non-goals
 		}
-		ref := "islet:" + in.Name
-		mark := marks[ref]
-		if mark.Environment == "" {
-			mark.Environment = "development"
-		}
 		out = append(out, sqlConnectionView{
-			Ref: ref, Name: in.Name, Engine: in.Engine,
+			Ref: "islet:" + in.Name, Name: in.Name, Engine: in.Engine,
 			Host: in.Host, Port: in.Port, Database: in.Database,
-			Managed: true, ReadOnly: mark.ReadOnly, Environment: mark.Environment,
-			State: in.State,
+			Managed: true, State: in.State,
 		})
 	}
 
@@ -271,7 +258,7 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
 	for _, c := range saved {
 		out = append(out, sqlConnectionView{
 			Ref: c.ID, Name: c.Name, Engine: c.Engine, Host: c.Host, Port: c.Port,
-			Database: c.Database, ReadOnly: c.ReadOnly, Environment: c.Environment,
+			Database: c.Database, ReadOnly: c.ReadOnly,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -280,23 +267,22 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
 // connectionRequest is the add and edit form. The password is write-only:
 // it comes in and is never sent back.
 type connectionRequest struct {
-	Name        string  `json:"name"`
-	Engine      string  `json:"engine"`
-	Host        string  `json:"host"`
-	Port        int     `json:"port"`
-	Username    string  `json:"username"`
-	Password    *string `json:"password"`
-	Database    string  `json:"database"`
-	TLS         string  `json:"tls"`
-	ReadOnly    bool    `json:"readOnly"`
-	Environment string  `json:"environment"`
+	Name     string  `json:"name"`
+	Engine   string  `json:"engine"`
+	Host     string  `json:"host"`
+	Port     int     `json:"port"`
+	Username string  `json:"username"`
+	Password *string `json:"password"`
+	Database string  `json:"database"`
+	TLS      string  `json:"tls"`
+	ReadOnly bool    `json:"readOnly"`
 }
 
 func (req connectionRequest) toSaved() sqlclient.SavedConnection {
 	return sqlclient.SavedConnection{
 		Name: req.Name, Engine: req.Engine, Host: req.Host, Port: req.Port,
 		Username: req.Username, Database: req.Database,
-		TLS: sqlclient.TLSMode(req.TLS), ReadOnly: req.ReadOnly, Environment: req.Environment,
+		TLS: sqlclient.TLSMode(req.TLS), ReadOnly: req.ReadOnly,
 	}
 }
 
@@ -823,15 +809,12 @@ func (s *Server) sqlTarget(ctx context.Context, a sqlActor, ref string) (sqlclie
 			if in.Host == "" && in.PublicPort == 0 {
 				return sqlclient.Target{}, fmt.Errorf("%s has no address to connect to: the container may be stopped", in.Name)
 			}
-			mark := s.sqlStore.MarkFor(ctx, ref)
 			return sqlclient.Target{
 				Ref: ref, User: a.Name, Engine: in.Engine,
-				ReadOnly:   mark.ReadOnly,
-				Production: mark.Environment == "production",
 				Config: sqlclient.Config{
 					Engine: in.Engine, Host: addressOf(in), Port: portOf(in),
 					User: in.User, Password: in.Password, Database: in.Database,
-					TLS: sqlclient.TLSDisable, ReadOnly: mark.ReadOnly,
+					TLS:     sqlclient.TLSDisable,
 					AppName: "islet-sql/" + a.Name,
 					// Loopback, not the advertised public address: a published
 					// port is reachable here without leaving the machine.
@@ -848,9 +831,8 @@ func (s *Server) sqlTarget(ctx context.Context, a sqlActor, ref string) (sqlclie
 	}
 	return sqlclient.Target{
 		Ref: ref, User: a.Name, Engine: meta.Engine,
-		ReadOnly:   meta.ReadOnly,
-		Production: meta.Environment == "production",
-		Config:     cfg,
+		ReadOnly: meta.ReadOnly,
+		Config:   cfg,
 	}, nil
 }
 
@@ -860,40 +842,6 @@ func (s *Server) sqlTarget(ctx context.Context, a sqlActor, ref string) (sqlclie
 // string literal — and the audit log is readable by anyone who can read it.
 func (s *Server) sqlAudit(ctx context.Context, actor, action, target, detail string) {
 	_ = s.store.Audit(ctx, actor, action, target, cmdrun.Redact(detail))
-}
-
-// markConnection records that a connection is read-only, or which environment
-// it belongs to. For a saved connection these are columns on its own row; for
-// a database Islet installed there is no row, and marking the production
-// database is precisely the case 7.14 exists for.
-func (s *Server) markConnection(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.sqlAdmin(w, r)
-	if !ok {
-		return
-	}
-	var req struct {
-		ReadOnly    bool   `json:"readOnly"`
-		Environment string `json:"environment"`
-	}
-	if !sqlDecode(w, r, &req) {
-		return
-	}
-	ref := r.PathValue("ref")
-	if !strings.HasPrefix(ref, "islet:") {
-		fail(w, http.StatusBadRequest, "invalid",
-			"a saved connection carries these on its own row: edit the connection instead")
-		return
-	}
-	if err := s.sqlStore.SetMark(r.Context(), sqlclient.Mark{
-		Ref: ref, ReadOnly: req.ReadOnly, Environment: req.Environment,
-	}); err != nil {
-		sqlErr(w, err)
-		return
-	}
-	// A pool opened with the old read-only setting would keep it.
-	s.sqlMgr.Forget(ref)
-	s.sqlAudit(r.Context(), a.Name, "sql.connection.mark", ref, req.Environment)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // A container with no bridge address the daemon can use still has a published

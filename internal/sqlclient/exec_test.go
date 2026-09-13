@@ -145,17 +145,6 @@ func TestDangerousStatementNeedsConfirmation(t *testing.T) {
 	}
 }
 
-func TestEveryWriteOnProductionAsksFirst(t *testing.T) {
-	d := newFakeDriver()
-	m, tgt, _ := testTarget(t, "fake-prod", d)
-	tgt.Production = true
-
-	_, err := m.Execute(context.Background(), "r", tgt, nil, "UPDATE users SET a = 1 WHERE id = 2", RunOptions{}, collect(new([]StatementResult)))
-	if !errors.Is(err, ErrNeedsConfirmation) {
-		t.Fatalf("a filtered update on production should still ask, got %v", err)
-	}
-}
-
 func TestABatchIsRefusedWholeOrNotAtAll(t *testing.T) {
 	d := newFakeDriver().on("SELECT 1", fakeResult{cols: []Column{{Name: "a"}}, rows: rowsOf(1)})
 	m, tgt, _ := testTarget(t, "fake-whole", d)

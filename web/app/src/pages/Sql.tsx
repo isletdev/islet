@@ -1,36 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   run, sql, SqlError,
-  type Cell, type Column, type Connection, type Environment, type HistoryEntry,
-  type Plan, type SavedQuery, type StatementResult, type Summary, type Table, type Tree,
+  type Cell, type Column, type Connection, type HistoryEntry,
+  type SavedQuery, type StatementResult, type Summary, type Table, type Tree,
 } from "@/lib/sql";
 import { dangerLabel, needsConfirmation, split, statementAt, toByte, toChar } from "@/lib/sqlsplit";
 import { useAuth } from "@/lib/auth";
 import { useDialog, failure } from "@/lib/dialogs";
-import { Alert, Button, Input, Select, Tab, Tabs } from "@/components/ui";
+import { Alert, Button, Input, Tab, Tabs } from "@/components/ui";
 import {
   CloseIcon, CopyIcon, DatabasesIcon, RefreshIcon, SearchIcon, TrashIcon,
 } from "@/components/icons";
 import SqlEditor from "@/components/sql/SqlEditor";
 import SchemaTree from "@/components/sql/SchemaTree";
 import ResultsGrid, { exportResult, type ExportFormat } from "@/components/sql/ResultsGrid";
-import PlanTree, { indexSuggestion } from "@/components/sql/PlanTree";
 import TableView, { type TableFilter } from "@/components/sql/TableView";
 import ConnectionForm from "@/components/sql/ConnectionForm";
 import type { SQLNamespace } from "@codemirror/lang-sql";
 
 /**
- * The SQL client.
+ * The SQL client, for one database.
  *
- * One page, four regions: the connection and its schema on the left, tabs and
- * the editor on the right, and what came back underneath. Everything a run
- * needs — which connection, which session, the row cap, whether a transaction
- * is open — belongs to the tab, so two tabs against the same database do not
- * interfere.
+ * The database is the one in the URL, and there is no way to change it here:
+ * you get here from a database and everything on the page belongs to it — the
+ * tabs, their text, the history and the saved queries. Switching is going back
+ * and opening a different one, which is the same gesture as opening this one.
+ *
+ * Three regions: the schema on the left, tabs and the editor on the right, and
+ * what came back underneath.
  */
 
-type PanelTab = "results" | "messages" | "plan" | "history" | "saved";
+type PanelTab = "results" | "messages" | "history" | "saved";
 
 interface QueryTab {
   id: string;
@@ -56,20 +57,22 @@ interface TableTab {
 
 type OpenTab = QueryTab | TableTab;
 
-const STORE = "islet.sql.state";
+// Tabs are remembered per connection: the text in them is about that database
+// and is meaningless, or wrong, against another.
+const STORE = "islet.sql.state:";
 const ROW_CAPS = [100, 1000, 10_000, 50_000];
-const TIMEOUTS = [10, 30, 60, 300, 600];
 
 export default function Sql() {
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const ask = useDialog();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
 
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [ref, setRef] = useState<string>(() => restore().ref ?? "");
-  const [tabs, setTabs] = useState<OpenTab[]>(() => restore().tabs ?? [newQueryTab()]);
-  const [activeTab, setActiveTab] = useState<string>(() => restore().active ?? "");
+  const ref = params.get("ref") ?? "";
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [tabs, setTabs] = useState<OpenTab[]>(() => restore(ref).tabs ?? [newQueryTab()]);
+  const [activeTab, setActiveTab] = useState<string>(() => restore(ref).active ?? "");
   const [treeState, setTreeState] = useState<{ tree: Tree | null; loading: boolean; error: string | null }>(
     { tree: null, loading: false, error: null },
   );
@@ -78,24 +81,19 @@ export default function Sql() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [plan, setPlan] = useState<Plan | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [rowCap, setRowCap] = useState(1000);
-  const [timeout, setTimeoutSec] = useState(30);
-  const [transaction, setTransaction] = useState(false);
   const [inTx, setInTx] = useState(false);
-  const [editing, setEditing] = useState<Connection | "new" | null>(null);
-  const [treeWidth, setTreeWidth] = useState(() => restore().treeWidth ?? 280);
-  const [editorHeight, setEditorHeight] = useState(() => restore().editorHeight ?? 220);
+  const [editing, setEditing] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(() => restore(ref).treeWidth ?? 280);
+  const [editorHeight, setEditorHeight] = useState(() => restore(ref).editorHeight ?? 220);
   const [treeOpen, setTreeOpen] = useState(true);
   const [finder, setFinder] = useState(false);
 
-  const connection = connections.find((c) => c.ref === ref) ?? null;
   const engine = connection?.engine ?? "postgres";
-  const production = connection?.environment === "production";
   const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0] ?? null;
   const queryTab = tab?.kind === "query" ? tab : null;
 
@@ -112,15 +110,14 @@ export default function Sql() {
   }, [queryTab, statements, cursor]);
 
   // ---- loading ------------------------------------------------------------
-  useEffect(() => {
-    if (!isAdmin) return;
+  const loadConnection = useCallback(() => {
+    if (!isAdmin || !ref) return;
     sql.connections()
-      .then((list) => {
-        setConnections(list);
-        setRef((r) => (r && list.some((c) => c.ref === r) ? r : list[0]?.ref ?? ""));
-      })
+      .then((list) => setConnection(list.find((c) => c.ref === ref) ?? null))
       .catch((e) => setError(failure(e)));
-  }, [isAdmin]);
+  }, [isAdmin, ref]);
+
+  useEffect(() => { loadConnection(); }, [loadConnection]);
 
   const loadTree = useCallback((refresh = false) => {
     if (!ref) return;
@@ -132,10 +129,13 @@ export default function Sql() {
 
   useEffect(() => { loadTree(false); }, [loadTree]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    void sql.saved().then(setSaved).catch(() => {});
-  }, [isAdmin]);
+  // Saved queries belong to the database they were written against.
+  const loadSaved = useCallback(() => {
+    if (!isAdmin || !ref) return;
+    void sql.saved().then((all) => setSaved(all.filter((q) => q.connectionRef === ref))).catch(() => {});
+  }, [isAdmin, ref]);
+
+  useEffect(() => { loadSaved(); }, [loadSaved]);
 
   const loadHistory = useCallback(() => {
     void sql.history({ ref }).then(setHistory).catch(() => {});
@@ -143,28 +143,15 @@ export default function Sql() {
 
   useEffect(() => { if (panel === "history") loadHistory(); }, [panel, loadHistory]);
 
-  // Table tabs belong to the connection they were opened on. Carrying them to
-  // the next one shows "relation does not exist" for a table that is simply
-  // somewhere else, so they are closed instead. A query tab stays: the SQL in
-  // it is the person's, and it may well be what they want to run here.
-  useEffect(() => {
-    if (!ref) return;
-    setTabs((all) => {
-      const kept = all.filter((t) => t.kind !== "table" || t.ref === ref);
-      if (kept.length === all.length) return all;
-      const next = kept.length > 0 ? kept : [newQueryTab()];
-      setActiveTab((a) => (next.some((t) => t.id === a) ? a : next[0].id));
-      return next;
-    });
-  }, [ref]);
-
   // Remember where you were. A query editor that forgets the query on a reload
   // is a query editor nobody trusts with anything longer than one line.
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify({
-        ref, tabs, active: activeTab, treeWidth, editorHeight,
-      }));
+      if (ref) {
+        localStorage.setItem(STORE + ref, JSON.stringify({
+          tabs, active: activeTab, treeWidth, editorHeight,
+        }));
+      }
     } catch { /* a remembered tab is not worth an error */ }
   }, [ref, tabs, activeTab, treeWidth, editorHeight]);
 
@@ -182,13 +169,11 @@ export default function Sql() {
     return () => window.removeEventListener("pagehide", bye);
   }, [tabs]);
 
-  // Arriving from somewhere else in the panel: /sql?ref=…&table=schema.name to
-  // open a table, ?sql=… to land in the editor. The slow-query list on the
-  // Databases page uses the second one, which is the loop no standalone client
-  // can close: find a slow query, understand it, fix it, without leaving.
+  // Arriving with something to open: ?table=schema.name for a table, ?sql=… to
+  // land in the editor. The slow-query list on the Databases page uses the
+  // second one, which is the loop no standalone client can close: find a slow
+  // query, understand it, fix it, without leaving.
   useEffect(() => {
-    const wantRef = params.get("ref");
-    if (wantRef && wantRef !== ref) { setRef(wantRef); return; }
     const wantTable = params.get("table");
     const wantSQL = params.get("sql");
     if (!wantTable && !wantSQL) return;
@@ -202,7 +187,7 @@ export default function Sql() {
     next.delete("sql");
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params, ref]);
+  }, [params]);
 
   // ---- completion from the introspection cache ----------------------------
   const completionSchema = useMemo<SQLNamespace | undefined>(() => {
@@ -225,6 +210,9 @@ export default function Sql() {
   const defaultSchema = treeState.tree?.schemas[0]?.name;
 
   // ---- running ------------------------------------------------------------
+  // Every run on a query tab goes through that tab's own connection, so BEGIN,
+  // SET and a temporary table survive to the next run — and so an open
+  // transaction is never left on a connection that goes back to the pool.
   const ensureSession = useCallback(async (t: QueryTab): Promise<string | undefined> => {
     if (t.sessionId) return t.sessionId;
     try {
@@ -232,13 +220,12 @@ export default function Sql() {
       setTabs((all) => all.map((x) => (x.id === t.id && x.kind === "query" ? { ...x, sessionId: s.id } : x)));
       return s.id;
     } catch {
-      // A session is a nicety: without one a run still works, it just cannot
-      // hold a transaction open between runs.
+      // Without one a run still works; it just cannot hold a transaction open.
       return undefined;
     }
   }, [ref]);
 
-  const doRun = useCallback(async (document: string, opts: { transaction?: boolean } = {}) => {
+  const doRun = useCallback(async (document: string) => {
     if (!ref || !queryTab || !document.trim()) return;
     setError(null);
     setResults([]);
@@ -250,24 +237,23 @@ export default function Sql() {
     // because a DELETE on production and a DELETE on a scratch copy are the
     // same statement.
     const stmts = split(document, engine);
-    const risky = stmts.filter((s) => needsConfirmation(s, production));
+    const risky = stmts.filter((s) => needsConfirmation(s));
     let confirmed = false;
     if (risky.length > 0) {
       const worst = risky[0];
       const reasons = worst.danger.map(dangerLabel);
-      if (production && reasons.length === 0) reasons.push("this connection is marked production");
       const ok = await ask.confirm({
         title: risky.length === 1 ? "Run this statement?" : `Run ${risky.length} statements that change things?`,
         body: (
           <div className="space-y-2">
-            <p>On <span className="font-medium">{connection?.name}</span>{production ? ", which is marked production" : ""}.</p>
+            <p>On <span className="font-medium">{connection?.name}</span>.</p>
             <pre className="max-h-32 overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-[11px] whitespace-pre-wrap">{worst.sql}</pre>
             <ul className="list-disc pl-5 text-xs">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
           </div>
         ),
         confirmLabel: "Run it",
         tone: "danger",
-        typeToConfirm: production || worst.danger.some((d) => d === "drop" || d === "truncate") ? connection?.name : undefined,
+        typeToConfirm: worst.danger.some((d) => d === "drop" || d === "truncate") ? connection?.name : undefined,
       });
       if (!ok) return;
       confirmed = true;
@@ -277,7 +263,7 @@ export default function Sql() {
     // "Running…" while it is waiting for someone to type a name is lying.
     setBusy(true);
 
-    const sessionId = opts.transaction || transaction || inTx ? await ensureSession(queryTab) : queryTab.sessionId;
+    const sessionId = await ensureSession(queryTab);
     const id = crypto.randomUUID().replaceAll("-", "");
     setRunId(id);
     const collected: StatementResult[] = [];
@@ -286,8 +272,6 @@ export default function Sql() {
         sessionId,
         runId: id,
         rowCap,
-        timeoutMs: timeout * 1000,
-        transaction: opts.transaction ?? (transaction && !inTx),
         confirmed,
       }, {
         onStatement: (r) => { collected.push(r); setResults([...collected]); },
@@ -308,7 +292,7 @@ export default function Sql() {
       setRunId(null);
       loadHistory();
     }
-  }, [ref, queryTab, engine, production, connection, ask, transaction, inTx, ensureSession, rowCap, timeout, loadTree, loadHistory]);
+  }, [ref, queryTab, engine, connection, ask, ensureSession, rowCap, loadTree, loadHistory]);
 
   const runStatement = () => { if (current) void doRun(current.statement.sql); };
   const runAll = () => { if (queryTab) void doRun(queryTab.doc); };
@@ -318,23 +302,7 @@ export default function Sql() {
     try { await sql.cancel(ref, runId); } catch (e) { void ask.alert({ title: "Could not cancel", body: failure(e), tone: "danger" }); }
   };
 
-  const explain = async (analyze: boolean) => {
-    if (!ref || !current) return;
-    setError(null);
-    try {
-      const p = await sql.explain(ref, { sql: current.statement.sql, sessionId: queryTab?.sessionId, analyze });
-      setPlan(p);
-      setPanel("plan");
-    } catch (e) {
-      setError(e instanceof SqlError ? e.message : failure(e));
-      setPanel("messages");
-    }
-  };
-
-  const endTransaction = async (how: "COMMIT" | "ROLLBACK") => {
-    await doRun(how, { transaction: false });
-    setTransaction(false);
-  };
+  const endTransaction = (how: "COMMIT" | "ROLLBACK") => doRun(how);
 
   // ---- tabs ---------------------------------------------------------------
   function openTable(schema: string, table: string, filter?: TableFilter) {
@@ -393,27 +361,10 @@ export default function Sql() {
         const created = await sql.save(body);
         setTabs((all) => all.map((t) => (t.id === queryTab.id && t.kind === "query" ? { ...t, savedId: created.id, title: name } : t)));
       }
-      setSaved(await sql.saved());
+      loadSaved();
       setPanel("saved");
     } catch (e) {
       void ask.alert({ title: "Could not save it", body: failure(e), tone: "danger" });
-    }
-  };
-
-  const markConnection = async (environment: Environment, readOnly: boolean) => {
-    if (!connection) return;
-    try {
-      if (connection.managed) await sql.mark(connection.ref, { environment, readOnly });
-      else {
-        void ask.alert({
-          title: "Edit the connection instead",
-          body: "A saved connection carries its environment and read-only setting on its own row.",
-        });
-        return;
-      }
-      setConnections(await sql.connections());
-    } catch (e) {
-      void ask.alert({ title: "Could not change it", body: failure(e), tone: "danger" });
     }
   };
 
@@ -425,10 +376,26 @@ export default function Sql() {
     );
   }
 
+  // The database is named in the URL. There is no picker here on purpose: you
+  // arrive from a database, and everything on the page belongs to that one.
+  if (!ref) {
+    return (
+      <div className="mx-auto max-w-2xl rounded-lg border border-dashed border-border p-8 text-center">
+        <p className="text-sm text-ink-muted">Open a database to query it.</p>
+        <Link
+          to="/databases"
+          className="mt-3 inline-flex h-8 items-center rounded-md bg-ink px-3 text-xs font-medium text-on-ink hover:opacity-90"
+        >
+          Go to Databases
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)] min-h-0 flex-col md:-m-6">
       {/* ---- the bar that says where you are ---- */}
-      <header className={`flex flex-wrap items-center gap-2 border-b px-3 py-2 ${production ? "border-danger/40 bg-danger-soft" : "border-border bg-surface"}`}>
+      <header className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2">
         <button
           type="button"
           onClick={() => setTreeOpen((o) => !o)}
@@ -446,56 +413,23 @@ export default function Sql() {
           ← Databases
         </Link>
 
-        <Select
-          value={ref}
-          onChange={(e) => { setRef(e.target.value); setInTx(false); setResults([]); setSummary(null); }}
-          className="w-52"
-          aria-label="Connection"
-        >
-          {connections.length === 0 && <option value="">No databases yet</option>}
-          {connections.map((c) => (
-            <option key={c.ref} value={c.ref}>
-              {c.name}{c.managed ? "" : " (external)"}
-            </option>
-          ))}
-        </Select>
-
+        <span className="min-w-0 truncate text-sm font-semibold">{connection?.name ?? "\u2026"}</span>
         {connection && (
           <>
             <span className="hidden font-mono text-[11px] text-ink-muted sm:inline">
               {connection.engine} · {connection.host}:{connection.port}
+              {connection.database ? "/" + connection.database : ""}
             </span>
             {connection.readOnly && (
               <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">read-only</span>
             )}
-            <Select
-              value={connection.environment}
-              onChange={(e) => void markConnection(e.target.value as Environment, connection.readOnly)}
-              className="w-36 text-xs"
-              aria-label="Environment"
-            >
-              <option value="development">Development</option>
-              <option value="staging">Staging</option>
-              <option value="production">Production</option>
-            </Select>
-            <span className={`text-[11px] ${production ? "text-danger" : "text-ink-muted"}`}>
-              {production
-                ? "Every write asks before it runs, and names this connection."
-                : "Only Production changes what the panel does: it makes every write ask first."}
-            </span>
+            {!connection.managed && (
+              <Button variant="secondary" className="ml-auto h-8 px-2 text-xs" onClick={() => setEditing(true)}>
+                Edit the connection
+              </Button>
+            )}
           </>
         )}
-
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <Button variant="secondary" className="h-8 px-2 text-xs" onClick={() => setEditing("new")}>
-            Add a connection
-          </Button>
-          {connection && !connection.managed && (
-            <Button variant="secondary" className="h-8 px-2 text-xs" onClick={() => setEditing(connection)}>
-              Edit
-            </Button>
-          )}
-        </div>
       </header>
 
       {inTx && (
@@ -589,46 +523,18 @@ export default function Sql() {
                 {busy && (
                   <Button variant="danger" className="h-7 px-2 text-xs" onClick={() => void cancel()}>Cancel</Button>
                 )}
-                <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void explain(false)} disabled={busy || !current}>
-                  Explain
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => void explain(true)}
-                  disabled={busy || !current}
-                  title="Runs the statement and reports what actually happened"
-                >
-                  Explain analyze
-                </Button>
                 <Button variant="secondary" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void saveQuery()} disabled={!queryTab?.doc.trim()}>
                   Save
                 </Button>
 
-                <label className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-muted">
-                  <input
-                    type="checkbox"
-                    checked={transaction}
-                    onChange={(e) => setTransaction(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-[var(--islet-accent)]"
-                  />
-                  In a transaction
-                </label>
                 <select
                   value={rowCap}
                   onChange={(e) => setRowCap(Number(e.target.value))}
-                  aria-label="Row cap"
-                  className="h-7 rounded-md border border-border bg-bg px-1.5 text-[11px]"
+                  aria-label="How many rows to fetch"
+                  title="A SELECT stops at this many rows, so one on a large table is boring rather than fatal."
+                  className="ml-auto h-7 rounded-md border border-border bg-bg px-1.5 text-[11px]"
                 >
                   {ROW_CAPS.map((n) => <option key={n} value={n}>{n.toLocaleString()} rows</option>)}
-                </select>
-                <select
-                  value={timeout}
-                  onChange={(e) => setTimeoutSec(Number(e.target.value))}
-                  aria-label="Statement timeout"
-                  className="h-7 rounded-md border border-border bg-bg px-1.5 text-[11px]"
-                >
-                  {TIMEOUTS.map((n) => <option key={n} value={n}>{n < 60 ? `${n}s` : `${n / 60}m`}</option>)}
                 </select>
               </div>
 
@@ -658,12 +564,11 @@ export default function Sql() {
               />
 
               <section className="flex min-h-0 flex-1 flex-col border-t border-border">
-                <Tabs label="Results, messages, plan and history" className="px-2">
+                <Tabs label="Results, messages, history and saved queries" className="px-2">
                   <Tab active={panel === "results"} onClick={() => setPanel("results")}>
                     Results{results.length > 1 ? ` (${results.length})` : ""}
                   </Tab>
                   <Tab active={panel === "messages"} onClick={() => setPanel("messages")}>Messages</Tab>
-                  <Tab active={panel === "plan"} onClick={() => setPanel("plan")}>Plan</Tab>
                   <Tab active={panel === "history"} onClick={() => setPanel("history")}>History</Tab>
                   <Tab active={panel === "saved"} onClick={() => setPanel("saved")}>Saved</Tab>
                 </Tabs>
@@ -672,11 +577,6 @@ export default function Sql() {
                   {panel === "results" && <ResultsPanel results={results} connectionRef={ref} busy={busy} />}
                   {panel === "messages" && (
                     <MessagesPanel results={results} summary={summary} error={error} />
-                  )}
-                  {panel === "plan" && (
-                    plan
-                      ? <PlanPanel plan={plan} onUse={intoEditor} />
-                      : <Empty>Run Explain on a statement to see its plan.</Empty>
                   )}
                   {panel === "history" && (
                     <HistoryPanel
@@ -708,7 +608,7 @@ export default function Sql() {
                         });
                         if (!ok) return;
                         await sql.deleteSaved(q.id);
-                        setSaved(await sql.saved());
+                        loadSaved();
                       }}
                     />
                   )}
@@ -719,21 +619,12 @@ export default function Sql() {
         </div>
       </div>
 
-      {editing && (
+      {editing && connection && (
         <ConnectionForm
-          connection={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null);
-            const list = await sql.connections();
-            setConnections(list);
-          }}
-          onDeleted={async (deleted) => {
-            setEditing(null);
-            const list = await sql.connections();
-            setConnections(list);
-            if (deleted === ref) setRef(list[0]?.ref ?? "");
-          }}
+          connection={connection}
+          onClose={() => setEditing(false)}
+          onSaved={() => { setEditing(false); loadConnection(); loadTree(true); }}
+          onDeleted={() => { setEditing(false); navigate("/databases"); }}
         />
       )}
 
@@ -875,24 +766,6 @@ function MessagesPanel({ results, summary, error }: { results: StatementResult[]
           {summary.inTransaction ? " A transaction is open." : ""}
         </p>
       )}
-    </div>
-  );
-}
-
-function PlanPanel({ plan, onUse }: { plan: Plan; onUse: (sql: string) => void }) {
-  const suggestion = useMemo(() => indexSuggestion(plan), [plan]);
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {suggestion && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-2 px-3 py-1.5 text-[11px]">
-          <span className="text-ink-muted">This plan scans a whole table with a filter on one column:</span>
-          <code className="font-mono">{suggestion}</code>
-          <Button variant="secondary" className="ml-auto h-6 px-2 text-[11px]" onClick={() => onUse(suggestion)}>
-            Put it in the editor
-          </Button>
-        </div>
-      )}
-      <PlanTree plan={plan} />
     </div>
   );
 }
@@ -1067,16 +940,16 @@ function dragY(startY: number, startH: number, set: (h: number) => void) {
 }
 
 interface Stored {
-  ref?: string;
   tabs?: OpenTab[];
   active?: string;
   treeWidth?: number;
   editorHeight?: number;
 }
 
-function restore(): Stored {
+function restore(ref: string): Stored {
+  if (!ref) return {};
   try {
-    const v = JSON.parse(localStorage.getItem(STORE) ?? "{}") as Stored;
+    const v = JSON.parse(localStorage.getItem(STORE + ref) ?? "{}") as Stored;
     // A session id from a previous page load is gone: the daemon closed it.
     if (v.tabs) v.tabs = v.tabs.map((t) => (t.kind === "query" ? { ...t, sessionId: undefined } : t));
     return v;

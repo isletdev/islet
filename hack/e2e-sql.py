@@ -98,13 +98,13 @@ def query(ref, text, **opts):
 st, body = call("POST", "/api/v1/sql/connections", {
     "name": "e2e-nowhere", "engine": "postgres", "host": "127.0.0.1", "port": 1,
     "username": "nobody", "password": "x", "database": "x", "tls": "disable",
-    "readOnly": False, "environment": "development"})
+    "readOnly": False})
 check("a connection that cannot be reached is not saved", st == 400, body[:120])
 
 st, body = call("POST", "/api/v1/sql/connections", {
     "name": "e2e-shop", "engine": "postgres", "host": HOST, "port": PORT,
     "username": "postgres", "password": "devpass", "database": "shop", "tls": "disable",
-    "readOnly": False, "environment": "development"})
+    "readOnly": False})
 if st != 201:
     print("cannot continue without a connection:", st, body[:300])
     sys.exit(1)
@@ -233,7 +233,7 @@ check("the scratch table is removed", err is None and summary and summary["faile
 st, body = call("POST", "/api/v1/sql/connections", {
     "name": "e2e-readonly", "engine": "postgres", "host": HOST, "port": PORT,
     "username": "postgres", "password": "devpass", "database": "shop", "tls": "disable",
-    "readOnly": True, "environment": "staging"})
+    "readOnly": True})
 ro = json.loads(body)["id"] if st == 201 else None
 check("a read-only connection can be created", ro is not None, body[:120])
 if ro:

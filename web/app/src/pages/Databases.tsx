@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DBDetail, type DBInstance } from "@/lib/api";
 import { sql, type Connection } from "@/lib/sql";
+import ConnectionForm from "@/components/sql/ConnectionForm";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
@@ -29,13 +30,18 @@ export default function Databases() {
   const [error, setError] = useState<string | null>(null);
   const selected = params.get("i");
   const [external, setExternal] = useState<Connection[]>([]);
+  const [adding, setAdding] = useState(false);
   const load = useCallback(() => api.databases().then((l) => { setList(l); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); }, [load]);
+  // Only the ones somebody added by hand: the rest are the cards above.
+  const loadExternal = useCallback(
+    () => sql.connections().then((c) => setExternal(c.filter((x) => !x.managed))).catch(() => {}),
+    [],
+  );
   useEffect(() => {
     if (!isAdmin) return;
-    // Only the ones somebody added by hand: the rest are the cards above.
-    void sql.connections().then((c) => setExternal(c.filter((x) => !x.managed))).catch(() => {});
-  }, [isAdmin]);
+    void loadExternal();
+  }, [isAdmin, loadExternal]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -69,13 +75,20 @@ export default function Databases() {
           </div>
         )}
       </div>
-      {isAdmin && external.length > 0 && (
+      {isAdmin && (
         <section>
-          <h2 className="text-sm font-semibold">Databases somewhere else</h2>
-          <p className="mt-0.5 text-xs text-ink-muted">
-            Added by hand, on another server or installed outside Islet. There is nothing to manage here:
-            open one in the SQL editor and it is the same client.
-          </p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">Databases somewhere else</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                On another server, or on this one but installed outside Islet. There is nothing to manage
+                here: open one in the SQL editor and it is the same client.
+              </p>
+            </div>
+            <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => setAdding(true)}>
+              Add a database
+            </Button>
+          </div>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {external.map((c) => (
               <Link
@@ -86,9 +99,6 @@ export default function Databases() {
                 <div className="flex items-center gap-2.5">
                   <AppIcon slug={c.engine} category="database" name={c.engine} size="sm" />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
-                  {c.environment === "production" && (
-                    <span className="shrink-0 rounded-sm bg-danger-soft px-1 text-[10px] text-danger">production</span>
-                  )}
                   {c.readOnly && (
                     <span className="shrink-0 rounded-sm bg-surface-2 px-1 text-[10px] text-ink-muted">read-only</span>
                   )}
@@ -97,7 +107,20 @@ export default function Databases() {
               </Link>
             ))}
           </div>
+          {external.length === 0 && (
+            <p className="mt-2 rounded-lg border border-dashed border-border p-4 text-center text-xs text-ink-muted">
+              None yet. Adding one stores its address and password here and opens it in the SQL editor.
+            </p>
+          )}
         </section>
+      )}
+      {adding && (
+        <ConnectionForm
+          connection={null}
+          onClose={() => setAdding(false)}
+          onSaved={async () => { setAdding(false); await loadExternal(); }}
+          onDeleted={async () => { setAdding(false); await loadExternal(); }}
+        />
       )}
       {selected && <Detail name={selected} isAdmin={isAdmin} onChanged={load} />}
     </div>

@@ -49,12 +49,13 @@ func (s Statement) AllowedReadOnly() bool {
 }
 
 // NeedsConfirmation reports whether the interface must confirm before running,
-// naming what will happen. Any write at all on a production connection asks.
-func (s Statement) NeedsConfirmation(production bool) bool {
-	if len(s.Danger) > 0 {
-		return true
-	}
-	return production && s.Writes()
+// naming what will happen.
+//
+// It is a property of the statement, not of the connection. An unfiltered
+// DELETE deserves a second look wherever it runs, and an ordinary UPDATE with
+// a WHERE does not become dangerous because somebody labelled the connection.
+func (s Statement) NeedsConfirmation() bool {
+	return len(s.Danger) > 0
 }
 
 // verbs that begin a statement, mapped to what they do. Anything not here is

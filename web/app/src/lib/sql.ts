@@ -13,7 +13,6 @@ import { apiPath } from "@/lib/api";
  */
 
 export type Engine = "postgres" | "mysql" | "mariadb";
-export type Environment = "development" | "staging" | "production";
 
 export interface Connection {
   ref: string;
@@ -25,7 +24,6 @@ export interface Connection {
   /** Installed by Islet: nothing to configure and no password stored here. */
   managed: boolean;
   readOnly: boolean;
-  environment: Environment;
   state?: string;
 }
 
@@ -163,7 +161,7 @@ const conn = (ref: string) => `/api/v1/sql/connections/${encodeURIComponent(ref)
 export interface ConnectionForm {
   name: string; engine: Engine; host: string; port: number; username: string;
   password?: string | null; database: string; tls: "disable" | "require" | "verify-full";
-  readOnly: boolean; environment: Environment;
+  readOnly: boolean;
 }
 
 export interface RunOptions {
@@ -182,9 +180,6 @@ export const sql = {
   addConnection: (f: ConnectionForm) => send<{ id: string }>("/api/v1/sql/connections", f),
   updateConnection: (id: string, f: ConnectionForm) => send<void>(`/api/v1/sql/connections/${id}`, f, "PUT"),
   deleteConnection: (id: string) => send<void>(`/api/v1/sql/connections/${id}`, undefined, "DELETE"),
-  /** Read-only and environment for a connection with no row of its own. */
-  mark: (ref: string, m: { readOnly: boolean; environment: Environment }) =>
-    send<void>(`${conn(ref)}/mark`, m, "PUT"),
   test: (ref: string) => send<{ ok: boolean; version: string; latencyMs: number }>(`${conn(ref)}/test`),
   schema: (ref: string, refresh = false) =>
     request<Tree>(`${conn(ref)}/schema${refresh ? "?refresh=1" : ""}`),

@@ -126,7 +126,6 @@ sql_routes = [
     ("POST", "/api/v1/sql/connections", {}),
     ("PUT", "/api/v1/sql/connections/x", {}),
     ("DELETE", "/api/v1/sql/connections/x", None),
-    ("PUT", "/api/v1/sql/connections/islet:x/mark", {"readOnly": True, "environment": "production"}),
     ("POST", "/api/v1/sql/connections/islet:x/test", {}),
     ("GET", "/api/v1/sql/connections/islet:x/schema", None),
     ("GET", "/api/v1/sql/connections/islet:x/search?q=a", None),

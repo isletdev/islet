@@ -113,7 +113,7 @@ func (m *Manager) Explain(ctx context.Context, t Target, sess *Session, doc stri
 		if t.ReadOnly && !st.AllowedReadOnly() {
 			return nil, fmt.Errorf("%w: EXPLAIN ANALYZE would run %s", ErrReadOnly, firstWords(st.SQL))
 		}
-		if st.NeedsConfirmation(t.Production) {
+		if st.NeedsConfirmation() {
 			return nil, fmt.Errorf("%w: EXPLAIN ANALYZE runs the statement, and this one is %s", ErrNeedsConfirmation, firstWords(st.SQL))
 		}
 	}

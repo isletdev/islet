@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { sql, SqlError, type Connection, type ConnectionForm as Form, type Engine, type Environment } from "@/lib/sql";
+import { sql, SqlError, type Connection, type ConnectionForm as Form, type Engine } from "@/lib/sql";
 import { useDialog, failure } from "@/lib/dialogs";
 import { Button, Field, Input, Select } from "@/components/ui";
 
@@ -34,7 +34,6 @@ export default function ConnectionForm({ connection, onClose, onSaved, onDeleted
     database: connection?.database ?? "",
     tls: "disable",
     readOnly: connection?.readOnly ?? false,
-    environment: connection?.environment ?? "development",
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,14 +153,7 @@ export default function ConnectionForm({ connection, onClose, onSaved, onDeleted
           </div>
 
           <div className="flex flex-wrap items-start gap-3">
-            <Field label="Environment" className="w-44" hint="Production makes every write ask first.">
-              <Select value={f.environment} onChange={(e) => set("environment", e.target.value as Environment)}>
-                <option value="development">Development</option>
-                <option value="staging">Staging</option>
-                <option value="production">Production</option>
-              </Select>
-            </Field>
-            <label className="flex items-center gap-2 pt-6 text-xs">
+            <label className="flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
                 checked={f.readOnly}

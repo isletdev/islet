@@ -17,12 +17,17 @@ type myIntrospector struct{}
 
 const mySystemSchemas = `('mysql','information_schema','performance_schema','sys')`
 
+// DATABASE() is the database this connection selected, or NULL when it
+// selected none; then every database on the server is fair game, because
+// the person did not narrow it themselves.
+const myCurrentSchema = ` AND TABLE_SCHEMA = COALESCE(DATABASE(), TABLE_SCHEMA)`
+
 const myTablesSQL = `
 SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE,
        COALESCE(TABLE_ROWS, -1) AS row_estimate,
        COALESCE(TABLE_COMMENT, '') AS table_comment
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA NOT IN ` + mySystemSchemas + `
+WHERE TABLE_SCHEMA NOT IN ` + mySystemSchemas + myCurrentSchema + `
 ORDER BY TABLE_SCHEMA, TABLE_NAME`
 
 const myColumnsSQL = `
@@ -31,7 +36,7 @@ SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME,
        IS_NULLABLE, COALESCE(COLUMN_DEFAULT, ''), COALESCE(EXTRA, ''),
        ORDINAL_POSITION, COALESCE(COLUMN_COMMENT, ''), COLUMN_KEY
 FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA NOT IN ` + mySystemSchemas + `
+WHERE TABLE_SCHEMA NOT IN ` + mySystemSchemas + myCurrentSchema + `
 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION`
 
 // One row per column of a composite key, so this is folded back together
@@ -48,6 +53,7 @@ LEFT JOIN information_schema.REFERENTIAL_CONSTRAINTS r
       AND r.TABLE_NAME        = k.TABLE_NAME
 WHERE k.REFERENCED_TABLE_NAME IS NOT NULL
   AND k.TABLE_SCHEMA NOT IN ` + mySystemSchemas + `
+  AND k.TABLE_SCHEMA = COALESCE(DATABASE(), k.TABLE_SCHEMA)
 ORDER BY k.TABLE_SCHEMA, k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION`
 
 func (myIntrospector) Tree(ctx context.Context, conn Conn) (*Tree, error) {

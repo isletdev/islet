@@ -443,10 +443,15 @@ export function statementAt(stmts: Statement[], byteOffset: number): Statement |
   return last ?? stmts[0] ?? null;
 }
 
-/** Whether a statement needs an explicit confirmation before it runs (8.2). */
-export function needsConfirmation(s: Statement, production: boolean) {
-  if (s.danger.length > 0) return true;
-  return production && writes(s);
+/**
+ * Whether a statement needs an explicit confirmation before it runs (8.2).
+ *
+ * A property of the statement, not of the connection: an unfiltered DELETE
+ * deserves a second look wherever it runs. Mirrors Statement.NeedsConfirmation
+ * in internal/sqlclient.
+ */
+export function needsConfirmation(s: Statement) {
+  return s.danger.length > 0;
 }
 
 export function writes(s: Statement) {

@@ -335,7 +335,8 @@ different machine.
 
 ### The features that make it worth building
 
-**7.12 `EXPLAIN` that is readable.** A button that runs
+**7.12 `EXPLAIN` that is readable.** Not built as an interface: `EXPLAIN` is
+SQL and runs like any other statement. The original plan was a button that runs
 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` and renders the plan as a tree: each
 node with its estimated and actual rows, its time, and the worst node
 highlighted. Flag the classics, a sequential scan on a large table, an estimate
@@ -350,10 +351,13 @@ one is open. Auto-rollback on session timeout. This is what makes someone brave
 enough to run an `UPDATE` on a real database, and it is a small amount of code
 for a large amount of confidence.
 
-**7.14 Environment marking.** A connection can be marked production. When it is,
-the interface carries a colour, and any statement that writes asks for
-confirmation naming the connection. Trivial to build, and it is the difference
-between a scare and an incident.
+**7.14 Environment marking.** Built, then removed. Three tiers where only one
+changed any behaviour read as a taxonomy rather than a feature, and it put a
+control in the header of every connection to say something about one of them.
+What survives is per-statement: an unfiltered `UPDATE` or `DELETE`, a `DROP`, a
+`TRUNCATE`, an `ALTER` and a `GRANT` ask on every connection, because those are
+dangerous on their own terms rather than because of a label. Read-only marking
+stays, on the connection, where it refuses writes in the daemon.
 
 **7.15 Inline editing.** When a result maps cleanly to one table with a primary
 key, a cell becomes editable. Editing composes the `UPDATE`, shows it, and asks
@@ -532,6 +536,12 @@ Named so that the next person does not have to work it out from the absence.
   and saved queries record which ones they declare. The form above the editor
   that collects values is not built; a saved query with parameters shows them
   and is run by editing the text.
+- **7.12 the `EXPLAIN` view.** The endpoint is there and is tested; the plan
+  tree and the two buttons are not. `EXPLAIN` typed by hand returns rows like
+  any other statement.
+- **7.13 the transaction toggle.** There is no checkbox. A query tab holds its
+  own connection, so `BEGIN` typed by hand stays open between runs and the
+  status bar offers Commit and Roll back when one is.
 - **7.15 inline editing.** A cell is not editable. This is the largest piece of
   the specification that is missing, and the one most likely to be asked for.
 - **7.18 charting**, **7.19 schema snapshots**, **7.20 scratch restores.** None

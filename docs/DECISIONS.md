@@ -442,3 +442,31 @@ the next connection showed "relation does not exist" for a table that is simply
 somewhere else. Query tabs still follow you: the SQL in one is the person's and
 may well be what they want to run here.
 
+## 2026-09-13 — The SQL client is one database, and less of everything else
+Six controls came off the page. A connection picker, because the database is
+the one you opened and switching is going back and opening another. An "add a
+connection" button, because adding a database belongs on the page where
+databases live. An environment select with three tiers of which one did
+anything. A transaction checkbox. A statement-timeout dropdown. Two EXPLAIN
+buttons that were disabled whenever the cursor was not in a statement, which is
+how they came to look like buttons that do nothing.
+
+What that bought, beyond a page you can read: everything on it now belongs to
+one database. Tabs and their text are remembered per connection, saved queries
+are filtered to the connection they were written against, and history already
+was. Switching databases used to carry a table tab across and show "relation
+does not exist"; there is nothing to carry now.
+
+Two fixes fell out of it. A query tab always holds its own connection, which it
+did not when the transaction checkbox was off — so `BEGIN` typed by hand opened
+a transaction on a pooled connection and handed it to the next borrower. And
+MySQL's tree now shows the database the connection selected, through
+`DATABASE()`, rather than every database on the server: a MySQL connection can
+see them all and a Postgres one cannot, and the same panel showing a whole
+server in one engine and a single database in the other was the asymmetry
+behind "in MySQL I can make databases and in Postgres I cannot".
+
+Confirmation is now a property of the statement alone. An unfiltered DELETE
+deserves a second look wherever it runs; an UPDATE with a WHERE does not become
+dangerous because somebody labelled the connection.
+

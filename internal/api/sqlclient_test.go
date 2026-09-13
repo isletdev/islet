@@ -242,7 +242,7 @@ func TestSavedConnectionNeverReturnsItsPassword(t *testing.T) {
 	w := h.do(t, "POST", "/api/v1/sql/connections", `{
 		"name":"reporting","engine":"postgres","host":"10.0.0.9","port":5432,
 		"username":"ro","password":"s3cr3t","database":"app","tls":"disable",
-		"readOnly":true,"environment":"production"}`)
+		"readOnly":true}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
 	}
@@ -324,7 +324,7 @@ func TestReadOnlyConnectionRefusesAWrite(t *testing.T) {
 	created := h.do(t, "POST", "/api/v1/sql/connections", `{
 		"name":"ro","engine":"postgres","host":"10.0.0.9","port":5432,
 		"username":"ro","password":"p","database":"app","tls":"disable",
-		"readOnly":true,"environment":"staging"}`)
+		"readOnly":true}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", created.Code, created.Body)
 	}
@@ -342,23 +342,6 @@ func TestReadOnlyConnectionRefusesAWrite(t *testing.T) {
 	ok := h.do(t, "POST", "/api/v1/sql/connections/"+conn.ID+"/query", `{"sql":"SELECT 1"}`)
 	if ok.Code != http.StatusOK {
 		t.Fatalf("a read on a read-only connection: %d %s", ok.Code, ok.Body)
-	}
-}
-
-func TestProductionConnectionAsksBeforeAnyWrite(t *testing.T) {
-	h := newHarness(t)
-	created := h.do(t, "POST", "/api/v1/sql/connections", `{
-		"name":"prod","engine":"postgres","host":"10.0.0.9","port":5432,
-		"username":"app","password":"p","database":"app","tls":"disable",
-		"readOnly":false,"environment":"production"}`)
-	var conn sqlclient.SavedConnection
-	if err := json.Unmarshal(created.Body.Bytes(), &conn); err != nil {
-		t.Fatal(err)
-	}
-	w := h.do(t, "POST", "/api/v1/sql/connections/"+conn.ID+"/query",
-		`{"sql":"UPDATE users SET a = 1 WHERE id = 2"}`)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("status %d, want 409 on a production write: %s", w.Code, w.Body)
 	}
 }
 
