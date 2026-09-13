@@ -4,6 +4,13 @@ on:
   push:
     tags: ["v*"]
 
+# A tag push occasionally arrives as two events, and the second goreleaser run
+# then fails on a release the first one already published. One run per tag, and
+# the one that is already publishing wins.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   id-token: write      # keyless cosign signatures
