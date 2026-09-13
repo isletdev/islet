@@ -171,6 +171,9 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
   const [msg, setMsg] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [builder, setBuilder] = useState(false);
+  // Which template this script started from. Unlike the other two below it
+  // cannot be read back off the job, so it is remembered.
+  const [templateId, setTemplateId] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (p: Partial<Job>) => setJ((c) => ({ ...c, ...p }));
 
@@ -186,7 +189,16 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
     try { const saved = await api.jobSave(j); await onSaved(saved); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); }
   };
   const runLint = async () => { const r = await api.cronLint(j.script ?? ""); setLint(r.available ? r.output || "ShellCheck found nothing to report." : "ShellCheck is not installed on this server (apt install shellcheck)."); };
-  const applyTemplate = (id: string) => { const t = templates.find((x) => x.id === id); if (t) set({ type: "script", name: j.name || t.name, schedule: t.schedule, script: t.script }); };
+  const applyTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setTemplateId(id);
+    set({ type: "script", name: j.name || t.name, schedule: t.schedule, script: t.script });
+  };
+  // The shebang and the preset are whatever the job actually says, read back
+  // rather than remembered: typing either one by hand moves the dropdown too.
+  const shebang = /^#!(.*)\n/.exec(j.script ?? "")?.[1].trim() ?? "";
+  const preset = PRESETS.some(([, v]) => v === j.schedule) ? (j.schedule ?? "") : "";
   const restore = async (v: number) => { const r = await api.jobVersion(initial.id!, v); set({ script: r.content }); };
   const chain = (j.command ?? "").split(",").filter(Boolean);
   const t = TYPES[j.type ?? "command"];
@@ -199,7 +211,7 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
 
         <div className="md:col-span-2 grid grid-cols-1 gap-3 rounded-md border border-border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_200px]">
           <Field label={j.type === "heartbeat" ? "Expected schedule" : "Schedule"} hint="Five cron fields, or @hourly, @daily, @weekly. Leave empty for manual only.">
-            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><Select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className="w-36"><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</Select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
+            <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><Select value={preset} onChange={(e) => e.target.value && set({ schedule: e.target.value })} className="w-36"><option value="">{preset ? "Presets" : "Presets…"}</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</Select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
             {builder && <ScheduleBuilder onPick={(s) => { set({ schedule: s }); setBuilder(false); }} />}
           </Field>
           <Field label="Timezone" hint="IANA name, empty means server time."><Input value={j.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Skopje" /></Field>
@@ -233,8 +245,8 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-medium">Script</span>
             <div className="flex flex-wrap gap-2 text-xs">
-              <Select value="" onChange={(e) => e.target.value && applyTemplate(e.target.value)} className="h-7 w-auto px-2 text-xs"><option value="">Start from a template</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
-              <Select value="" onChange={(e) => { const v = e.target.value.replace("#!", ""); if (v) set({ script: `#!${v}\n` + (j.script ?? "").replace(/^#!.*\n/, "") }); }} className="h-7 w-auto px-2 text-xs"><option value="">Shebang</option><option value="#!/usr/bin/env bash">bash</option><option value="#!/bin/sh">sh</option><option value="#!/usr/bin/env python3">python3</option><option value="#!/usr/bin/env node">node</option></Select>
+              <Select value={templateId} onChange={(e) => e.target.value && applyTemplate(e.target.value)} className="h-7 w-auto px-2 text-xs"><option value="">Start from a template…</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
+              <Select value={shebang ? "#!" + shebang : ""} onChange={(e) => { const v = e.target.value.replace("#!", ""); if (v) set({ script: `#!${v}\n` + (j.script ?? "").replace(/^#!.*\n/, "") }); }} className="h-7 w-auto px-2 text-xs"><option value="">{shebang ? shebang : "Shebang…"}</option><option value="#!/usr/bin/env bash">bash</option><option value="#!/bin/sh">sh</option><option value="#!/usr/bin/env python3">python3</option><option value="#!/usr/bin/env node">node</option></Select>
               {versions.length > 0 && <Select value="" onChange={(e) => e.target.value && void restore(+e.target.value)} className="h-7 w-auto px-2 text-xs"><option value="">History ({versions.length})</option>{versions.map((v) => <option key={v.id} value={v.id}>{fmt(v.createdAt)} · {v.actor}</option>)}</Select>}
               <button type="button" onClick={() => void runLint()} className="text-ink-muted hover:text-ink">ShellCheck</button>
             </div>
