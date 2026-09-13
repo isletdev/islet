@@ -30,6 +30,7 @@ import (
 	"github.com/isletdev/islet/internal/deploy"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
+	"github.com/isletdev/islet/internal/fleet"
 	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
@@ -52,6 +53,17 @@ func main() {
 }
 
 func run() error {
+	// One subcommand, which a controller runs over SSH when it adopts this
+	// server. It is a subcommand rather than a flag because it does its work and
+	// exits rather than starting the daemon.
+	if len(os.Args) > 1 && os.Args[1] == "fleet-token" {
+		fs := flag.NewFlagSet("fleet-token", flag.ExitOnError)
+		name := fs.String("name", "", "what to call the token")
+		dir := fs.String("data-dir", envOr("ISLET_DATA_DIR", defaultDataDir()), "directory for state")
+		_ = fs.Parse(os.Args[2:])
+		return fleetToken(*dir, *name)
+	}
+
 	var (
 		listen  = flag.String("listen", envOr("ISLET_LISTEN", "127.0.0.1:9443"), "address to listen on")
 		dataDir = flag.String("data-dir", envOr("ISLET_DATA_DIR", defaultDataDir()), "directory for state")
@@ -131,6 +143,7 @@ func run() error {
 	rn.RegToken = gh.RunnerToken
 	rn.AppConfigured = gh.Configured
 	rn.Start(ctx)
+	fl2 := fleet.New(st, keys)
 	bk := backup.New(st, keys, cmds, dbs, bus, *dataDir, log)
 	bk.Start(ctx)
 	sec := security.New(st, cmds, bus, *dataDir, security.Hooks{
@@ -183,7 +196,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

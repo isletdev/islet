@@ -22,6 +22,7 @@ import (
 	"github.com/isletdev/islet/internal/deploy"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/files"
+	"github.com/isletdev/islet/internal/fleet"
 	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/mcp"
 	"github.com/isletdev/islet/internal/metrics"
@@ -55,6 +56,7 @@ type Deps struct {
 	Deploy   *deploy.Service
 	Runners  *runner.Service
 	Security *security.Service
+	Fleet    *fleet.Service
 	Backup   *backup.Service
 	GitHub   *github.Client
 	UI       http.Handler
@@ -81,6 +83,7 @@ type Server struct {
 	deploy   *deploy.Service
 	runners  *runner.Service
 	security *security.Service
+	fleet    *fleet.Service
 	backup   *backup.Service
 	github   *github.Client
 	mcp      *mcp.Server
@@ -91,7 +94,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	s.recipes = recipes.New(s.catalog.FS(), s.recipeHooks())
 	s.StartCatalogRefresh(context.Background())
 	s.loadCookieDomain()
@@ -155,6 +158,15 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
 	mux.HandleFunc("GET /api/v1/terminal/ws", s.requireAuth(scopeAdminOnly(s.handleTerminal)))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleAudit))
+	// ---- more than one server ----
+	mux.HandleFunc("GET /api/v1/servers", s.requireAuth(s.handleServers))
+	mux.HandleFunc("GET /api/v1/servers/key", s.requireAuth(s.handleServerKey))
+	mux.HandleFunc("POST /api/v1/servers", requireJSON(s.requireAuth(s.handleServerAdd)))
+	mux.HandleFunc("POST /api/v1/servers/{id}/join", requireJSON(s.requireAuth(s.handleServerJoin)))
+	mux.HandleFunc("GET /api/v1/servers/{id}/join/events", s.requireAuth(s.handleServerJoinEvents))
+	mux.HandleFunc("POST /api/v1/servers/{id}/check", s.requireAuth(s.handleServerCheck))
+	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.requireAuth(s.handleServerForget))
+	mux.HandleFunc("/api/v1/servers/{id}/proxy/{rest...}", s.requireAuth(s.handleServerProxy))
 	mux.HandleFunc("GET /api/v1/commands", s.requireAuth(s.handleCommands))
 
 	// Docker
