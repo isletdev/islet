@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,10 +51,34 @@ type Manager struct {
 // can override them with ISLET_PROXY_PORTS=8080,8443.
 func New(run *cmdrun.Runner, st *store.Store, dataDir, ports string) *Manager {
 	m := &Manager{run: run, st: st, dir: filepath.Join(dataDir, "proxy"), httpP: "80", httpsP: "443", panel: "https://host.docker.internal:9443"}
-	if a, b, ok := strings.Cut(ports, ","); ok {
-		m.httpP, m.httpsP = strings.TrimSpace(a), strings.TrimSpace(b)
+	// Both halves have to be real ports. A value without a comma used to be
+	// dropped in silence, so the proxy took 80 and 443 anyway, and a non-numeric
+	// one reached "docker run -p" and failed there instead of here.
+	if strings.TrimSpace(ports) != "" {
+		a, b, ok := strings.Cut(ports, ",")
+		pa, pb := strings.TrimSpace(a), strings.TrimSpace(b)
+		if !ok || !validPort(pa) || !validPort(pb) {
+			panic("ISLET_PROXY_PORTS must be two port numbers separated by a comma, for example 8880,8443; got " + ports)
+		}
+		m.httpP, m.httpsP = pa, pb
 	}
 	return m
+}
+
+// Subnet reports the address range of the proxy network, so the firewall can
+// let the proxy container reach the daemon without opening the panel port to
+// anyone else.
+func (m *Manager) Subnet(ctx context.Context) string {
+	out, err := m.run.Run(ctx, "system", "docker", "network", "inspect", NetworkName, "-f", "{{range .IPAM.Config}}{{.Subnet}} {{end}}")
+	if err != nil {
+		return ""
+	}
+	for _, f := range strings.Fields(out.Stdout) {
+		if strings.Contains(f, "/") && !strings.Contains(f, ":") {
+			return f
+		}
+	}
+	return ""
 }
 
 // Ports reports the published HTTP and HTTPS ports, which the firewall needs
@@ -72,6 +97,11 @@ func (m *Manager) PanelRouted(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+func validPort(p string) bool {
+	n, err := strconv.Atoi(p)
+	return err == nil && n > 0 && n < 65536
 }
 
 // SetPanelURL tells the proxy how to reach the daemon (scheme and port).
@@ -373,8 +403,17 @@ func (d *Domain) Validate() error {
 	if d.TLS != "letsencrypt" && d.TLS != "self" && d.TLS != "none" {
 		return errors.New("tls must be letsencrypt, self or none")
 	}
-	if d.PathPrefix != "" && !strings.HasPrefix(d.PathPrefix, "/") {
-		return errors.New("pathPrefix must start with /")
+	if d.PathPrefix != "" {
+		if !strings.HasPrefix(d.PathPrefix, "/") {
+			return errors.New("pathPrefix must start with /")
+		}
+		// The prefix is interpolated into Traefik's rule expression between
+		// backticks. A backtick or whitespace closes the literal and lets the
+		// rest of the value become rule syntax, which is how one site could
+		// claim another site's host.
+		if strings.ContainsAny(d.PathPrefix, "`$\\ \t\n\r\"'") {
+			return errors.New("pathPrefix may not contain quotes, backticks or spaces")
+		}
 	}
 	if d.RateLimit < 0 {
 		return errors.New("rateLimit must be >= 0")
@@ -560,8 +599,14 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		name := "d-" + d.ID
 		rule := fmt.Sprintf("Host(`%s`)", d.Host)
 		wildcard := strings.HasPrefix(d.Host, "*.")
+		// Traefik ranks routers by rule length unless a priority is set, and the
+		// wildcard regex is always longer than an exact host. Without these two
+		// numbers one wildcard swallows every named site in the zone, the panel
+		// included.
+		priority := 100
 		if wildcard {
 			rule = fmt.Sprintf("HostRegexp(`^[a-z0-9-]+\\.%s$`)", strings.ReplaceAll(strings.TrimPrefix(d.Host, "*."), ".", "\\."))
+			priority = 1
 		}
 		if d.PathPrefix != "" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", d.PathPrefix)
@@ -618,6 +663,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		} else {
 			router["service"] = name
 		}
+		router["priority"] = priority
 		routers[name] = router
 
 		// www rides on its own router and its own certificate: a missing www

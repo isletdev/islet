@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/proxy"
@@ -58,7 +59,16 @@ func (s *Server) handleLogSources(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLogStream tails one source as SSE. ?source=…&tail=200&follow=1&grep=text
+// Host log sources are the system journal, a unit, or a file on disk, and the
+// daemon reads them as root. Sudo sessions, SSH fingerprints and anything an
+// app logged are in there, so only admins may follow them. Container logs are
+// still open to anyone allowed to see the container.
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
+	if src := r.URL.Query().Get("source"); !strings.HasPrefix(src, "container:") {
+		if !s.adminOnly(w, r) {
+			return
+		}
+	}
 	q := r.URL.Query()
 	src := q.Get("source")
 	tail := 200

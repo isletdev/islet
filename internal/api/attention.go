@@ -21,25 +21,48 @@ var (
 	scoreFail int
 )
 
+// securityScore returns the cached score, refreshing it at most every five
+// minutes.
+//
+// The sweep shells out a dozen times and takes seconds, so it runs outside the
+// lock: holding it would block every other dashboard poll. It also runs on its
+// own context, because the score used to be computed from commands that were
+// killed when the first client disconnected, and the wrong number was then
+// cached for five minutes.
+func (s *Server) securityScore(ctx context.Context) (int, int) {
+	scoreMu.Lock()
+	fresh := time.Since(scoreAt) <= 5*time.Minute
+	val, fail := scoreVal, scoreFail
+	scoreMu.Unlock()
+	if fresh || s.security == nil {
+		return val, fail
+	}
+
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	rep := s.security.Report(cctx)
+	if cctx.Err() != nil {
+		return val, fail // timed out; keep the last good number
+	}
+	failing := 0
+	for _, c := range rep.Checks {
+		if c.Status == "fail" {
+			failing++
+		}
+	}
+	scoreMu.Lock()
+	scoreVal, scoreFail, scoreAt = rep.Score, failing, time.Now()
+	scoreMu.Unlock()
+	return rep.Score, failing
+}
+
 // handleAttention aggregates what the dashboard should surface: security
 // score (cached five minutes), backup health, checks down, failed deploys
 // and jobs, and recent critical events.
 func (s *Server) handleAttention(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	out := map[string]any{}
-	scoreMu.Lock()
-	if time.Since(scoreAt) > 5*time.Minute && s.security != nil {
-		rep := s.security.Report(ctx)
-		scoreVal, scoreAt = rep.Score, time.Now()
-		scoreFail = 0
-		for _, c := range rep.Checks {
-			if c.Status == "fail" {
-				scoreFail++
-			}
-		}
-	}
-	out["securityScore"], out["securityFailing"] = scoreVal, scoreFail
-	scoreMu.Unlock()
+	out["securityScore"], out["securityFailing"] = s.securityScore(ctx)
 	if s.backup != nil {
 		out["backups"] = s.backup.Health(ctx)
 	}

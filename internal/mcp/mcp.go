@@ -58,7 +58,10 @@ type rpcError struct {
 
 // Handle processes one JSON-RPC message (or batch) and returns the reply
 // bytes, or nil for notifications.
-func (s *Server) Handle(ctx context.Context, actor, scopes string, body []byte) []byte {
+// Handle answers one MCP request. role is the calling user's role: a tool that
+// changes the server needs the same role the equivalent HTTP route needs, and
+// checking only the token scope would let a viewer act as an admin.
+func (s *Server) Handle(ctx context.Context, actor, scopes, role string, body []byte) []byte {
 	body = []byte(strings.TrimSpace(string(body)))
 	if len(body) > 0 && body[0] == '[' {
 		var reqs []request
@@ -67,7 +70,7 @@ func (s *Server) Handle(ctx context.Context, actor, scopes string, body []byte) 
 		}
 		var out []json.RawMessage
 		for _, r := range reqs {
-			if b := s.one(ctx, actor, scopes, r); b != nil {
+			if b := s.one(ctx, actor, scopes, role, r); b != nil {
 				out = append(out, b)
 			}
 		}
@@ -81,7 +84,7 @@ func (s *Server) Handle(ctx context.Context, actor, scopes string, body []byte) 
 	if err := json.Unmarshal(body, &r); err != nil {
 		return errResp(nil, -32700, "parse error")
 	}
-	return s.one(ctx, actor, scopes, r)
+	return s.one(ctx, actor, scopes, role, r)
 }
 
 func errResp(id json.RawMessage, code int, msg string) []byte {
@@ -94,7 +97,7 @@ func okResp(id json.RawMessage, result any) []byte {
 	return b
 }
 
-func (s *Server) one(ctx context.Context, actor, scopes string, r request) []byte {
+func (s *Server) one(ctx context.Context, actor, scopes, role string, r request) []byte {
 	if strings.HasPrefix(r.Method, "notifications/") {
 		return nil
 	}
@@ -128,6 +131,12 @@ func (s *Server) one(ctx context.Context, actor, scopes string, r request) []byt
 			}
 			if !s.allow(scopes, t.Method, t.Path) {
 				return okResp(r.ID, toolResult("this token's scopes do not cover "+t.Name+" (needs "+t.Scope+")", true))
+			}
+			// A tool that changes the server needs the role the equivalent
+			// HTTP route needs. Checking the scope alone let a viewer with a
+			// wide token of their own run a cron job, which runs as root.
+			if t.Method != "GET" && role == "viewer" {
+				return okResp(r.ID, toolResult("viewers cannot "+t.Name, true))
 			}
 			cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()

@@ -4,6 +4,8 @@ import { api, RequestError, type DeployApp, type Detection, type GitHubRepo, typ
 import { postStream, streamLines } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { capLines } from "@/lib/logcap";
+import { pollInterval } from "@/lib/poll";
 
 const SAMPLES = [
   { dir: "static-site", label: "Static site (HTML + CSS)" },
@@ -28,7 +30,7 @@ export default function Deploys() {
   const [groups, setGroups] = useState(false);
   const selected = params.get("app");
   const load = useCallback(() => api.deployApps().then((a) => { setApps(a); setError(null); }).catch((e) => setError(err(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 10000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 10000); return stop; }, [load]);
   const sel = apps.find((a) => a.id === selected);
 
   return (
@@ -73,14 +75,14 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
   useEffect(() => {
     if (!app.deploying || busy) return;
     setLog([]); setBusy(true);
-    const stop = streamLines(`/api/v1/apps/${app.id}/deploy/log`, (l) => setLog((p) => [...(p ?? []), l]), async (m) => { if (m !== "done") setLog((p) => [...(p ?? []), `[islet] ${m}`]); setBusy(false); await loadRel(); await onChanged(); });
+    const stop = streamLines(`/api/v1/apps/${app.id}/deploy/log`, (l) => setLog((p) => capLines(p, l)), async (m) => { if (m !== "done") setLog((p) => [...(p ?? []), `[islet] ${m}`]); setBusy(false); await loadRel(); await onChanged(); });
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.id, app.deploying]);
 
   const run = async (query: string) => {
     setBusy(true); setLog([]); setOpen(null); setMsg(null);
-    try { await postStream(`/api/v1/apps/${app.id}/deploy${query}`, (l) => setLog((p) => [...(p ?? []), l])); }
+    try { await postStream(`/api/v1/apps/${app.id}/deploy${query}`, (l) => setLog((p) => capLines(p, l))); }
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await loadRel(); await onChanged(); }
   };
@@ -88,7 +90,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
   const addService = async (engine: string) => {
     if (!confirm(`Install ${engine} next to ${app.name}, create a database for it and put the connection URL in the app's environment?`)) return;
     setBusy(true); setLog([]); setOpen(null);
-    try { await postStream(`/api/v1/apps/${app.id}/services`, (l) => { setLog((p) => [...(p ?? []), l]); if (l.startsWith("error:")) throw new Error(l); }, { engine }); }
+    try { await postStream(`/api/v1/apps/${app.id}/services`, (l) => { setLog((p) => capLines(p, l)); if (l.startsWith("error:")) throw new Error(l); }, { engine }); }
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await onChanged(); }
   };
@@ -96,7 +98,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
     const t = targets.find((x) => x.id === to);
     if (!t || !confirm(`Deploy the image that is live on ${app.name} to ${t.name} without rebuilding?`)) return;
     setBusy(true); setLog([]); setOpen(null); setMsg(null);
-    try { await postStream(`/api/v1/apps/${app.id}/promote`, (l) => setLog((p) => [...(p ?? []), l]), { to }); setMsg(`Promoted to ${t.name}.`); }
+    try { await postStream(`/api/v1/apps/${app.id}/promote`, (l) => setLog((p) => capLines(p, l)), { to }); setMsg(`Promoted to ${t.name}.`); }
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await onChanged(); }
   };

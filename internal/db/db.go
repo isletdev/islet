@@ -690,7 +690,7 @@ func (s *Service) Restore(ctx context.Context, actor string, inst *Instance, fil
 				}
 			}
 		}
-		argv = []string{"psql", "-U", inst.RootUser, "-d", database, "-v", "ON_ERROR_STOP=0", "-q"}
+		argv = []string{"psql", "-U", inst.RootUser, "-d", database, "-v", "ON_ERROR_STOP=1", "-q"}
 	case "mysql":
 		if _, err := s.sql(ctx, actor, inst, "", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", database)); err != nil {
 			return err

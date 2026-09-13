@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -91,6 +92,9 @@ func (r *Runner) RunInput(ctx context.Context, actor string, stdin []byte, name 
 // reader plus a wait function. The call is recorded when it finishes.
 func (r *Runner) Stream(ctx context.Context, actor string, name string, args ...string) (io.ReadCloser, func() error, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Once the reader is closed the writes fail, and without a delay Wait would
+	// block until the child noticed on its own. This bounds it.
+	cmd.WaitDelay = 5 * time.Second
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -132,10 +136,34 @@ func (r *Runner) Record(ctx context.Context, actor, line string, res Result) {
 	r.record(ctx, actor, line, nil, res)
 }
 
-// Display renders a command line the way a person would type it.
+// Names whose value must never be written down. Islet passes the restic
+// repository password, cloud access keys, registry and runner tokens and
+// database passwords to containers as environment variables, and every command
+// it runs is recorded for the transparency drawer and quoted back in errors.
+// Without this the drawer hands out the password protecting the backups.
+var secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|_PWD|SECRET|TOKEN|APIKEY|API_KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL|_AUTH)`)
+
+// Credentials inside a connection string, such as a restic REST or S3 URL.
+var secretInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^:/@\s]+):[^@\s]+@`)
+
+const redacted = "<redacted>"
+
+// Redact removes a secret value from one argument, keeping the name so the
+// command still reads as what it was.
+func Redact(arg string) string {
+	if k, v, ok := strings.Cut(arg, "="); ok && v != "" && secretName.MatchString(k) {
+		return k + "=" + redacted
+	}
+	return secretInURL.ReplaceAllString(arg, "${1}:"+redacted+"@")
+}
+
+// Display renders a command line the way a person would type it, with secret
+// values removed. Every path that stores or shows a command goes through here,
+// so there is one place to get this right.
 func Display(name string, args ...string) string {
 	parts := []string{name}
 	for _, a := range args {
+		a = Redact(a)
 		if a == "" || strings.ContainsAny(a, " \t\n\"'$`") {
 			parts = append(parts, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
 		} else {

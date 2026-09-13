@@ -35,6 +35,10 @@ func (s *Server) filesAllowed(w http.ResponseWriter, r *http.Request, p string, 
 	if u.Role == "admin" {
 		return true
 	}
+	// Judge the path the reader will actually open, not the text that arrived.
+	if c, err := files.Clean(p); err == nil {
+		p = c
+	}
 	if write {
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can change files"})
 		return false

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRef, useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
+import { capLines } from "@/lib/logcap";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
@@ -155,10 +156,15 @@ function HostAuditCard() {
 function Diagnostics() {
   const [host, setHost] = useState(""); const [port, setPort] = useState("443"); const [tool, setTool] = useState("ping");
   const [out, setOut] = useState<string[]>([]); const [busy, setBusy] = useState(false);
+  // A traceroute runs for a while. Without holding the stop function it kept
+  // streaming after the page was left, and started again on the next run.
+  const stop = useRef<(() => void) | null>(null);
+  useEffect(() => () => stop.current?.(), []);
   const run = async (e: FormEvent) => {
     e.preventDefault(); setOut([]); setBusy(true);
+    stop.current?.();
     if (tool === "port") { try { const r = await api.portCheck(host, +port); setOut([`${host}:${port} is ${r.message}`]); } catch (er) { setOut([err(er)]); } setBusy(false); return; }
-    streamLines(`/api/v1/diagnostics?tool=${tool}&host=${encodeURIComponent(host)}`, (l) => setOut((p) => [...p, l]), (m) => { if (m !== "done") setOut((p) => [...p, m]); setBusy(false); });
+    stop.current = streamLines(`/api/v1/diagnostics?tool=${tool}&host=${encodeURIComponent(host)}`, (l) => setOut((p) => capLines(p, l)), (m) => { if (m !== "done") setOut((p) => capLines(p, m)); setBusy(false); stop.current = null; });
   };
   return (
     <Card title="Network diagnostics" description="Run from this server, so you see what the server sees.">

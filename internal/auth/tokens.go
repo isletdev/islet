@@ -21,7 +21,9 @@ type Token struct {
 }
 
 // Scopes a token can carry. "*" grants everything the user can do.
-var Scopes = []string{"read", "deploy", "cron", "notify", "logs", "db", "containers"}
+// Scopes a token may carry. "shell" is root on the server: it opens the host
+// terminal and container exec, so it is deliberately separate from "read".
+var Scopes = []string{"read", "deploy", "cron", "notify", "logs", "db", "containers", "shell"}
 
 // ErrBadToken is returned for unknown, expired or malformed tokens.
 var ErrBadToken = errors.New("invalid api token")
@@ -137,6 +139,49 @@ func (s *Service) RevokeToken(ctx context.Context, userID, id string, admin bool
 	return nil
 }
 
+// writeScopes change the server. A viewer may never hold one, and only an
+// admin may hold "shell", which is a root terminal.
+var writeScopes = map[string]bool{"deploy": true, "cron": true, "db": true, "containers": true, "notify": true, "shell": true}
+
+// CapScopes narrows a requested scope string to what the role may hold. An
+// empty request means "everything the role allows", which is how the panel
+// offers a token with no scopes ticked.
+func CapScopes(requested, role string) (string, error) {
+	if role == "admin" {
+		return requested, nil
+	}
+	allowed := func(sc string) bool {
+		if sc == "shell" {
+			return false // admins only, and they returned above
+		}
+		if role == "viewer" {
+			return !writeScopes[sc]
+		}
+		return true // deployer: everything except shell
+	}
+	if strings.TrimSpace(requested) == "" || requested == "*" {
+		var keep []string
+		for _, sc := range Scopes {
+			if allowed(sc) {
+				keep = append(keep, sc)
+			}
+		}
+		return strings.Join(keep, ","), nil
+	}
+	var keep []string
+	for _, sc := range strings.Split(requested, ",") {
+		sc = strings.TrimSpace(sc)
+		if sc == "" {
+			continue
+		}
+		if !allowed(sc) {
+			return "", errors.New("your role cannot create a token with the " + sc + " scope")
+		}
+		keep = append(keep, sc)
+	}
+	return strings.Join(keep, ","), nil
+}
+
 // ScopeAllows reports whether a token's scopes cover a method and path.
 func ScopeAllows(scopes, method, path string) bool {
 	if scopes == "*" {
@@ -152,6 +197,11 @@ func ScopeAllows(scopes, method, path string) bool {
 	}
 	read := method == "GET" || method == "HEAD"
 	switch {
+	// These upgrade to a shell on the host or in a container. They are a GET
+	// only because that is how a WebSocket starts, so they must never be
+	// reachable with a read scope.
+	case path == "/api/v1/terminal/ws", strings.HasSuffix(path, "/exec"):
+		return has("shell")
 	case path == "/mcp":
 		return true
 	case strings.HasPrefix(path, "/api/v1/apps"):
@@ -170,7 +220,27 @@ func ScopeAllows(scopes, method, path string) bool {
 		return has("containers") || (read && has("read"))
 	case strings.HasPrefix(path, "/api/v1/auth/tokens"), strings.HasPrefix(path, "/api/v1/auth/"):
 		return path == "/api/v1/auth/me"
-	default:
+	// Plain reads of the server's own state.
+	case strings.HasPrefix(path, "/api/v1/health"),
+		strings.HasPrefix(path, "/api/v1/system"),
+		strings.HasPrefix(path, "/api/v1/metrics"),
+		strings.HasPrefix(path, "/api/v1/domains"),
+		strings.HasPrefix(path, "/api/v1/proxy"),
+		strings.HasPrefix(path, "/api/v1/catalog"),
+		strings.HasPrefix(path, "/api/v1/uptime"),
+		strings.HasPrefix(path, "/api/v1/backups"),
+		strings.HasPrefix(path, "/api/v1/security"),
+		strings.HasPrefix(path, "/api/v1/runners"),
+		strings.HasPrefix(path, "/api/v1/recipes"),
+		strings.HasPrefix(path, "/api/v1/attention"),
+		strings.HasPrefix(path, "/api/v1/audit"),
+		strings.HasPrefix(path, "/api/v1/commands"),
+		strings.HasPrefix(path, "/api/v1/files"),
+		strings.HasPrefix(path, "/api/v1/settings"):
 		return read && has("read")
+	default:
+		// Deny by default. A path nobody thought about must not inherit the
+		// read scope simply because it answers a GET.
+		return false
 	}
 }

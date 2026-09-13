@@ -147,6 +147,7 @@ func run() error {
 			return "provider snapshot " + desc + " requested before " + op
 		},
 		ProxyPorts:    px.Ports,
+		ProxySubnet:   px.Subnet,
 		PanelRouted:   px.PanelRouted,
 		PanelPort:     func() string { p, _ := panelPort.Load().(string); return p },
 		Admin2FA:      as.AllAdminsHave2FA,

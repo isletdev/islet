@@ -110,6 +110,7 @@ type Service struct {
 	proxyPorts  func() (string, string)
 	panelPort   func() string
 	panelRouted func(context.Context) bool
+	proxySubnet func(context.Context) string
 }
 
 // Hooks lets other packages answer questions the score needs.
@@ -128,12 +129,16 @@ type Hooks struct {
 	// PanelRouted says whether a domain reaches the panel through the proxy.
 	// When it does, the panel port does not have to be open to the internet.
 	PanelRouted func(context.Context) bool
+	// ProxySubnet is the address range of the proxy network. The proxy dials
+	// the daemon for forward auth and the panel route, so that range needs the
+	// panel port even when the internet does not.
+	ProxySubnet func(context.Context) string
 }
 
 // New builds the service.
 func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, h Hooks, log *slog.Logger) *Service {
 	abs, _ := filepath.Abs(dataDir)
-	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, beforeRisky: h.BeforeRisky, proxyPorts: h.ProxyPorts, panelPort: h.PanelPort, panelRouted: h.PanelRouted}
+	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, beforeRisky: h.BeforeRisky, proxyPorts: h.ProxyPorts, panelPort: h.PanelPort, panelRouted: h.PanelRouted, proxySubnet: h.ProxySubnet}
 	if b, err := os.ReadFile(filepath.Join(abs, "scans.json")); err == nil {
 		_ = json.Unmarshal(b, &s.scans)
 	}
@@ -540,6 +545,10 @@ func (s *Service) Plan(ctx context.Context, clientIP string, opts FirewallOption
 	if admin == "127.0.0.1" || admin == "::1" {
 		admin = ""
 	}
+	subnet := ""
+	if s.proxySubnet != nil {
+		subnet = s.proxySubnet(ctx)
+	}
 	return FirewallPlan(PlanInput{
 		SSHPort:     s.readSSHD(ctx).Port,
 		HTTPPort:    httpP,
@@ -549,6 +558,7 @@ func (s *Service) Plan(ctx context.Context, clientIP string, opts FirewallOption
 		PanelPublic: opts.PanelPublic,
 		PanelDomain: routed,
 		AdminIP:     admin,
+		ProxySubnet: subnet,
 	})
 }
 

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, RequestError, type RunnerJob, type RunnerPool } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { pollInterval } from "@/lib/poll";
 
 const PROVIDERS: Record<string, { label: string; urlHint: string; tokenHint: string }> = {
   github: { label: "GitHub Actions", urlHint: "https://github.com/org/repo for one repository, https://github.com/org for the whole organisation.", tokenHint: "A fine-grained or classic personal access token with repo (or admin:org) scope. Stored encrypted; used only to fetch short-lived registration tokens. A GitHub App will replace this." },
@@ -22,7 +23,7 @@ export default function Runners() {
   const [editing, setEditing] = useState<Partial<RunnerPool> | null>(null);
   const selected = params.get("pool");
   const load = useCallback(() => api.runnerPools().then((p) => { setPools(p); setError(null); }).catch((e) => setError(err(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 15000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 15000); return stop; }, [load]);
   const sel = pools.find((p) => p.id === selected);
   const remove = async (p: RunnerPool) => { if (!confirm(`Delete pool ${p.name}? Its runner containers are removed.`)) return; await api.runnerPoolDelete(p.id); if (selected === p.id) setParams({}); await load(); };
 

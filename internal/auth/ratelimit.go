@@ -8,10 +8,11 @@ import (
 // Limiter is a small in-memory sliding-window limiter for login attempts,
 // keyed by whatever the caller passes (client IP, username).
 type Limiter struct {
-	mu     sync.Mutex
-	hits   map[string][]time.Time
-	limit  int
-	window time.Duration
+	mu      sync.Mutex
+	hits    map[string][]time.Time
+	limit   int
+	window  time.Duration
+	sweptAt time.Time
 }
 
 // NewLimiter allows `limit` failures per key within `window`.
@@ -31,6 +32,13 @@ func (l *Limiter) Fail(key string, now time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.hits[key] = append(l.prune(key, now), now)
+	// Every new source address adds a key, and only that key is ever pruned
+	// again, so a spray across an address range would grow the map forever.
+	// Sweeping here costs nothing: it only runs on a failure, once a window.
+	if now.Sub(l.sweptAt) > l.window {
+		l.sweptAt = now
+		l.sweepLocked(now)
+	}
 }
 
 // Reset clears the key after a successful attempt.
@@ -38,6 +46,32 @@ func (l *Limiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.hits, key)
+}
+
+// Sweep forgets keys whose failures have all expired. Without it every source
+// address that ever failed a login stays in the map for the life of the daemon,
+// which a spray across an IPv6 range turns into unbounded memory.
+func (l *Limiter) Sweep(now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sweepLocked(now)
+}
+
+func (l *Limiter) sweepLocked(now time.Time) {
+	cut := now.Add(-l.window)
+	for k, hits := range l.hits {
+		keep := hits[:0]
+		for _, t := range hits {
+			if t.After(cut) {
+				keep = append(keep, t)
+			}
+		}
+		if len(keep) == 0 {
+			delete(l.hits, k)
+			continue
+		}
+		l.hits[k] = keep
+	}
 }
 
 // RetryAfter says how long until the oldest counted failure expires.

@@ -65,6 +65,29 @@ else
   say "installed: $(docker --version)"
 fi
 
+
+# verify_signature checks the Ed25519 signature the release publishes over
+# checksums.txt. The key is inlined as PEM so the check needs nothing but
+# openssl, which every distro we install on already has.
+ISLET_RELEASE_PUBKEY_PEM="-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEALQocWNPSIb1cTZCmPu6Qgx8pXqqgEBA4+f1+7a1vIG8=
+-----END PUBLIC KEY-----"
+
+verify_signature() {
+  file="$1"; sig="$2"
+  if ! command -v openssl >/dev/null 2>&1; then
+    printf 'islet: openssl is missing, so the release signature cannot be checked
+' >&2
+    return 1
+  fi
+  raw="$TMP/sig.raw"; pub="$TMP/relkey.pem"
+  printf '%s
+' "$ISLET_RELEASE_PUBKEY_PEM" > "$pub" || return 1
+  tr -d '
+' < "$sig" | base64 -d > "$raw" 2>/dev/null || return 1
+  openssl pkeyutl -verify -pubin -inkey "$pub" -rawin -in "$file" -sigfile "$raw" >/dev/null 2>&1
+}
+
 step "3/5  isletd $VERSION"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -82,6 +105,11 @@ else
   TARBALL="isletd_linux_${ARCH}.tar.gz"
   curl -fsSL "$BASE/$TARBALL" -o "$TMP/$TARBALL" || die "download failed: $BASE/$TARBALL"
   curl -fsSL "$BASE/checksums.txt" -o "$TMP/checksums.txt" || die "checksums download failed"
+  curl -fsSL "$BASE/checksums.txt.sig" -o "$TMP/checksums.txt.sig" || die "signature download failed"
+  # The checksum file arrives from the same host as the tarball, so on its own
+  # it proves nothing: whoever can serve one can serve the other. The release
+  # signature is what ties this download to the project's key.
+  verify_signature "$TMP/checksums.txt" "$TMP/checksums.txt.sig" || die "release signature is not valid, refusing to install"
   ( cd "$TMP" && grep " $TARBALL\$" checksums.txt | sha256sum -c --quiet - ) || die "checksum mismatch, refusing to install"
   tar -xzf "$TMP/$TARBALL" -C "$TMP"
   install -m 0755 "$TMP/isletd" "$BIN_DIR/isletd"
@@ -91,6 +119,9 @@ say "installed $("$BIN_DIR/isletd" -version)"
 
 step "4/5  Service"
 mkdir -p "$DATA_DIR" && chmod 0750 "$DATA_DIR"
+# Settings people are told to change live in a drop-in, so re-running this
+# script never reverts them. The unit itself is ours to own.
+mkdir -p /etc/systemd/system/isletd.service.d
 cat > /etc/systemd/system/isletd.service <<'UNIT'
 [Unit]
 Description=Islet server panel
@@ -105,6 +136,10 @@ Environment=ISLET_DATA_DIR=/var/lib/islet
 Environment=ISLET_LISTEN=0.0.0.0:9443
 Restart=always
 RestartSec=2
+# Keep retrying. With the default start limit a port collision or a bad
+# environment value burns five restarts in ten seconds and the unit then stays
+# dead until someone runs "systemctl reset-failed" by hand.
+StartLimitIntervalSec=0
 LimitNOFILE=65536
 PrivateTmp=yes
 UMask=0027
@@ -113,7 +148,10 @@ UMask=0027
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now isletd >/dev/null
+systemctl enable isletd >/dev/null
+# --now does nothing to a unit that is already active, so an upgrade used to
+# leave the old process running while reporting the new version.
+systemctl restart isletd
 sleep 1
 systemctl is-active --quiet isletd || die "isletd failed to start; see: journalctl -u isletd -n 50"
 say "isletd is running"

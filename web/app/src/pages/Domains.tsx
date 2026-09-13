@@ -31,7 +31,7 @@ export default function Domains() {
       if (!email && st.acmeEmail) setEmail(st.acmeEmail);
       if (st.dnsProvider !== undefined) setDnsProvider((p) => p || st.dnsProvider || "");
     } catch (e) { setErr(e instanceof RequestError ? e.message : String(e)); }
-  }, [email]);
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const checkDns = async (d: Domain) => {

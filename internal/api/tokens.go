@@ -38,6 +38,15 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
+	// A token is its owner acting later, so it cannot carry more than the owner
+	// has. Without this a viewer minted a token scoped to everything and used it
+	// where the role check was weaker.
+	if scopes, err := auth.CapScopes(req.Scopes, u.Role); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	} else {
+		req.Scopes = scopes
+	}
 	plain, t, err := s.auth.CreateToken(r.Context(), u.ID, req.Name, req.Scopes, time.Duration(req.TTLDays)*24*time.Hour)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type Check, type CheckResult } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { pollInterval } from "@/lib/poll";
 
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function pct(v: number) { return v < 0 ? "—" : v >= 99.995 ? "100%" : `${v.toFixed(2)}%`; }
@@ -18,7 +19,7 @@ export default function Uptime() {
   const [editing, setEditing] = useState<Partial<Check> | null>(null);
   const selected = params.get("c");
   const load = useCallback(() => api.checks().then((c) => { setChecks(c); setError(null); }).catch((e) => setError(err(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 15000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 15000); return stop; }, [load]);
 
   const remove = async (c: Check) => { if (!confirm(`Delete check "${c.name}" and its history?`)) return; await api.checkDelete(c.id); if (selected === c.id) setParams({}); await load(); };
   const down = checks.filter((c) => c.status === "down").length;

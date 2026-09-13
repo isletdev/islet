@@ -3,9 +3,11 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Shell from "./components/Shell";
 import Overview from "./pages/Overview";
 import Placeholder from "./pages/Placeholder";
-import Settings from "./pages/Settings";
 
 // Heavy pages (xterm, CodeMirror) load on demand so the first paint stays small.
+// Settings pulls in the QR code library for two-factor setup, which nobody
+// needs before they open it.
+const Settings = lazy(() => import("./pages/Settings"));
 const Terminal = lazy(() => import("./pages/Terminal"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));

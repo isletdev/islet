@@ -7,6 +7,7 @@ import { NAV, NAV_GROUPS, type NavItem } from "@/nav";
 import { t } from "@/lib/i18n";
 import CommandPalette, { openPalette } from "@/components/CommandPalette";
 import { Mark } from "@/components/ui";
+import { pollInterval } from "@/lib/poll";
 import {
   NAV_ICONS, MenuIcon, CloseIcon, SunIcon, MoonIcon, UserIcon, ChevronDownIcon,
   SignOutIcon, SettingsIcon, ShieldAlertIcon, ExternalIcon, SearchIcon,
@@ -34,8 +35,8 @@ export default function Shell() {
     let alive = true;
     const tick = () => api.health().then((h) => alive && setHealth(h)).catch(() => alive && setHealth(null));
     tick();
-    const id = setInterval(tick, 15000);
-    return () => { alive = false; clearInterval(id); };
+    const stop = pollInterval(tick, 15000);
+    return () => { alive = false; stop(); };
   }, []);
 
   // The account menu closes on a click elsewhere or on Escape.

@@ -73,7 +73,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_body", Message: err.Error()})
 		return
 	}
-	out := s.mcp.Handle(r.Context(), "mcp:"+u.Username, tok.Scopes, body)
+	out := s.mcp.Handle(r.Context(), "mcp:"+u.Username, tok.Scopes, u.Role, body)
 	if out == nil {
 		w.WriteHeader(http.StatusAccepted)
 		return

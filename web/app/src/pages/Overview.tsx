@@ -8,6 +8,7 @@ import DiskDoctor from "@/components/DiskDoctor";
 import Attention from "@/components/Attention";
 import { useAuth } from "@/lib/auth";
 import { Link } from "react-router-dom";
+import { pollInterval } from "@/lib/poll";
 
 type Range = "1h" | "6h" | "24h" | "7d";
 
@@ -42,8 +43,8 @@ export default function Overview() {
     let alive = true;
     const load = () => api.metricsHistory(range).then((r) => alive && setHistory(r.points)).catch(() => {});
     load();
-    const id = setInterval(load, 30000);
-    return () => { alive = false; clearInterval(id); };
+    const stop = pollInterval(load, 30000);
+    return () => { alive = false; stop(); };
   }, [range]);
 
   useEffect(() => {
@@ -53,8 +54,8 @@ export default function Overview() {
       api.ports().then(setPorts).catch(() => {});
     };
     load();
-    const id = setInterval(load, 10000);
-    return () => clearInterval(id);
+    const stop = pollInterval(load, 10000);
+    return stop;
   }, []);
 
   // The 1h view uses stored 30 s buckets plus the live ring for the freshest minutes.

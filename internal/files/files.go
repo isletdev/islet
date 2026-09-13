@@ -56,14 +56,27 @@ type Entry struct {
 	Protected bool   `json:"protected"`
 }
 
-// Protected paths get a warning and a typed confirmation in the UI.
-var protectedPrefixes = []string{"/boot", "/etc/passwd", "/etc/shadow", "/etc/sudoers", "/etc/ssh", "/proc", "/sys", "/dev", "/var/lib/docker", "/var/lib/islet"}
+// Protected paths get a warning and a typed confirmation in the UI, and are
+// refused outright for anyone who is not an admin.
+var protectedPrefixes = []string{"/boot", "/etc/passwd", "/etc/shadow", "/etc/sudoers", "/etc/ssh", "/proc", "/sys", "/dev", "/var/lib/docker", "/var/lib/islet", "/root", "/var/log/auth.log", "/var/log/secure"}
+
+// protectedSuffixes catch a directory that may live anywhere under a home.
+var protectedSuffixes = []string{"/.ssh", "/.aws", "/.gnupg", "/.docker/config.json", "/.kube"}
 
 // IsProtected reports whether a path is one users should not touch casually.
+//
+// The path is normalised first. Comparing the raw text let "/etc//shadow" slip
+// past while the reader that followed cleaned it to exactly "/etc/shadow",
+// which handed the daemon's own key directory to any signed-in user.
 func IsProtected(p string) bool {
-	p = filepath.ToSlash(p)
+	p = filepath.ToSlash(filepath.Clean(p))
 	for _, pre := range protectedPrefixes {
 		if p == pre || strings.HasPrefix(p, pre+"/") {
+			return true
+		}
+	}
+	for _, suf := range protectedSuffixes {
+		if strings.HasSuffix(p, suf) || strings.Contains(p, suf+"/") {
 			return true
 		}
 	}
@@ -627,10 +640,31 @@ func (s *Service) Extract(archive, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// The name check below is textual, so on its own it cannot see that a
+	// component of the path is a symlink that leads out of the target. An
+	// archive holding "x -> /etc" followed by "x/cron.d/evil" would pass it and
+	// the write would follow the link, as root. Every entry is therefore also
+	// checked against what is really on disk.
 	safe := func(name string) (string, error) {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		if !strings.HasPrefix(p, dir+string(filepath.Separator)) && p != dir {
 			return "", fmt.Errorf("archive entry escapes target: %s", name)
+		}
+		// Resolve the deepest existing parent and confirm it is still inside.
+		probe := filepath.Dir(p)
+		for {
+			real, err := filepath.EvalSymlinks(probe)
+			if err == nil {
+				if real != dir && !strings.HasPrefix(real, dir+string(filepath.Separator)) {
+					return "", fmt.Errorf("archive entry escapes target through a link: %s", name)
+				}
+				break
+			}
+			parent := filepath.Dir(probe)
+			if parent == probe {
+				break
+			}
+			probe = parent
 		}
 		return p, nil
 	}
@@ -718,8 +752,28 @@ func (s *Service) Extract(archive, dir string) error {
 				if err != nil {
 					return err
 				}
-			case tar.TypeSymlink:
-				_ = os.Symlink(hdr.Linkname, p)
+			case tar.TypeSymlink, tar.TypeLink:
+				// A link may only point inside the target. An absolute target,
+				// or one that climbs out with "..", is how an archive turns a
+				// later write into a write anywhere on the server.
+				target := filepath.FromSlash(hdr.Linkname)
+				resolved := target
+				if !filepath.IsAbs(resolved) {
+					resolved = filepath.Join(filepath.Dir(p), target)
+				}
+				if resolved != dir && !strings.HasPrefix(filepath.Clean(resolved), dir+string(filepath.Separator)) {
+					return fmt.Errorf("archive link points outside the target: %s -> %s", hdr.Name, hdr.Linkname)
+				}
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					return err
+				}
+				if hdr.Typeflag == tar.TypeLink {
+					if err := os.Link(resolved, p); err != nil {
+						return err
+					}
+				} else if err := os.Symlink(target, p); err != nil {
+					return err
+				}
 			}
 		}
 	default:

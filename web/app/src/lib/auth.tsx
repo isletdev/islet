@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, RequestError, type Me } from "./api";
+import { api, onSessionExpired, RequestError, type Me } from "./api";
 
 type State =
   | { status: "loading" }
@@ -48,6 +48,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // A 401 from any call means the session is gone, so show the sign-in screen
+  // rather than a page full of numbers that stopped being true.
+  useEffect(() => {
+    onSessionExpired(() => setState({ status: "anonymous" }));
+  }, []);
 
   return <Ctx.Provider value={{ state, refresh, signOut }}>{children}</Ctx.Provider>;
 }

@@ -5,6 +5,7 @@ import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
+import { capLines } from "@/lib/logcap";
 
 const ENGINE: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", redis: "Redis", mongo: "MongoDB" };
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
@@ -102,7 +103,7 @@ Host port to publish on:`, String(d?.port));
       hostPort = +v;
     }
     setBusy("public"); setLog([]);
-    try { await postStream(`/api/v1/databases/${name}/public`, (l) => setLog((p) => [...(p ?? []), l]), { public: on, hostPort, allowFrom, bind }); await load(); await onChanged(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
+    try { await postStream(`/api/v1/databases/${name}/public`, (l) => setLog((p) => capLines(p, l)), { public: on, hostPort, allowFrom, bind }); await load(); await onChanged(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
   };
   const openAdminer = async (setup?: { host: string; tls: string; protect: boolean }) => {
     setBusy("adminer"); setMsg(null);
@@ -137,7 +138,7 @@ Host port to publish on:`, String(d?.port));
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">From other containers</span>{isAdmin && d.internalUrl && <Copy text={d.internalUrl} />}</div>
             <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.internalUrl) : "(admins only)"}</pre>
             {d.engine === "postgres" && isAdmin && <div className="mt-2 text-xs">
-              <button type="button" disabled={busy === "pooler"} onClick={async () => { setBusy("pooler"); setLog([]); setMsg(null); try { await postStream(`/api/v1/databases/${name}/pooler`, (l) => setLog((p) => [...(p ?? []), l]), { enabled: !d.pooler }); await load(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); } }} className={d.pooler ? "text-ink-muted hover:text-ink" : "text-accent hover:underline"}>{busy === "pooler" ? "Working…" : d.pooler ? "Remove PgBouncer" : "Add PgBouncer connection pooling"}</button>
+              <button type="button" disabled={busy === "pooler"} onClick={async () => { setBusy("pooler"); setLog([]); setMsg(null); try { await postStream(`/api/v1/databases/${name}/pooler`, (l) => setLog((p) => capLines(p, l)), { enabled: !d.pooler }); await load(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); } }} className={d.pooler ? "text-ink-muted hover:text-ink" : "text-accent hover:underline"}>{busy === "pooler" ? "Working…" : d.pooler ? "Remove PgBouncer" : "Add PgBouncer connection pooling"}</button>
               <span className="ml-2 text-ink-muted">{d.pooler ? "Transaction pooling, 20 server connections shared by up to 1000 clients." : "For apps that open many short connections (serverless, PHP, many workers)."}</span>
               {d.pooler && d.pooledUrl && <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{mask(d.pooledUrl)}</pre>}
             </div>}

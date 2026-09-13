@@ -4,6 +4,7 @@ import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Field, Input, Select } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
+import { capLines } from "@/lib/logcap";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
 
@@ -53,7 +54,7 @@ function Runner({ recipe, isAdmin, onClose }: { recipe: Recipe; isAdmin: boolean
   const run = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setLog([]); setMsg(null);
     try {
-      await postStream(`/api/v1/recipes/${recipe.slug}/run`, (l) => { setLog((p) => [...(p ?? []), l]); if (l.startsWith("error:")) setMsg(l.slice(6).trim()); }, vals);
+      await postStream(`/api/v1/recipes/${recipe.slug}/run`, (l) => { setLog((p) => capLines(p, l)); if (l.startsWith("error:")) setMsg(l.slice(6).trim()); }, vals);
     } catch (er) { setMsg(err(er)); }
     finally { setBusy(false); }
   };

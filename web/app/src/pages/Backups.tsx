@@ -3,6 +3,8 @@ import { api, RequestError, type BackupDestination, type BackupHost, type Backup
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
+import { capLines } from "@/lib/logcap";
+import { pollInterval } from "@/lib/poll";
 
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function bytes(n: number) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`; }
@@ -29,7 +31,7 @@ export default function Backups() {
   const [selPlan, setSelPlan] = useState<string | null>(null);
   const [browse, setBrowse] = useState<string | null>(null);
   const load = useCallback(() => api.backups().then((x) => { setO(x); setError(null); }).catch((e) => setError(err(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 20000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 20000); return stop; }, [load]);
   if (error) return <div className="mx-auto max-w-6xl"><Alert>{error}</Alert></div>;
   if (!o) return <p className="text-sm text-ink-muted">Loading…</p>;
   const h = o.health;
@@ -180,7 +182,7 @@ function PlanDetail({ plan, isAdmin, onChanged, onEdit }: { plan: BackupPlan; is
   const loadRuns = useCallback(() => api.planRuns(plan.id).then(setRuns).catch(() => {}), [plan.id]);
   useEffect(() => { void loadRuns(); setOpen(null); setLive(null); }, [loadRuns]);
   useEffect(() => { box.current?.scrollTo(0, box.current.scrollHeight); }, [live]);
-  const run = async () => { setBusy(true); setLive([]); setOpen(null); try { await postStream(`/api/v1/backups/plans/${plan.id}/run`, (l) => setLive((p) => [...(p ?? []), l])); } catch (e) { setLive((p) => [...(p ?? []), `[islet] ${err(e)}`]); } finally { setBusy(false); await loadRuns(); await onChanged(); } };
+  const run = async () => { setBusy(true); setLive([]); setOpen(null); try { await postStream(`/api/v1/backups/plans/${plan.id}/run`, (l) => setLive((p) => capLines(p, l))); } catch (e) { setLive((p) => [...(p ?? []), `[islet] ${err(e)}`]); } finally { setBusy(false); await loadRuns(); await onChanged(); } };
   return (
     <Card title={plan.name} description={`${plan.described} · next ${plan.nextRunAt ? fmt(plan.nextRunAt) : "paused"}`}>
       <div className="flex flex-wrap items-center gap-2">

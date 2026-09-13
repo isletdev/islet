@@ -10,7 +10,13 @@ permissions:
   attestations: write  # SLSA build provenance
 
 jobs:
+  # Nothing is published until the suite passes. Three regressions reached users
+  # because the release workflow ran goreleaser without ever running go test.
+  test:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

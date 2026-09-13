@@ -258,3 +258,24 @@ To                         Action      From
 		t.Errorf("no Docker rules means no forward requirement, got %v", m)
 	}
 }
+
+// The proxy dials the daemon for forward auth and the panel route. Closing the
+// panel port to the internet must not close it to the proxy, or every protected
+// domain answers 502.
+func TestPlanLetsTheProxyReachThePanel(t *testing.T) {
+	plan, _ := FirewallPlan(PlanInput{
+		HTTPPort: "80", HTTPSPort: "443", PanelPort: "9443",
+		PanelDomain: true, ProxySubnet: "172.20.0.0/16",
+	})
+	var cmds []string
+	for _, o := range plan {
+		cmds = append(cmds, join(o.Commands())...)
+	}
+	want := "ufw allow from 172.20.0.0/16 to any port 9443 proto tcp comment Islet panel from the proxy"
+	if !hasCmd(cmds, want) {
+		t.Errorf("missing %q\ngot:\n%s", want, strings.Join(cmds, "\n"))
+	}
+	if hasCmd(cmds, "ufw allow 9443/tcp comment Islet panel") {
+		t.Error("the panel port should still be closed to the internet")
+	}
+}

@@ -58,6 +58,20 @@ func loadMigrations() ([]migration, error) {
 
 // migrate applies every migration newer than the current schema version,
 // each inside its own transaction.
+// newest is the highest migration this binary carries. A database that has
+// been further than this was written by a newer Islet, and running against a
+// schema we do not know is how a rollback corrupts data rather than recovering
+// from it.
+func newest(ms []migration) int {
+	high := 0
+	for _, m := range ms {
+		if m.version > high {
+			high = m.version
+		}
+	}
+	return high
+}
+
 func migrate(ctx context.Context, db *sql.DB) (applied int, err error) {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -73,6 +87,9 @@ func migrate(ctx context.Context, db *sql.DB) (applied int, err error) {
 	migs, err := loadMigrations()
 	if err != nil {
 		return 0, err
+	}
+	if high := newest(migs); current > high {
+		return 0, fmt.Errorf("this database is at schema version %d but this build only knows %d: it was written by a newer Islet. Install that version again, or restore a backup", current, high)
 	}
 	for _, m := range migs {
 		if m.version <= current {

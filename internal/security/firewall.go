@@ -38,6 +38,7 @@ type PlanInput struct {
 	PanelPublic bool   // open the panel port to everyone
 	PanelDomain bool   // the panel is reachable through the proxy as well
 	AdminIP     string // the address of the admin asking for this
+	ProxySubnet string // the proxy network's range, which must reach the panel port
 }
 
 // FirewallPlan lists every opening this server needs, and a warning when the
@@ -70,6 +71,12 @@ func FirewallPlan(in PlanInput) ([]Opening, string) {
 	panel := in.PanelPort
 	if panel == "" {
 		panel = "9443"
+	}
+	// The proxy container dials the daemon for forward auth, the panel route and
+	// the maintenance page. It comes from the bridge, so it needs the panel port
+	// whatever the internet is allowed.
+	if in.ProxySubnet != "" {
+		out = append(out, Opening{Port: panel, Proto: "tcp", Host: true, From: in.ProxySubnet, Comment: "Islet panel from the proxy"})
 	}
 	warn := ""
 	switch {

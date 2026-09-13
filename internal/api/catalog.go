@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,7 +110,11 @@ func (s *Server) handleInstalledUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	rc, wait, err := s.docker.StackAction(r.Context(), u.Username, name, "pull")
+	// The update outlives the request on purpose. Closing the tab between the
+	// pull and the "up" used to cancel the second half, which left the stack
+	// down with its images already replaced.
+	bg := context.WithoutCancel(r.Context())
+	rc, wait, err := s.docker.StackAction(bg, u.Username, name, "pull")
 	if err != nil {
 		s.dockerErr(w, err)
 		return
@@ -117,16 +122,18 @@ func (s *Server) handleInstalledUpdate(w http.ResponseWriter, r *http.Request) {
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
+		defer rc.Close()
 		_, _ = io.Copy(pw, rc)
 		if err := wait(); err != nil {
 			fmt.Fprintln(pw, "pull failed: "+err.Error())
 			return
 		}
-		rc2, wait2, err := s.docker.StackAction(r.Context(), u.Username, name, "up")
+		rc2, wait2, err := s.docker.StackAction(bg, u.Username, name, "up")
 		if err != nil {
 			fmt.Fprintln(pw, err.Error())
 			return
 		}
+		defer rc2.Close()
 		_, _ = io.Copy(pw, rc2)
 		_ = wait2()
 	}()

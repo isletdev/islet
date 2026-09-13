@@ -238,7 +238,8 @@ function Tokens() {
   const [msg, setMsg] = useState<string | null>(null);
   const load = () => api.tokens().then(setList).catch(() => setList([]));
   useEffect(() => { void load(); }, []);
-  const SCOPES = ["read", "deploy", "cron", "notify", "logs", "db", "containers"];
+  // "shell" opens a root terminal, so it is never part of a read-only token.
+  const SCOPES = ["read", "deploy", "cron", "notify", "logs", "db", "containers", "shell"];
   const create = async (e: FormEvent) => {
     e.preventDefault(); setMsg(null);
     try { const r = await api.tokenCreate({ name, scopes: scopes.length ? scopes.join(",") : "*", ttlDays: ttl }); setCreated(r.token); setName(""); setScopes([]); await load(); }

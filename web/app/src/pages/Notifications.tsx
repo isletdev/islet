@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type Channel, type IsletEvent, type MailRelay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { pollInterval } from "@/lib/poll";
 
 const TYPES: Record<string, { label: string; fields: { key: string; label: string; hint?: string; secret?: boolean }[]; help: string }> = {
   telegram: { label: "Telegram", help: "Create a bot with @BotFather, paste its token, send the bot a message, then click Detect chat.", fields: [{ key: "token", label: "Bot token", secret: true }, { key: "chatId", label: "Chat ID" }] },
@@ -25,7 +26,7 @@ export default function Notifications() {
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(() => Promise.all([api.channels(), api.events(50)]).then(([c, e]) => { setChannels(c); setEvents(e); setErr(null); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 15000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 15000); return stop; }, [load]);
 
   const test = async (c: Channel) => { setMsg(null); try { await api.channelTest(c.id); setMsg(`Sent a test to ${c.name}.`); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
   const remove = async (c: Channel) => { if (!confirm(`Remove channel ${c.name}?`)) return; await api.channelDelete(c.id); await load(); };

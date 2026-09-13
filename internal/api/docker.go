@@ -196,7 +196,13 @@ func (s *Server) handleStackImport(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamLines copies a line reader to the client as SSE "line" events.
-func streamLines(w http.ResponseWriter, r *http.Request, rc interface{ Read([]byte) (int, error) }, wait func() error) {
+//
+// It takes an io.ReadCloser and always closes it. Taking a bare reader meant
+// that when a client disconnected mid-stream the loop ended but the producer
+// stayed blocked writing into a pipe nobody was reading, so the command was
+// never reaped and the goroutine never returned.
+func streamLines(w http.ResponseWriter, r *http.Request, rc io.ReadCloser, wait func() error) {
+	defer rc.Close()
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "streaming unsupported"})
@@ -442,12 +448,14 @@ func (s *Server) handleStack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"name": r.PathValue("name"), "compose": compose, "env": env})
 }
 
+// Writing a stack is equivalent to root on the host: a compose file may mount
+// the root filesystem or ask for a privileged container. Deployers have neither
+// the terminal nor the file writer, so they do not get this either.
 func (s *Server) handleStackWrite(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r.Context())
-	if u.Role == "viewer" {
-		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot edit stacks"})
+	if !s.adminOnly(w, r) {
 		return
 	}
+	u := userFrom(r.Context())
 	var req struct {
 		Name    string `json:"name"`
 		Compose string `json:"compose"`
@@ -469,11 +477,10 @@ func (s *Server) handleStackWrite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStackAction(w http.ResponseWriter, r *http.Request) {
-	u := userFrom(r.Context())
-	if u.Role == "viewer" {
-		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot change stacks"})
+	if !s.adminOnly(w, r) {
 		return
 	}
+	u := userFrom(r.Context())
 	name, action := r.PathValue("name"), r.PathValue("action")
 	rc, wait, err := s.docker.StackAction(r.Context(), u.Username, name, action)
 	if err != nil {
@@ -502,6 +509,12 @@ func (s *Server) handleStackRemove(w http.ResponseWriter, r *http.Request) {
 // ---- command transparency ----
 
 func (s *Server) handleCommands(w http.ResponseWriter, r *http.Request) {
+	// The drawer shows every command Islet ran, including the arguments. Those
+	// are redacted, but the list still describes the whole server, so it is an
+	// admin view rather than something every signed-in user may read.
+	if !s.adminOnly(w, r) {
+		return
+	}
 	limit := 100
 	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v <= 500 {
 		limit = v

@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -244,6 +245,21 @@ func Apply(ctx context.Context, r *Release, current string, log func(string, ...
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return nil, err
 	}
+	// Prove the new binary runs before it becomes the only one. A build that
+	// cannot start would otherwise crash-loop under systemd with the panel gone,
+	// leaving SSH as the only way back.
+	check := exec.CommandContext(ctx, tmpPath, "-version")
+	if out, err := check.CombinedOutput(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("the downloaded binary does not run, keeping the current one: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Keep the previous binary beside the new one. "islet update --rollback"
+	// and the recovery notes both rely on it being there.
+	prev := exe + ".prev"
+	if err := copyFile(exe, prev); err != nil {
+		log("could not keep a copy of the current binary", "err", err)
+	}
 	if err := os.Rename(tmpPath, exe); err != nil {
 		return nil, fmt.Errorf("replace %s: %w", exe, err)
 	}
@@ -311,4 +327,29 @@ func extractBinary(archivePath, name string, dst io.Writer) error {
 			return err
 		}
 	}
+}
+
+// copyFile duplicates a file, preserving its mode.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst+".tmp", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(dst+".tmp", dst)
 }

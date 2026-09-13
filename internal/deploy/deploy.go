@@ -713,28 +713,50 @@ func (rn *run) emit(line string) {
 	rn.mu.Unlock()
 }
 
+// logger collects a release log. Lines arrive from the pipeline goroutine and
+// from the scanner goroutine behind writer(), and the whole log is read when the
+// release ends, so the buffer is guarded.
 type logger struct {
 	rn *run
+	mu sync.Mutex
 	b  strings.Builder
 }
 
 func (l *logger) step(name string) { l.line("── " + name + " ──") }
+
 func (l *logger) line(s string) {
+	l.mu.Lock()
 	l.b.WriteString(s + "\n")
+	l.mu.Unlock()
 	l.rn.emit(s)
 }
 
-// Write lets command output flow into the log line by line.
-func (l *logger) writer() io.Writer {
+// text returns the log so far.
+func (l *logger) text() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// writer lets command output flow into the log line by line. The caller must
+// call the returned close function once the command has finished: exec never
+// closes a writer it was handed, and without it the scanner goroutine blocks on
+// the pipe forever.
+func (l *logger) writer() (io.Writer, func()) {
 	pr, pw := io.Pipe()
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		sc := bufio.NewScanner(pr)
 		sc.Buffer(make([]byte, 64<<10), 1<<20)
 		for sc.Scan() {
 			l.line(sc.Text())
 		}
 	}()
-	return pw
+	return pw, func() {
+		_ = pw.Close()
+		<-done
+	}
 }
 
 func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, rollbackTo int64) {
@@ -753,7 +775,7 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 		if ctx.Err() != nil {
 			st = "cancelled"
 		}
-		_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = ?, error = ?, log = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), duration_ms = ? WHERE id = ?`, st, msg, lg.b.String(), time.Since(start).Milliseconds(), rel.ID)
+		_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = ?, error = ?, log = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), duration_ms = ? WHERE id = ?`, st, msg, lg.text(), time.Since(start).Milliseconds(), rel.ID)
 		appStatus := "failed"
 		if a.CurrentRelease != 0 {
 			appStatus = "live" // the previous release is still serving
@@ -766,7 +788,7 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 			s.removeProcesses(context.Background(), a, rel.ID, true)
 		}
 		if s.bus != nil && ctx.Err() == nil {
-			tail := lg.b.String()
+			tail := lg.text()
 			if lines := strings.Split(strings.TrimSpace(tail), "\n"); len(lines) > 30 {
 				tail = strings.Join(lines[len(lines)-30:], "\n")
 			}
@@ -832,7 +854,10 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 				return
 			}
 			lg.step("clone " + redact(a.RepoURL) + " @ " + ref)
-			if err := s.clone(ctx, a.RepoURL, ref, ws, lg.writer()); err != nil {
+			w, closeLog := lg.writer()
+			err := s.clone(ctx, a.RepoURL, ref, ws, w)
+			closeLog()
+			if err != nil {
 				fail(err)
 				return
 			}
@@ -1004,7 +1029,7 @@ func (s *Service) pipeline(ctx context.Context, a *App, rel *Release, rn *run, r
 
 func (s *Service) succeed(ctx context.Context, a *App, rel *Release, lg *logger, start time.Time, container string) {
 	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = 'superseded' WHERE app_id = ? AND status = 'live' AND id <> ?`, a.ID, rel.ID)
-	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = 'live', container = ?, log = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), duration_ms = ? WHERE id = ?`, container, lg.b.String(), time.Since(start).Milliseconds(), rel.ID)
+	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE releases SET status = 'live', container = ?, log = ?, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), duration_ms = ? WHERE id = ?`, container, lg.text(), time.Since(start).Milliseconds(), rel.ID)
 	_, _ = s.st.DB.ExecContext(context.Background(), `UPDATE apps SET status = 'live', current_release = ? WHERE id = ?`, rel.ID, a.ID)
 	url := ""
 	if hosts := a.Domains(); len(hosts) > 0 {

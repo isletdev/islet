@@ -5,6 +5,8 @@ import { postStream, streamLines } from "@/lib/stream";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import TermView from "@/components/TermView";
 import { bytes } from "@/lib/format";
+import { capLines } from "@/lib/logcap";
+import { pollInterval } from "@/lib/poll";
 
 const TABS = [
   { to: "/containers", label: "Containers", end: true },
@@ -85,7 +87,7 @@ function useList<T>(load: () => Promise<T[]>, every = 5000) {
   const [rows, setRows] = useState<T[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const refresh = useCallback(() => load().then((r) => { setRows(r); setErr(null); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e))), [load]);
-  useEffect(() => { void refresh(); const id = setInterval(() => void refresh(), every); return () => clearInterval(id); }, [refresh, every]);
+  useEffect(() => { void refresh(); const stop = pollInterval(() => void refresh(), every); return stop; }, [refresh, every]);
   return { rows, err, refresh };
 }
 
@@ -276,7 +278,7 @@ function Stacks() {
 
   const run = async (name: string, action: string) => {
     setBusy(true); setOut([]); setMsg(null);
-    try { await postStream(`/api/v1/docker/stacks/${name}/${action}`, (l) => setOut((o) => [...(o ?? []), l])); setMsg(`${action} finished.`); }
+    try { await postStream(`/api/v1/docker/stacks/${name}/${action}`, (l) => setOut((o) => capLines(o, l))); setMsg(`${action} finished.`); }
     catch (e) { setMsg(String(e instanceof Error ? e.message : e)); }
     finally { setBusy(false); await refresh(); }
   };

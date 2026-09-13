@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Attention as AttentionData } from "@/lib/api";
+import { pollInterval } from "@/lib/poll";
 
 /** What needs attention across the server: security score, backups, checks, deploys, jobs, criticals. */
 export default function Attention() {
   const [a, setA] = useState<AttentionData | null>(null);
-  useEffect(() => { const load = () => api.attention().then(setA).catch(() => {}); load(); const id = setInterval(load, 60000); return () => clearInterval(id); }, []);
+  useEffect(() => { const load = () => api.attention().then(setA).catch(() => {}); load(); const stop = pollInterval(load, 60000); return stop; }, []);
   if (!a) return null;
   const b = a.backups;
   const issues: { text: string; to: string; tone: "danger" | "warning" }[] = [];

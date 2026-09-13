@@ -551,7 +551,7 @@ func (s *Service) Prune(ctx context.Context, actor string, o PruneOptions) (map[
 		}
 	}
 	if o.Volumes {
-		if err := run("volumes", "volume", "prune", "-f", "-a"); err != nil {
+		if err := run("volumes", "volume", "prune", "-f"); err != nil {
 			return out, err
 		}
 	}

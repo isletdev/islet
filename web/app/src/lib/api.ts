@@ -159,6 +159,23 @@ export class RequestError extends Error {
   }
 }
 
+// The session ending is not an error one page can handle: it ends every page at
+// once. AuthProvider registers here so a 401 anywhere returns the whole panel to
+// the sign-in screen instead of leaving stale data on screen, polling forever.
+let unauthorized: (() => void) | null = null;
+let lastUnauthorized = 0;
+
+export function onSessionExpired(fn: () => void) {
+  unauthorized = fn;
+}
+
+function onUnauthorized() {
+  // Many requests are usually in flight when a session ends; one is enough.
+  if (Date.now() - lastUnauthorized < 3000) return;
+  lastUnauthorized = Date.now();
+  unauthorized?.();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -168,6 +185,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let body: ApiError = { error: "http_error", message: res.statusText };
     try { body = (await res.json()) as ApiError; } catch { /* keep default */ }
+    if (res.status === 401) onUnauthorized();
     throw new RequestError(res.status, body);
   }
   if (res.status === 204) return undefined as T;

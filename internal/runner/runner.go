@@ -102,6 +102,8 @@ type Service struct {
 	RegToken func(ctx context.Context, scopeURL string) (string, error)
 	// AppConfigured reports whether the GitHub App can stand in for a token.
 	AppConfigured func(ctx context.Context) bool
+	// scale serialises counting runners and starting one.
+	scale sync.Mutex
 }
 
 // New builds the service.
@@ -465,10 +467,17 @@ func (s *Service) reconcileAll(ctx context.Context) {
 }
 
 // ScaleUp starts one more runner for a queued job when under the maximum.
+//
+// Counting and starting happen under one lock per pool. A matrix build makes
+// GitHub deliver many queued webhooks at once, and each one runs this; without
+// the lock every caller sees the same count and they all start a runner, so a
+// pool capped at two ends up with ten and the server runs out of memory.
 func (s *Service) ScaleUp(ctx context.Context, p *Pool) {
 	if !p.Enabled || p.Provider != "github" {
 		return
 	}
+	s.scale.Lock()
+	defer s.scale.Unlock()
 	running := 0
 	for _, r := range s.runners(ctx, p) {
 		if r.State == "running" {

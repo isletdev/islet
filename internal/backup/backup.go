@@ -126,12 +126,34 @@ type Service struct {
 	dataDir string
 	mu      sync.Mutex
 	active  map[string]context.CancelFunc
+	// busy marks long jobs that are running right now. Their "last ran" marker
+	// is only written when they finish, so without this the scheduler starts
+	// them again on the next tick, a minute later, and keeps doing so.
+	busy map[string]bool
+}
+
+// claim reserves a long job. The release function must be called when it ends.
+func (s *Service) claim(key string) (func(), bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.busy[key] {
+		return nil, false
+	}
+	if s.busy == nil {
+		s.busy = map[string]bool{}
+	}
+	s.busy[key] = true
+	return func() {
+		s.mu.Lock()
+		delete(s.busy, key)
+		s.mu.Unlock()
+	}, true
 }
 
 // New builds the service.
 func New(st *store.Store, keys *auth.Keys, run *cmdrun.Runner, dbs *db.Service, bus *notify.Bus, dataDir string, log *slog.Logger) *Service {
 	abs, _ := filepath.Abs(dataDir)
-	return &Service{st: st, keys: keys, run: run, dbs: dbs, bus: bus, log: log, dataDir: abs, active: map[string]context.CancelFunc{}}
+	return &Service{st: st, keys: keys, run: run, dbs: dbs, bus: bus, log: log, dataDir: abs, active: map[string]context.CancelFunc{}, busy: map[string]bool{}}
 }
 
 // Start runs the scheduler, staleness watch and weekly checks.
@@ -878,9 +900,24 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		snap = snap[:8]
 	}
 	say(fmt.Sprintf("[islet] snapshot %s: %d new files, %d changed, %s added, %s total", snap, sum.FilesNew, sum.FilesChanged, human(sum.DataAdded), human(sum.TotalBytes)))
+	// restic exits non-zero and still writes a summary when it could not read
+	// some of the source. The snapshot is real but incomplete, and calling that
+	// a success is how a plan whose source went missing stays green for months.
+	if err != nil {
+		msg := lastLine(stderr.String())
+		if msg == "" {
+			msg = "some files could not be read"
+		}
+		say("[islet] partial: " + msg)
+		finish("partial", snap, msg, sum)
+		if s.bus != nil {
+			s.bus.Emit(context.Background(), notify.Event{Category: "backup", Severity: notify.Warning, Subject: p.Name, Title: "Backup incomplete: " + p.Name, Message: "The snapshot was written but some files could not be read: " + msg, Link: "/backups"})
+		}
+		return nil
+	}
 	// Retention.
 	say(fmt.Sprintf("[islet] forget: keep %d daily, %d weekly, %d monthly, %d yearly", p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly))
-	if out, err := s.restic(rctx, "backup", d, nil, "forget", "--tag", "plan:"+p.Name, "--group-by", "tags", "--keep-last", "3", "--keep-daily", strconv.Itoa(p.KeepDaily), "--keep-weekly", strconv.Itoa(p.KeepWeekly), "--keep-monthly", strconv.Itoa(p.KeepMonthly), "--keep-yearly", strconv.Itoa(p.KeepYearly), "--prune", "--quiet"); err != nil {
+	if out, err := s.restic(rctx, "backup", d, nil, "forget", "--tag", "plan:"+p.Name, "--host", s.st.Hostname, "--group-by", "host,tags", "--keep-last", "3", "--keep-daily", strconv.Itoa(p.KeepDaily), "--keep-weekly", strconv.Itoa(p.KeepWeekly), "--keep-monthly", strconv.Itoa(p.KeepMonthly), "--keep-yearly", strconv.Itoa(p.KeepYearly), "--prune", "--quiet"); err != nil {
 		say("[islet] forget failed (snapshot is safe): " + lastLine(out))
 	}
 	finish("success", snap, "", sum)
@@ -1020,6 +1057,12 @@ func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include,
 		if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`).MatchString(newVolume) {
 			return "", errors.New("invalid volume name")
 		}
+		// A volume that already exists is in use by something. Restoring into
+		// it would overwrite live data, and "docker volume create" would not
+		// complain because it is idempotent.
+		if _, err := s.run.Run(ctx, actor, "docker", "volume", "inspect", newVolume); err == nil {
+			return "", errors.New("volume " + newVolume + " already exists; restore into a new name and swap it in when you have checked it")
+		}
 		if out, err := s.run.Run(ctx, actor, "docker", "volume", "create", newVolume); err != nil {
 			return "", errors.New(lastLine(out.Stderr))
 		}
@@ -1062,7 +1105,15 @@ func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include,
 }
 
 // Verify runs restic check on a destination and records the result.
+//
+// A check on a large repository runs for a long time, so it is claimed first:
+// the scheduler ticks every minute and the result is only recorded at the end.
 func (s *Service) Verify(ctx context.Context, actor, destID string) (string, error) {
+	release, free := s.claim("check:" + destID)
+	if !free {
+		return "", errors.New("a check is already running for this destination")
+	}
+	defer release()
 	d, err := s.Destination(ctx, destID)
 	if err != nil {
 		return "", err
@@ -1084,7 +1135,15 @@ func (s *Service) Verify(ctx context.Context, actor, destID string) (string, err
 // RestoreTest restores the smallest useful path from the latest snapshot
 // into a scratch directory, checks that files came back, and records the
 // result. It proves the repository, the key and the credentials all work.
+// RestoreTest pulls a small path out of the latest snapshot and checks it
+// arrives. Claimed for the same reason as Verify, and given a scratch directory
+// per destination so two destinations cannot clobber each other.
 func (s *Service) RestoreTest(ctx context.Context, actor, destID string) (string, error) {
+	release, free := s.claim("restoretest:" + destID)
+	if !free {
+		return "", errors.New("a restore test is already running for this destination")
+	}
+	defer release()
 	d, err := s.Destination(ctx, destID)
 	if err != nil {
 		return "", err
@@ -1128,7 +1187,7 @@ func (s *Service) RestoreTest(ctx context.Context, actor, destID string) (string
 	if include == "" {
 		return "nothing to test", nil
 	}
-	dir := filepath.Join(s.dataDir, "restore-test")
+	dir := filepath.Join(s.dataDir, "restore-test", destID)
 	_ = os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err

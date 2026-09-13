@@ -4,6 +4,8 @@ import { api, RequestError, type Job, type JobRun, type JobTemplate } from "@/li
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { capLines } from "@/lib/logcap";
+import { pollInterval } from "@/lib/poll";
 
 const CodeEditor = lazy(() => import("@/components/CodeEditor"));
 
@@ -36,7 +38,7 @@ export default function Cron() {
   const selected = params.get("job");
 
   const load = useCallback(() => api.jobs().then((j) => { setJobs(j); setErr(null); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e))), []);
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 10000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const stop = pollInterval(() => void load(), 10000); return stop; }, [load]);
 
   const toggle = async (j: Job) => { await api.jobSave({ ...j, enabled: !j.enabled }); await load(); };
   const remove = async (j: Job) => { if (!confirm(`Delete job "${j.name}" and its history?`)) return; await api.jobDelete(j.id); if (selected === j.id) setParams({}); await load(); };
@@ -101,7 +103,7 @@ function JobDetail({ job, canRun, canEdit, onChanged }: { job: Job; canRun: bool
 
   const runNow = async () => {
     setBusy(true); setLive([]); setOpen(null);
-    try { await postStream(`/api/v1/cron/jobs/${job.id}/run`, (l) => setLive((p) => [...(p ?? []), l])); setLive((p) => [...(p ?? []), "[islet] finished: success"]); }
+    try { await postStream(`/api/v1/cron/jobs/${job.id}/run`, (l) => setLive((p) => capLines(p, l))); setLive((p) => [...(p ?? []), "[islet] finished: success"]); }
     catch (e) { setLive((p) => [...(p ?? []), `[islet] ${e instanceof Error ? e.message : String(e)}`]); }
     finally { setBusy(false); await loadRuns(); await onChanged(); }
   };

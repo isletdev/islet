@@ -1,7 +1,10 @@
 // Islet service worker: caches the app shell so the panel opens instantly
 // and shows a friendly page when the server is unreachable. API calls are
 // never cached.
-const SHELL = "islet-shell-v1";
+// Bumping this name evicts the previous release's assets, which the activate
+// handler below deletes. Without that, every release added another full set of
+// hashed chunks to the cache and they were never removed.
+const SHELL = "islet-shell-v2";
 const ASSETS = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -19,7 +22,10 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/mcp") || url.pathname.startsWith("/_islet/")) return;
   // Hashed assets: cache first (they never change under the same name).
   if (url.pathname.startsWith("/assets/")) {
-    e.respondWith(caches.open(SHELL).then(async (c) => (await c.match(e.request)) || fetch(e.request).then((res) => { if (res.ok) c.put(e.request, res.clone()); return res; })));
+    // Hashed names never change, so the cache is authoritative. A miss after an
+    // update must still reach the network: an open tab running the previous
+    // release asks for chunks this one does not have.
+    e.respondWith(caches.open(SHELL).then(async (c) => (await c.match(e.request)) || fetch(e.request).then((res) => { if (res.ok) c.put(e.request, res.clone()); return res; }).catch(() => new Response("", { status: 504 }))));
     return;
   }
   // Navigation: network first, fall back to the cached shell.
