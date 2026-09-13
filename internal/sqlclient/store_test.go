@@ -77,7 +77,6 @@ func TestConnectionRoundTrip(t *testing.T) {
 	created, err := s.CreateConnection(ctx, SavedConnection{
 		Name: "reporting", Engine: "postgres", Host: "10.0.0.5", Port: 5432,
 		Username: "readonly", Database: "app", TLS: TLSRequire, ReadOnly: true,
-		Environment: "production",
 	}, "s3cr3t", "alice")
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -108,7 +107,7 @@ func TestConnectionRoundTrip(t *testing.T) {
 	if cfg.Password != "s3cr3t" {
 		t.Errorf("decrypted password = %q", cfg.Password)
 	}
-	if !cfg.ReadOnly || meta.Environment != "production" {
+	if !cfg.ReadOnly || meta.Name != "reporting" {
 		t.Errorf("config = %+v, meta = %+v", cfg, meta)
 	}
 
@@ -116,7 +115,6 @@ func TestConnectionRoundTrip(t *testing.T) {
 	if err := s.UpdateConnection(ctx, created.ID, SavedConnection{
 		Name: "reporting", Engine: "postgres", Host: "10.0.0.6", Port: 5432,
 		Username: "readonly", Database: "app", TLS: TLSRequire, ReadOnly: true,
-		Environment: "production",
 	}, nil); err != nil {
 		t.Fatalf("update: %v", err)
 	}

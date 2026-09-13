@@ -598,3 +598,21 @@ The template is fixed, but the fix that matters is `digestOf`: anything that is
 not a bare `sha256:` string is "" and the comparison is skipped. A badge that
 cries wolf is worse than no badge, and the failure mode of a loose comparison
 is always to claim there is news.
+
+## 2026-09-13 — The editor follows the page, and the syntax colours follow the tokens
+A log pane is dark in both themes, because a console is a console. A document
+somebody is writing is not: the file and cron editor was a black rectangle in
+the middle of a white page. It takes its colours from the panel's tokens now,
+as the SQL editor already did.
+
+That exposed the second half. CodeMirror's stock highlight style is a fixed
+light palette — dark red comments, dark blue keywords — and on the dark theme's
+near-black ground the comments were barely legible. `lib/codetheme` maps the
+syntax roles onto the panel's own semantic tokens, so every colour is one the
+brand already guarantees is AA against the surface behind it, in whichever
+theme the reader is in. Comments recede, strings and numbers are the literal
+values, keywords carry weight, everything else is ink.
+
+The environment column on a saved connection went at the same time. 0022
+dropped the marks table; the column outlived it, defaulting every row to
+"development" and read by nothing.

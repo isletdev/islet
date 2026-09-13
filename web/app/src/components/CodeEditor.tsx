@@ -3,6 +3,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import { StreamLanguage } from "@codemirror/language";
+import { highlight } from "@/lib/codetheme";
 import { yaml } from "@codemirror/lang-yaml";
 import { json } from "@codemirror/lang-json";
 import { javascript } from "@codemirror/lang-javascript";
@@ -29,17 +30,30 @@ function languageFor(name: string): Extension {
   return [];
 }
 
+// The panel's own tokens, so the editor is not a dark rectangle in a light
+// page. A log pane stays dark in both themes — a console is a console — but
+// this is a document somebody is writing, and it follows the page.
 const theme = EditorView.theme({
-  "&": { backgroundColor: "#0A0A0A", color: "#FAFAFA", fontSize: "13px", height: "100%" },
+  "&": { backgroundColor: "var(--islet-bg)", color: "var(--islet-ink)", fontSize: "13px", height: "100%" },
   ".cm-scroller": { fontFamily: "Geist Mono, ui-monospace, Menlo, Consolas, monospace", lineHeight: "1.5" },
-  ".cm-content": { caretColor: "#FAFAFA" },
-  ".cm-cursor": { borderLeftColor: "#FAFAFA" },
-  ".cm-gutters": { backgroundColor: "#0A0A0A", color: "#6B6B6B", borderRight: "1px solid #262626" },
-  ".cm-activeLine": { backgroundColor: "#141414" },
-  ".cm-activeLineGutter": { backgroundColor: "#141414" },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "#2A2A2A !important" },
-  ".cm-matchingBracket": { backgroundColor: "#262626", outline: "1px solid #4A4A4A" },
-}, { dark: true });
+  ".cm-content": { caretColor: "var(--islet-ink)" },
+  ".cm-cursor": { borderLeftColor: "var(--islet-ink)" },
+  ".cm-gutters": {
+    backgroundColor: "var(--islet-bg)", color: "var(--islet-ink-faint)",
+    borderRight: "1px solid var(--islet-border)",
+  },
+  ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--islet-surface-2) 55%, transparent)" },
+  ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--islet-ink-muted)" },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+    backgroundColor: "color-mix(in srgb, var(--islet-accent) 24%, transparent) !important",
+  },
+  ".cm-matchingBracket": { backgroundColor: "var(--islet-surface-2)", outline: "1px solid var(--islet-border-strong)" },
+  ".cm-tooltip": {
+    backgroundColor: "var(--islet-surface)", border: "1px solid var(--islet-border)",
+    borderRadius: "6px", color: "var(--islet-ink)",
+  },
+  ".cm-panels": { backgroundColor: "var(--islet-surface)", color: "var(--islet-ink)" },
+});
 
 interface Props {
   name: string;
@@ -65,6 +79,7 @@ export default function CodeEditor({ name, value, onChange, onSave, className = 
       extensions: [
         basicSetup,
         theme,
+        highlight,
         languageFor(name),
         keymap.of([{ key: "Mod-s", run: () => { saveRef.current(); return true; } }]),
         EditorView.updateListener.of((u) => { if (u.docChanged) changeRef.current(u.state.doc.toString()); }),

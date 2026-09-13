@@ -38,6 +38,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.11
         version: 6.43.11
+      '@lezer/highlight':
+        specifier: 1.2.3
+        version: 1.2.3
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0

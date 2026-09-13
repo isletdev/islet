@@ -3,6 +3,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { keymap, Decoration, type DecorationSet } from "@codemirror/view";
 import { EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { PostgreSQL, MySQL, sql as sqlLang, type SQLNamespace } from "@codemirror/lang-sql";
+import { highlight } from "@/lib/codetheme";
 
 /**
  * The query editor.
@@ -120,6 +121,7 @@ export default function SqlEditor({
       sqlLang({ dialect, schema, defaultSchema, upperCaseKeywords: true }),
       currentStatement,
       theme,
+      highlight,
       EditorView.lineWrapping,
       EditorView.updateListener.of((u) => {
         if (u.docChanged) emit.current.onChange(u.state.doc.toString());

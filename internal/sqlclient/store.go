@@ -48,19 +48,18 @@ func NewStore(db *sql.DB, serverID string, keys Keys, now func() time.Time) *Sto
 // to the browser, not even masked, because a masked secret is still a secret
 // that travelled.
 type SavedConnection struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Engine      string  `json:"engine"`
-	Host        string  `json:"host"`
-	Port        int     `json:"port"`
-	Username    string  `json:"username"`
-	Database    string  `json:"database"`
-	TLS         TLSMode `json:"tls"`
-	ReadOnly    bool    `json:"readOnly"`
-	Environment string  `json:"environment"`
-	CreatedBy   string  `json:"createdBy"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Engine    string  `json:"engine"`
+	Host      string  `json:"host"`
+	Port      int     `json:"port"`
+	Username  string  `json:"username"`
+	Database  string  `json:"database"`
+	TLS       TLSMode `json:"tls"`
+	ReadOnly  bool    `json:"readOnly"`
+	CreatedBy string  `json:"createdBy"`
+	CreatedAt string  `json:"createdAt"`
+	UpdatedAt string  `json:"updatedAt"`
 }
 
 // Valid checks a connection before it is stored, so a bad row cannot be
@@ -89,13 +88,6 @@ func (c *SavedConnection) Valid() error {
 	default:
 		return fmt.Errorf("%q is not a TLS mode", c.TLS)
 	}
-	switch c.Environment {
-	case "development", "staging", "production":
-	case "":
-		c.Environment = "development"
-	default:
-		return fmt.Errorf("%q is not an environment", c.Environment)
-	}
 	if c.Port <= 0 || c.Port > 65535 {
 		if dialectOf(c.Engine) == MySQL {
 			c.Port = 3306
@@ -106,7 +98,7 @@ func (c *SavedConnection) Valid() error {
 	return nil
 }
 
-const connectionColumns = `id, name, engine, host, port, username, database, tls_mode, read_only, environment, created_by, created_at, updated_at`
+const connectionColumns = `id, name, engine, host, port, username, database, tls_mode, read_only, created_by, created_at, updated_at`
 
 // Connections lists the saved external connections, without their passwords.
 func (s *Store) Connections(ctx context.Context) ([]SavedConnection, error) {
@@ -144,7 +136,7 @@ func scanConnection(r scanner) (*SavedConnection, error) {
 	var c SavedConnection
 	var readOnly int
 	err := r.Scan(&c.ID, &c.Name, &c.Engine, &c.Host, &c.Port, &c.Username, &c.Database,
-		&c.TLS, &readOnly, &c.Environment, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
+		&c.TLS, &readOnly, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -165,10 +157,10 @@ func (s *Store) CreateConnection(ctx context.Context, c SavedConnection, passwor
 	c.CreatedBy = actor
 	now := s.stamp()
 	_, err = s.db.ExecContext(ctx, `INSERT INTO sql_connections
-		(id, server_id, name, engine, host, port, username, database, password_enc, tls_mode, read_only, environment, created_by, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		(id, server_id, name, engine, host, port, username, database, password_enc, tls_mode, read_only, created_by, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, s.serverID, c.Name, c.Engine, c.Host, c.Port, c.Username, c.Database, enc,
-		string(c.TLS), boolToInt(c.ReadOnly), c.Environment, actor, now, now)
+		string(c.TLS), boolToInt(c.ReadOnly), actor, now, now)
 	if err != nil {
 		return nil, storeErr(err, c.Name)
 	}
@@ -186,10 +178,10 @@ func (s *Store) UpdateConnection(ctx context.Context, id string, c SavedConnecti
 	now := s.stamp()
 	res, err := s.db.ExecContext(ctx, `UPDATE sql_connections
 		SET name = ?, engine = ?, host = ?, port = ?, username = ?, database = ?,
-		    tls_mode = ?, read_only = ?, environment = ?, updated_at = ?
+		    tls_mode = ?, read_only = ?, updated_at = ?
 		WHERE server_id = ? AND id = ?`,
 		c.Name, c.Engine, c.Host, c.Port, c.Username, c.Database,
-		string(c.TLS), boolToInt(c.ReadOnly), c.Environment, now, s.serverID, id)
+		string(c.TLS), boolToInt(c.ReadOnly), now, s.serverID, id)
 	if err != nil {
 		return storeErr(err, c.Name)
 	}

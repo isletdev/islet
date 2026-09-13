@@ -413,7 +413,7 @@ export default function Sql() {
           ← Databases
         </Link>
 
-        <span className="min-w-0 truncate text-sm font-semibold">{connection?.name ?? "\u2026"}</span>
+        <span className="min-w-0 truncate text-sm font-semibold">{connection?.name ?? "…"}</span>
         {connection && (
           <>
             <span className="hidden font-mono text-[11px] text-ink-muted sm:inline">
