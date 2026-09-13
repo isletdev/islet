@@ -37,5 +37,6 @@ export const NAV: NavItem[] = [
   { path: "/backups", key: "backups", label: "Backups", group: "operate", phase: "v0.6", ready: true, blurb: "Encrypted backups that are tested by restoring them." },
   { path: "/security", key: "security", label: "Security", group: "operate", phase: "v0.6", ready: true, blurb: "Score, firewall, SSH, intrusion prevention, scans." },
 
+  { path: "/servers", key: "servers", label: "Servers", group: "account", phase: "v0.3", ready: true, blurb: "Every machine this panel manages, and how to add another." },
   { path: "/settings", key: "settings", label: "Settings", group: "account", phase: "v0.1", ready: true, blurb: "Users, 2FA, API tokens, updates." },
 ];

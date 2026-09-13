@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui";
+import { apiPath } from "@/lib/api";
 
 export type TermStatus = "connecting" | "open" | "closed" | "error";
 
@@ -35,7 +36,7 @@ export default function TermView({ path, className = "" }: { path: string; class
     fit.fit();
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}${path}`);
+    const ws = new WebSocket(`${proto}//${location.host}${apiPath(path)}`);
     ws.binaryType = "arraybuffer";
     setStatus("connecting");
     const sendResize = () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })); };

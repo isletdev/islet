@@ -70,6 +70,13 @@ export interface Port {
 export interface AuditEntry { id: number; actor: string; action: string; target: string; detail: string; createdAt: string }
 export interface UpdateStatus { current: string; channel: string; latest: string; prerelease: boolean; publishedAt: string; updateAvailable: boolean; notes?: string }
 
+export interface FleetServer {
+  id: string; name: string; host: string; sshPort: number; sshUser: string; panelPort: number;
+  status: "pending" | "joining" | "ready" | "unreachable" | "failed";
+  statusNote?: string; version?: string; hostname?: string; lastSeen?: string; createdAt: string;
+}
+export interface FleetLocal { id: string; name: string; hostname: string; status: string; version: string }
+
 export interface DockerStatus { available: boolean; version: string; composeVersion: string; error?: string }
 export interface Container { id: string; name: string; image: string; state: string; status: string; ports: string; createdAt: string; stack?: string; service?: string; cpuPct: number; memUsage: string; memPct: number; netIO: string }
 export interface ContainerDetail { id: string; name: string; image: string; state: string; startedAt: string; restartCount: number; restartPolicy: string; cmd: string[]; env: string[]; mounts: { type: string; source: string; destination: string; rw: boolean }[]; ports: Record<string, string>; labels: Record<string, string>; memoryLimit: number; cpuLimit: number; networks: string[]; stack?: string; service?: string }
@@ -176,8 +183,51 @@ function onUnauthorized() {
   unauthorized?.();
 }
 
+// Which server the panel is pointed at.
+//
+// "local" is the machine this panel runs on. Anything else is a managed server,
+// and every request is forwarded to it through the panel's SSH tunnel. Doing it
+// here rather than in each page is the whole trick: a page asks for
+// /api/v1/domains and does not need to know which machine answers.
+const SERVER_KEY = "islet.server";
+let currentServer = (() => {
+  try { return sessionStorage.getItem(SERVER_KEY) || "local"; } catch { return "local"; }
+})();
+const serverListeners = new Set<(id: string) => void>();
+
+export function getServer() { return currentServer; }
+
+export function setServer(id: string) {
+  if (id === currentServer) return;
+  currentServer = id || "local";
+  try { sessionStorage.setItem(SERVER_KEY, currentServer); } catch { /* private mode */ }
+  serverListeners.forEach((fn) => fn(currentServer));
+}
+
+export function onServerChange(fn: (id: string) => void): () => void {
+  serverListeners.add(fn);
+  return () => { serverListeners.delete(fn); };
+}
+
+/** Rewrite an API path for the server in view. Exported for streams and links. */
+export function apiPath(path: string): string {
+  if (currentServer === "local" || !path.startsWith("/api/v1/")) return path;
+  // Routes that belong to the panel itself are never forwarded: who you are,
+  // who else can sign in, and which servers exist are all answered here. A
+  // managed server has one account on it, the controller's, and editing that
+  // is not what anyone means by "users".
+  //
+  // Everything else does follow the selection, including updates: opening
+  // Settings while a managed server is in view and updating it there is the
+  // point, not an accident.
+  const local = ["/api/v1/auth/", "/api/v1/servers", "/api/v1/setup", "/api/v1/users"];
+  if (local.some((p) => path.startsWith(p))) return path;
+  const [head, query] = path.slice("/api/v1/".length).split("?");
+  return `/api/v1/servers/${currentServer}/proxy/${head}` + (query ? `?${query}` : "");
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiPath(path), {
     ...init,
     credentials: "same-origin",
     headers: { Accept: "application/json", ...(init?.headers ?? {}) },
@@ -188,8 +238,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (res.status === 401) onUnauthorized();
     throw new RequestError(res.status, body);
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // Not every success carries a body: 204 for a delete, 202 for work that has
+  // only been started. Parsing those as JSON throws a syntax error that then
+  // gets shown to the person as if the request had failed.
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 function post<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
@@ -391,5 +445,16 @@ export const api = {
   stack: (name: string) => request<{ name: string; compose: string; env: string }>(`/api/v1/docker/stacks/${name}`),
   stackWrite: (name: string, compose: string, env: string, isNew: boolean) => isNew ? post<{ name: string }>("/api/v1/docker/stacks", { name, compose, env }) : post<{ name: string }>(`/api/v1/docker/stacks/${name}`, { name, compose, env }, "PUT"),
   stackRemove: (name: string, volumes: boolean) => post<void>(`/api/v1/docker/stacks/${name}?volumes=${volumes ? 1 : 0}`, undefined, "DELETE"),
+  servers: () => request<{ local: FleetLocal; servers: FleetServer[] }>("/api/v1/servers"),
+  serverKey: () => request<{ publicKey: string }>("/api/v1/servers/key"),
+  serverAdd: (b: { name: string; host: string; sshUser: string; sshPort: number }) => post<FleetServer>("/api/v1/servers", b),
+  serverJoin: (id: string, b: { user: string; password: string; privateKey: string; passphrase: string }) => post<void>(`/api/v1/servers/${id}/join`, b),
+  serverForget: (id: string) => post<void>(`/api/v1/servers/${id}`, undefined, "DELETE"),
+  serverExposure: (id: string) => request<{ panelOpen: boolean }>(`/api/v1/servers/${id}/exposure`),
+  // Closing the port runs on that server, through its own audited firewall
+  // route, so it is recorded there like any other rule change.
+  serverClosePanel: (id: string, port: number) =>
+    post<void>(`/api/v1/servers/${id}/proxy/security/firewall/rules`, { port: String(port), proto: "tcp" }, "DELETE"),
+  serverCheck: (id: string) => post<{ ok: boolean; error?: string; server?: FleetServer }>(`/api/v1/servers/${id}/check`),
   metricsHistory: (range: "1h" | "6h" | "24h" | "7d") => request<{ stepSeconds: number; points: Point[] }>(`/api/v1/metrics/history?range=${range}`),
 };

@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -98,5 +99,25 @@ func TestLastLine(t *testing.T) {
 	}
 	if got := lastLine("only\r\n"); got != "only" {
 		t.Errorf("carriage returns come back from ssh, got %q", got)
+	}
+}
+
+// The wording a person sees when a server does not answer. The library's own
+// "dial tcp …: i/o timeout" is accurate and useless.
+func TestFriendlyDialError(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"dial tcp 203.0.113.9:22: i/o timeout", "did not answer"},
+		{"dial tcp 203.0.113.9:22: connect: connection refused", "refused the connection"},
+		{"dial tcp: lookup nope.example: no such host", "could not be looked up"},
+		{"dial tcp 203.0.113.9:22: connect: network is unreachable", "unreachable"},
+	}
+	for _, c := range cases {
+		got := friendlyDialError("203.0.113.9:22", errors.New(c.in)).Error()
+		if !strings.Contains(got, c.want) {
+			t.Errorf("for %q got %q, want it to mention %q", c.in, got, c.want)
+		}
+		if !strings.Contains(got, "203.0.113.9:22") {
+			t.Errorf("the message should name the address, got %q", got)
+		}
 	}
 }

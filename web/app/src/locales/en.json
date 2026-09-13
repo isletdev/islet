@@ -27,6 +27,8 @@
   "nav.security.blurb": "Score, firewall, SSH, intrusion prevention, scans.",
   "nav.logs": "Logs",
   "nav.logs.blurb": "One viewer across system, Docker and app logs.",
+  "nav.servers": "Servers",
+  "nav.servers.blurb": "Every machine this panel manages, and how to add another.",
   "nav.settings": "Settings",
   "nav.settings.blurb": "Users, 2FA, API tokens, updates.",
   "shell.menu": "Menu",

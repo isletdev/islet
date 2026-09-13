@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -168,6 +171,20 @@ func (s *Server) handleServerCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "server": v})
 }
 
+// handleServerExposure answers one question the person cannot check from a
+// browser: is that server's panel port open to the internet?
+func (s *Server) handleServerExposure(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	open, err := s.fleet.PanelExposed(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fleetErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"panelOpen": open})
+}
+
 // handleServerProxy forwards a request to a managed server's own panel.
 //
 // This is what makes every existing page work against another machine without
@@ -187,6 +204,13 @@ func (s *Server) handleServerProxy(w http.ResponseWriter, r *http.Request) {
 	// Never let a forwarded path climb out of the API.
 	if strings.Contains(rest, "..") {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "bad path"})
+		return
+	}
+
+	// A WebSocket cannot travel on an http.Client, and the terminal is a
+	// WebSocket. It goes down the same tunnel, spliced rather than parsed.
+	if isUpgrade(r) {
+		s.proxyUpgrade(w, r, id, rest)
 		return
 	}
 
@@ -247,4 +271,89 @@ func (s *Server) handleServerProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func isUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
+// proxyUpgrade carries a WebSocket to a managed server.
+//
+// The handshake is rebuilt rather than forwarded: the far end must see a
+// request that looks local to it, with this panel's token and an origin that
+// matches the host it thinks it is. After the 101 the two connections are just
+// bytes, and nothing here understands frames.
+func (s *Server) proxyUpgrade(w http.ResponseWriter, r *http.Request, id, rest string) {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "this connection cannot be upgraded"})
+		return
+	}
+	back, token, err := s.fleet.Dial(r.Context(), id)
+	if err != nil {
+		s.fleetErr(w, err)
+		return
+	}
+	defer back.Close()
+
+	path := "/api/v1/" + rest
+	if q := r.URL.RawQuery; q != "" {
+		path += "?" + q
+	}
+	var head bytes.Buffer
+	fmt.Fprintf(&head, "GET %s HTTP/1.1\r\nHost: islet\r\n", path)
+	for _, k := range []string{"Upgrade", "Connection", "Sec-Websocket-Key", "Sec-Websocket-Version", "Sec-Websocket-Protocol", "Sec-Websocket-Extensions"} {
+		if v := r.Header.Get(k); v != "" {
+			fmt.Fprintf(&head, "%s: %s\r\n", k, v)
+		}
+	}
+	fmt.Fprintf(&head, "Authorization: Bearer %s\r\n", token)
+	fmt.Fprint(&head, "Origin: https://islet\r\nSec-Fetch-Site: same-origin\r\n\r\n")
+	if _, err := back.Write(head.Bytes()); err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "unreachable", Message: err.Error()})
+		return
+	}
+
+	br := bufio.NewReader(back)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "unreachable", Message: "that server refused the connection: " + err.Error()})
+		return
+	}
+	// A refusal is still an ordinary response, and saying so is more use than a
+	// socket that closes without explanation.
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		defer resp.Body.Close()
+		for k, vs := range resp.Header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+
+	front, buf, err := hj.Hijack()
+	if err != nil {
+		return
+	}
+	defer front.Close()
+	if err := resp.Write(buf); err != nil {
+		return
+	}
+	if err := buf.Flush(); err != nil {
+		return
+	}
+	splice(front, back, br)
+}
+
+// splice copies until either side stops. The reader carries whatever arrived in
+// the same read as the handshake response, which would otherwise be lost.
+func splice(front net.Conn, back net.Conn, buffered *bufio.Reader) {
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(back, front); _ = back.Close(); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(front, buffered); _ = front.Close(); done <- struct{}{} }()
+	<-done
 }

@@ -41,6 +41,15 @@ func (j *job) emit(p Progress) {
 	j.mu.Unlock()
 }
 
+// fail records an error unless one has already been reported, so a failure that
+// travelled up through a return value does not appear twice.
+func (j *job) fail(step string, err error) {
+	if j.finished() {
+		return
+	}
+	j.emit(Progress{Step: step, Err: err.Error()})
+}
+
 func (j *job) finished() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -128,12 +137,15 @@ func (s *Service) StartJoin(ctx context.Context, actor, id string, creds Credent
 		res, err := Join(bg, fmt.Sprintf("%s:%d", v.Host, v.SSHPort), creds, kp, version, j.emit)
 		if err != nil {
 			s.setStatus(bg, id, "failed", err.Error())
-			j.emit(Progress{Step: "verify", Err: err.Error()})
+			// Join reports its own failures, at the step they happened on.
+			// Repeating it here would print the same sentence twice and move the
+			// wizard's marker past the step that actually broke.
+			j.fail("verify", err)
 			return
 		}
 		if err := s.saveJoin(bg, id, res); err != nil {
 			s.setStatus(bg, id, "failed", err.Error())
-			j.emit(Progress{Step: "verify", Err: err.Error()})
+			j.fail("verify", err)
 			return
 		}
 		// Prove the path we will use from now on, not the one we just used to

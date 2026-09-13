@@ -1,6 +1,8 @@
+import { apiPath } from "@/lib/api";
+
 /** Subscribe to an SSE endpoint that emits "line" events and one "end" event. */
 export function streamLines(path: string, onLine: (l: string) => void, onEnd?: (msg: string) => void): () => void {
-  const es = new EventSource(path);
+  const es = new EventSource(apiPath(path));
   es.addEventListener("line", (ev) => onLine(JSON.parse((ev as MessageEvent).data) as string));
   es.addEventListener("end", (ev) => { onEnd?.(JSON.parse((ev as MessageEvent).data) as string); es.close(); });
   // EventSource retries on its own. Closing on the first error turned one
@@ -14,7 +16,7 @@ export function streamLines(path: string, onLine: (l: string) => void, onEnd?: (
 
 /** POST an action whose response is an SSE stream of lines (Compose up, image pull). */
 export async function postStream(path: string, onLine: (l: string) => void, body?: unknown, signal?: AbortSignal): Promise<void> {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body), signal });
+  const res = await fetch(apiPath(path), { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body), signal });
   if (!res.ok || !res.body) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { message: string }).message; } catch { /* ignore */ }

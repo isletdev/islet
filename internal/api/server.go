@@ -165,6 +165,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/servers/{id}/join", requireJSON(s.requireAuth(s.handleServerJoin)))
 	mux.HandleFunc("GET /api/v1/servers/{id}/join/events", s.requireAuth(s.handleServerJoinEvents))
 	mux.HandleFunc("POST /api/v1/servers/{id}/check", s.requireAuth(s.handleServerCheck))
+	mux.HandleFunc("GET /api/v1/servers/{id}/exposure", s.requireAuth(s.handleServerExposure))
 	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.requireAuth(s.handleServerForget))
 	mux.HandleFunc("/api/v1/servers/{id}/proxy/{rest...}", s.requireAuth(s.handleServerProxy))
 	mux.HandleFunc("GET /api/v1/commands", s.requireAuth(s.handleCommands))

@@ -373,6 +373,15 @@ export const CATEGORY_ICONS: Record<string, (p: IconProps) => ReactNode> = {
 };
 
 /** Nav key to icon, so nav.ts stays plain data. */
+export const ServersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3.6" width="18" height="7" rx="1.8" />
+    <rect x="3" y="13.4" width="18" height="7" rx="1.8" />
+    <path d="M6.7 7.1h.01M6.7 16.9h.01" />
+    <path d="M16.4 7.1h1.9M16.4 16.9h1.9" />
+  </Icon>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   overview: OverviewIcon,
   containers: ContainersIcon,
@@ -388,5 +397,6 @@ export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   backups: BackupsIcon,
   security: SecurityIcon,
   logs: LogsIcon,
+  servers: ServersIcon,
   settings: SettingsIcon,
 };

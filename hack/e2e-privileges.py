@@ -99,6 +99,26 @@ print(("PASS " if not leaked else "FAIL ") + "no secret values in the command lo
 if leaked:
     fails.append("secret redaction")
 
+# 8. Managing another server means root on that machine, and the proxy is a way
+# to act as an administrator there. Neither is a viewer's to touch.
+st, _ = call(viewer, "GET", "/api/v1/servers")
+check("viewer cannot list the fleet", st, 403)
+st, _ = call(viewer, "GET", "/api/v1/servers/key")
+check("viewer cannot read the panel's ssh key", st, 403)
+st, _ = call(viewer, "POST", "/api/v1/servers", {"name": "mine", "host": "203.0.113.9", "sshUser": "root", "sshPort": 22})
+check("viewer cannot add a server", st, 403)
+st, _ = call(viewer, "GET", "/api/v1/servers/anything/proxy/system")
+check("viewer cannot reach another server through the proxy", st, 403)
+st, _ = call(viewer, "DELETE", "/api/v1/servers/anything")
+check("viewer cannot remove a server", st, 403)
+
+# The proxy must not be talked into leaving the API it forwards.
+st, _ = call(admin, "GET", "/api/v1/servers/anything/proxy/../../../etc/passwd")
+ok = st in (400, 404)
+print(("PASS " if ok else "FAIL ") + f"the proxy refuses a path that climbs out  (got {st})")
+if not ok:
+    fails.append("proxy path traversal")
+
 print()
 print("FAILURES:", fails if fails else "none")
 sys.exit(1 if fails else 0)

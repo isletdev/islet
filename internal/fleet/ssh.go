@@ -121,7 +121,7 @@ func Dial(ctx context.Context, addr string, c Credentials, hostKey string) (*Con
 	d := net.Dialer{Timeout: 15 * time.Second}
 	raw, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("could not reach %s: %w", addr, err)
+		return nil, friendlyDialError(addr, err)
 	}
 	cc, chans, reqs, err := ssh.NewClientConn(raw, addr, cfg)
 	if err != nil {
@@ -129,6 +129,25 @@ func Dial(ctx context.Context, addr string, c Credentials, hostKey string) (*Con
 		return nil, friendlySSHError(err)
 	}
 	return &Conn{client: ssh.NewClient(cc, chans, reqs), HostKey: strings.TrimSpace(seen)}, nil
+}
+
+// friendlyDialError says what went wrong at the address, in the words a person
+// would use. "dial tcp 203.0.113.9:22: i/o timeout" is accurate and tells
+// nobody what to do next.
+func friendlyDialError(addr string, err error) error {
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "timeout") || strings.Contains(s, "deadline exceeded"):
+		return fmt.Errorf("%s did not answer. Check the address, and that a firewall is not blocking SSH", addr)
+	case strings.Contains(s, "refused"):
+		return fmt.Errorf("%s refused the connection. Check the SSH port, and that sshd is running", addr)
+	case strings.Contains(s, "no such host"):
+		return fmt.Errorf("%s could not be looked up. Check the host name", addr)
+	case strings.Contains(s, "unreachable"):
+		return fmt.Errorf("%s is unreachable from this server", addr)
+	default:
+		return fmt.Errorf("could not reach %s: %w", addr, err)
+	}
 }
 
 // friendlySSHError turns the library's wording into something a person can act on.

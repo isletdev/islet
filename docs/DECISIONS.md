@@ -264,3 +264,52 @@ A shell wants height, and inside the panel it competes with a sidebar, a header 
 
 ## 2026-09-13 — Picking a folder beats typing a path
 Copy and move asked for a destination in a text box, which requires knowing the answer before you start. They open a picker that walks the same tree the file list shows, can create a folder while you are in it, and refuses to drop something into itself. Row actions are icons with real labels, the name column says what a row is with an icon rather than a text arrow, and the actions stay reachable by keyboard and on a touch screen, which has no hover.
+
+## 2026-09-13 — One login, more than one server
+Islet installs on a server and manages that server. The second server was a
+second install, a second password and a second bookmark, and nothing in the
+panel knew the first one existed.
+
+A managed server now joins from a button. You give an address and, once, a way
+to log in; the panel installs its own key, runs the ordinary installer over SSH,
+asks the new daemon for a token and proves it can reach it back through the
+tunnel. The wizard shows that happening line by line, and the install keeps
+running if you close it, because a server left with Docker and no daemon is the
+worst outcome available.
+
+What it is not: an agent. Every managed server runs a complete Islet with its
+own database. Its cron jobs, backups, uptime checks and deploys keep running
+when the controller is off, and if the controller is lost the server can still
+be opened on its own. There is no second mode to write or to test.
+
+The panel reaches it over SSH rather than over the internet, which means a
+managed server needs no port open at all, and there is exactly one credential to
+look after — the controller's key, revoked by deleting one line from
+`authorized_keys`. Joining does not close that port by itself, because someone
+may be using it; the card says when it is open and offers to close it, and
+closing it runs through that server's own audited firewall route rather than a
+command down the pipe.
+
+Switching servers is one control in the header. It rewrites API paths, so no
+page had to learn about it: a page asks for `/api/v1/domains` and does not need
+to know which machine answers. Sessions, users and the server list stay on the
+controller, because a managed server has one account on it and editing that is
+not what anyone means by "users". The terminal follows too — a WebSocket cannot
+travel on an HTTP client, so the handshake is rebuilt and the bytes spliced down
+the same tunnel.
+
+## 2026-09-13 — A field's width has to survive the component
+Every input carried `w-full` from the component and then the caller's `w-24`
+after it. Tailwind resolves two width utilities by their order in the
+stylesheet, not by the order they are written, so `w-full` quietly won and five
+fields across the panel came out as wide as their own label instead of the width
+they asked for. The default is now left off when a width is given, and
+`hack/width-audit.mjs` measures every sized field in a real browser so the next
+one is caught rather than shipped.
+
+Two smaller things from the same pass. Not every success carries a body: a join
+returns 202 with nothing in it, and parsing that as JSON threw a syntax error
+that was then shown to the person as if the request had failed. And several
+clickable things in dense tables were sixteen pixels tall; they have a
+fingertip's worth of height now without changing the row's.
+

@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -379,4 +380,58 @@ func (s *Service) Reachable(ctx context.Context, id string) error {
 // already authenticated.
 func insecureLoopbackTLS() *tls.Config {
 	return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
+}
+
+// Dial opens a raw connection to a managed server's panel, already through the
+// tunnel and already inside TLS.
+//
+// The HTTP client above cannot carry a WebSocket, and the terminal is a
+// WebSocket. Rather than inventing a second way to reach a server, this is the
+// same path with the handshake written by hand and the bytes copied both ways.
+func (s *Service) Dial(ctx context.Context, id string) (net.Conn, string, error) {
+	v, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	token, _, err := s.credentials(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	conn, err := s.connect(ctx, v)
+	if err != nil {
+		s.drop(id)
+		return nil, "", err
+	}
+	raw, err := conn.Tunnel(ctx, fmt.Sprintf("127.0.0.1:%d", v.PanelPort))
+	if err != nil {
+		s.drop(id)
+		return nil, "", err
+	}
+	tc := tls.Client(raw, insecureLoopbackTLS())
+	if err := tc.HandshakeContext(ctx); err != nil {
+		_ = raw.Close()
+		return nil, "", err
+	}
+	return tc, token, nil
+}
+
+// PanelExposed reports whether a managed server's panel port answers over the
+// open internet.
+//
+// It does not need to. This panel reaches a managed server through SSH, so the
+// port can be closed entirely. The join deliberately does not close it by
+// itself: someone may be using that address, and a tool that silently locks a
+// person out of their own server is worse than one that says what it found.
+func (s *Service) PanelExposed(ctx context.Context, id string) (bool, error) {
+	v, err := s.Get(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	d := net.Dialer{Timeout: 3 * time.Second}
+	c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(v.Host, strconv.Itoa(v.PanelPort)))
+	if err != nil {
+		return false, nil
+	}
+	_ = c.Close()
+	return true, nil
 }

@@ -118,7 +118,7 @@ function List() {
             <tr key={c.id} className="hover:bg-surface-2">
               <td className="px-4 py-2"><Link to={`/containers/${c.id}`} className="flex items-center gap-2 font-medium text-ink hover:underline"><StateDot state={c.state} />{c.name}</Link><div className="pl-4 text-xs text-ink-muted">{c.status}</div></td>
               <td className="py-2 font-mono text-xs text-ink-muted">{c.image}</td>
-              <td className="py-2 text-ink-muted">{c.stack ? <Link to="/containers/stacks" className="hover:underline">{c.stack}</Link> : ""}</td>
+              <td className="py-2 text-ink-muted">{c.stack ? <Link to="/containers/stacks" className="-my-1 inline-block py-1 hover:underline">{c.stack}</Link> : ""}</td>
               <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums">{c.state === "running" ? `${c.cpuPct.toFixed(1)}%` : ""}</td>
               <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums text-xs">{c.state === "running" ? c.memUsage.split(" / ")[0] : ""}</td>
               <td className="max-w-[22ch] truncate py-2 pl-3 font-mono text-xs text-ink-muted" title={c.ports}>{c.ports}</td>
@@ -158,7 +158,7 @@ function Detail() {
     <div className="mx-auto flex h-full max-w-6xl flex-col">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link to="/containers" className="text-xs text-ink-muted hover:text-ink">← Containers</Link>
+          <Link to="/containers" className="-my-1 inline-block py-1 text-xs text-ink-muted hover:text-ink">← Containers</Link>
           <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold tracking-[-0.02em]">{c && <StateDot state={c.state} />}{c?.name ?? id}</h1>
           <p className="mt-0.5 font-mono text-xs text-ink-muted">{c?.image} {c?.stack && `· stack ${c.stack}`} {c && `· restarts ${c.restartCount}`}</p>
           {c && <ImageFindings image={c.image} />}
@@ -331,7 +331,7 @@ function Stacks() {
         <ul className="divide-y divide-border">
           {rows.map((s) => (
             <li key={s.name} className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm ${s.name === wanted ? "bg-surface-2" : ""}`}>
-              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!(await ask.confirm({ title: `Adopt the stack ${s.name}?`, body: "Its Compose file is copied into Islet so you can edit and update it here. The running containers are not touched.", confirmLabel: "Adopt" }))) return; try { const r = await api.stackImport(s.name); void ask.alert({ title: `Adopted ${s.name}`, body: r.note }); await refresh(); } catch (e) { void ask.alert({ title: "Could not adopt the stack", body: failure(e), tone: "danger" }); } }} className="ml-2 text-[11px] text-accent hover:underline">Adopt</button>}</div>
+              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!(await ask.confirm({ title: `Adopt the stack ${s.name}?`, body: "Its Compose file is copied into Islet so you can edit and update it here. The running containers are not touched.", confirmLabel: "Adopt" }))) return; try { const r = await api.stackImport(s.name); void ask.alert({ title: `Adopted ${s.name}`, body: r.note }); await refresh(); } catch (e) { void ask.alert({ title: "Could not adopt the stack", body: failure(e), tone: "danger" }); } }} className="-my-1 ml-2 py-1 text-[11px] text-accent hover:underline">Adopt</button>}</div>
               {s.managed && (
                 <div className="flex gap-1">
                   <Act onClick={() => open(s.name)}>Edit</Act>

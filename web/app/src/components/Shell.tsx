@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, Link } from "react-router-dom";
-import { api, type Health } from "@/lib/api";
+import { api, getServer, setServer, onServerChange, type FleetServer, type Health } from "@/lib/api";
 import { getTheme, setTheme, otherTheme, type Theme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import { NAV, NAV_GROUPS, type NavItem } from "@/nav";
@@ -10,7 +10,7 @@ import { Mark } from "@/components/ui";
 import { pollInterval } from "@/lib/poll";
 import {
   NAV_ICONS, MenuIcon, CloseIcon, SunIcon, MoonIcon, UserIcon, ChevronDownIcon,
-  SignOutIcon, SettingsIcon, ShieldAlertIcon, ExternalIcon, SearchIcon,
+  SignOutIcon, SettingsIcon, ShieldAlertIcon, ExternalIcon, SearchIcon, ServersIcon,
 } from "@/components/icons";
 
 const TWO_FACTOR_DISMISSED = "islet.2fa.dismissed";
@@ -24,12 +24,32 @@ export default function Shell() {
   const [hideTwoFactor, setHideTwoFactor] = useState(() => {
     try { return sessionStorage.getItem(TWO_FACTOR_DISMISSED) === "1"; } catch { return false; }
   });
+  const [servers, setServers] = useState<FleetServer[]>([]);
+  const [server, setServerState] = useState(getServer());
+  const [pickerOpen, setPickerOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const { state, signOut } = useAuth();
   const user = state.status === "authed" ? state.me.user : null;
+  const here = servers.find((v) => v.id === server);
   const needsTwoFactor = !!user && user.role === "admin" && !user.totpEnabled && !hideTwoFactor;
 
   useEffect(() => { void api.sidebar().then(setLinks).catch(() => {}); }, []);
+
+  // The fleet, and a guard: if the remembered server has been removed or is not
+  // ready, fall back to this one rather than showing errors on every page.
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    const load = () => api.servers().then((r) => {
+      setServers(r.servers);
+      const here = getServer();
+      if (here !== "local" && !r.servers.some((v) => v.id === here && v.status === "ready")) setServer("local");
+    }).catch(() => {});
+    void load();
+    return pollInterval(() => void load(), 30000);
+  }, [user?.role]);
+
+  useEffect(() => onServerChange(setServerState), []);
 
   useEffect(() => {
     let alive = true;
@@ -37,7 +57,9 @@ export default function Shell() {
     tick();
     const stop = pollInterval(tick, 15000);
     return () => { alive = false; stop(); };
-  }, []);
+    // Re-read when the server in view changes: the header names the machine
+    // every other page is now talking to.
+  }, [server]);
 
   // The account menu closes on a click elsewhere or on Escape.
   useEffect(() => {
@@ -48,6 +70,20 @@ export default function Shell() {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => { if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPickerOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [pickerOpen]);
+
+  const pick = (id: string) => {
+    setPickerOpen(false);
+    setServer(id);
+  };
 
   const flipTheme = () => {
     const next = otherTheme(theme);
@@ -141,15 +177,55 @@ export default function Shell() {
             >
               <MenuIcon className="h-5 w-5" />
             </button>
-            <span
-              className={`inline-block h-2 w-2 shrink-0 rounded-full ${health ? "bg-success" : "bg-danger"}`}
-              title={health ? "Daemon reachable" : t("shell.unreachable")}
-              aria-hidden="true"
-            />
-            <span className="truncate text-[13px] font-medium">{health?.hostname ?? t("shell.unreachable")}</span>
-            {health && (
-              <code className="hidden rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted sm:inline">{health.version}</code>
-            )}
+            <div className="relative min-w-0" ref={pickerRef}>
+              <button
+                type="button"
+                onClick={() => servers.length > 0 && setPickerOpen((o) => !o)}
+                disabled={servers.length === 0}
+                aria-haspopup={servers.length > 0 ? "menu" : undefined}
+                aria-expanded={servers.length > 0 ? pickerOpen : undefined}
+                className={`flex h-9 min-w-0 items-center gap-2.5 rounded-md px-2 text-left ${
+                  servers.length > 0 ? "hover:bg-surface-2" : "cursor-default"
+                } ${server !== "local" ? "ring-1 ring-accent/40" : ""}`}
+              >
+                <span
+                  className={`inline-block h-2 w-2 shrink-0 rounded-full ${health ? "bg-success" : "bg-danger"}`}
+                  title={health ? "Daemon reachable" : t("shell.unreachable")}
+                  aria-hidden="true"
+                />
+                <span className="truncate text-[13px] font-medium">{here?.name ?? health?.hostname ?? t("shell.unreachable")}</span>
+                {health && (
+                  <code className="hidden rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted sm:inline">{health.version}</code>
+                )}
+                {servers.length > 0 && <ChevronDownIcon className={`h-4 w-4 shrink-0 text-ink-faint transition-transform ${pickerOpen ? "rotate-180" : ""}`} />}
+              </button>
+
+              {pickerOpen && (
+                <div role="menu" className="absolute left-0 top-full z-50 mt-1.5 w-64 overflow-hidden rounded-lg border border-border bg-surface shadow-float">
+                  <div className="px-3 pb-1 pt-2 text-[11px] font-medium text-ink-faint">Server in view</div>
+                  <ServerRow label="This server" sub={health?.hostname ?? ""} active={server === "local"} onClick={() => pick("local")} />
+                  {servers.map((v) => (
+                    <ServerRow
+                      key={v.id}
+                      label={v.name}
+                      sub={v.status === "ready" ? v.hostname || v.host : v.status === "joining" ? "setting up…" : v.statusNote || v.status}
+                      active={server === v.id}
+                      disabled={v.status !== "ready"}
+                      onClick={() => pick(v.id)}
+                    />
+                  ))}
+                  <Link
+                    to="/servers"
+                    role="menuitem"
+                    onClick={() => setPickerOpen(false)}
+                    className="flex items-center gap-2.5 border-t border-border px-3 py-2 text-[13px] text-ink-muted hover:bg-surface-2 hover:text-ink"
+                  >
+                    <ServersIcon className="h-4 w-4" />
+                    Manage servers
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -223,7 +299,7 @@ export default function Shell() {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-          <Outlet context={{ health }} />
+          <Outlet key={server} context={{ health }} />
         </main>
       </div>
 
@@ -233,7 +309,7 @@ export default function Shell() {
             <ShieldAlertIcon className="mt-px h-[18px] w-[18px] shrink-0" />
             <div className="min-w-0 flex-1 text-[13px]">
               <p>{t("shell.2fa")}</p>
-              <Link to="/settings" className="mt-1 inline-block font-medium underline underline-offset-2">
+              <Link to="/settings" className="mt-0.5 inline-block py-1 font-medium underline underline-offset-2">
                 {t("shell.2fa.link")}
               </Link>
             </div>
@@ -251,9 +327,37 @@ export default function Shell() {
 
       <CommandPalette extra={[
         { id: "theme", label: theme === "dark" ? "Switch to light theme" : "Switch to dark theme", run: flipTheme },
+        ...(servers.length > 0
+          ? [
+              { id: "server:local", label: "Go to this server", run: () => setServer("local") },
+              ...servers.filter((v) => v.status === "ready").map((v) => ({
+                id: `server:${v.id}`, label: `Go to ${v.name}`, run: () => setServer(v.id),
+              })),
+            ]
+          : []),
         { id: "signout", label: t("shell.signout"), run: () => void signOut() },
       ]} />
     </div>
+  );
+}
+
+function ServerRow({ label, sub, active, disabled, onClick }: { label: string; sub: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] ${
+        disabled ? "cursor-not-allowed text-ink-faint" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+      } ${active ? "bg-surface-2 text-ink" : ""}`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? "bg-accent" : disabled ? "bg-ink-faint/40" : "bg-success"}`} aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{label}</span>
+        {sub && <span className="block truncate text-[11px] text-ink-faint">{sub}</span>}
+      </span>
+    </button>
   );
 }
 

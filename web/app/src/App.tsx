@@ -23,6 +23,7 @@ const Runners = lazy(() => import("./pages/Runners"));
 const Security = lazy(() => import("./pages/Security"));
 const Backups = lazy(() => import("./pages/Backups"));
 const Embed = lazy(() => import("./pages/Embed"));
+const Servers = lazy(() => import("./pages/Servers"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -47,6 +48,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route index element={<Overview />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/servers" element={<Servers />} />
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/containers/*" element={<ContainersRoot />} />
         <Route path="/files" element={<Files />} />

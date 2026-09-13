@@ -227,7 +227,7 @@ export default function Files() {
                     {e.protected && <span className="ml-6 rounded-sm bg-warning-soft px-1 text-[10px] text-warning">protected</span>}
                   </td>
                   <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-muted">{e.isDir ? "" : bytes(e.size)}</td>
-                  <td className="py-1.5 pl-4 font-mono text-xs text-ink-muted"><button type="button" onClick={() => isAdmin && chmod(e)} title={e.perms} className={isAdmin ? "hover:text-ink" : ""}>{e.mode}</button></td>
+                  <td className="py-1.5 pl-4 font-mono text-xs text-ink-muted"><button type="button" onClick={() => isAdmin && chmod(e)} title={e.perms} className={`-my-1 py-1 ${isAdmin ? "hover:text-ink" : ""}`}>{e.mode}</button></td>
                   <td className="py-1.5 pl-4 text-xs text-ink-muted">{e.owner}{e.group && `:${e.group}`}</td>
                   <td className="whitespace-nowrap py-1.5 pl-4 text-xs text-ink-muted">{e.modTime ? new Date(e.modTime).toLocaleString() : ""}</td>
                   <td // Hidden until the row is pointed at, so a long list stays readable, but

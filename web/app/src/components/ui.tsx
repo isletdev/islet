@@ -52,10 +52,23 @@ export function FieldAction({ className = "", children }: { className?: string; 
   );
 }
 
+/**
+ * A field takes the whole line unless the caller asks for a width.
+ *
+ * The default cannot simply be `w-full` with the caller's class after it:
+ * Tailwind resolves two width utilities by their order in the stylesheet, not
+ * by the order they are written here, so `w-full` quietly won and a `w-24`
+ * input came out as wide as its own label. Leaving the default off when a width
+ * is given is the only version that holds.
+ */
+function sized(className: string) {
+  return /(^|\s)(w-|min-w-|max-w-|flex-1|grow)/.test(className);
+}
+
 export function Input({ className = "", ...rest }: ComponentPropsWithRef<"input">) {
   return (
     <input
-      className={`h-9 w-full rounded-md border border-border-strong bg-bg px-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent ${className}`}
+      className={`h-9 ${sized(className) ? "" : "w-full"} rounded-md border border-border-strong bg-bg px-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent ${className}`}
       {...rest}
     />
   );
@@ -65,7 +78,7 @@ export function Input({ className = "", ...rest }: ComponentPropsWithRef<"input"
 export function Select({ className = "", children, ...rest }: ComponentPropsWithRef<"select">) {
   return (
     <select
-      className={`h-9 w-full rounded-md border border-border-strong bg-bg px-2.5 text-sm text-ink focus:border-accent ${className}`}
+      className={`h-9 ${sized(className) ? "" : "w-full"} rounded-md border border-border-strong bg-bg px-2.5 text-sm text-ink focus:border-accent ${className}`}
       {...rest}
     >
       {children}
