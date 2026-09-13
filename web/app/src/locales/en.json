@@ -17,8 +17,6 @@
   "nav.cron.blurb": "Scheduled commands and scripts with run history.",
   "nav.notifications": "Notifications",
   "nav.notifications.blurb": "Telegram, Discord, Slack, email and webhooks.",
-  "nav.sql": "SQL",
-  "nav.sql.blurb": "Query any database on this server, with a schema browser and a real editor.",
   "nav.runners": "Runners",
   "nav.runners.blurb": "GitHub Actions, GitLab and Gitea runners on this server.",
   "nav.uptime": "Uptime",

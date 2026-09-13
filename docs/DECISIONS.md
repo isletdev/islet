@@ -425,3 +425,20 @@ what any of them did, and only one of them does anything. It says so now, next
 to the control: only Production changes what the panel does, and what it
 changes is that every write asks first.
 
+## 2026-09-13 — The SQL client is a view of a database, not a place of its own
+It had a sidebar entry, which made it look like a third thing beside Databases
+and Apps. It is not: it is what you do to a database, the same way dumps and a
+connection string are. The entry is gone. You reach it from the database you
+want to look at, and the page carries a way back because nothing in the sidebar
+says where you are any more.
+
+That leaves databases somebody added by hand, which have no card on the
+Databases page and would have had no way in at all. They are listed there now,
+under their own heading, marked production or read-only where they are. A
+database is a database whether Islet installed it or somebody pointed at one.
+
+And a table tab now belongs to the connection it was opened on. Carrying it to
+the next connection showed "relation does not exist" for a table that is simply
+somewhere else. Query tabs still follow you: the SQL in one is the person's and
+may well be what they want to run here.
+

@@ -413,7 +413,6 @@ export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   backups: BackupsIcon,
   security: SecurityIcon,
   logs: LogsIcon,
-  sql: SqlIcon,
   servers: ServersIcon,
   settings: SettingsIcon,
 };

@@ -29,7 +29,6 @@ export const NAV: NavItem[] = [
   { path: "/apps", key: "apps", label: "Apps", group: "deploy", phase: "v0.3", ready: true, blurb: "One-click apps from the catalog and deploys from Git." },
   { path: "/domains", key: "domains", label: "Domains", group: "deploy", phase: "v0.3", ready: true, blurb: "Point a domain at a container and get HTTPS." },
   { path: "/databases", key: "databases", label: "Databases", group: "deploy", phase: "v0.4", ready: true, blurb: "Postgres, MySQL, Redis and friends with backups." },
-  { path: "/sql", key: "sql", label: "SQL", group: "deploy", phase: "v0.4", ready: true, blurb: "Query any database on this server, with a schema browser and a real editor." },
   { path: "/runners", key: "runners", label: "Runners", group: "deploy", phase: "v0.5", ready: true, blurb: "GitHub Actions, GitLab and Gitea runners on this server." },
 
   { path: "/cron", key: "cron", label: "Cron", group: "operate", phase: "v0.4", ready: true, blurb: "Scheduled commands and scripts with run history." },

@@ -502,9 +502,11 @@ Phases 1 to 3 are the product. Everything after is what makes people keep it.
    `hack/e2e-sql.py` runs against Postgres and the same paths are exercised
    against MySQL by hand. The one real difference left is that MySQL's
    `EXPLAIN ANALYZE` is text only, which the plan view says rather than hides.
-2. **Where the page lives.** `/sql` in the sidebar, under Deploy, next to
-   Databases. It is a real feature and it opens databases Islet never installed,
-   so a tab inside Databases would have been a lie about its scope.
+2. **Where the page lives.** `/sql`, with no sidebar entry. Reached from the
+   database you want to look at, on the Databases page. A sidebar entry made it
+   read as a third thing beside Databases and Apps, and it is not one: it is
+   what you do to a database. External connections are listed on the Databases
+   page too, so nothing is reachable only by URL.
 3. **External connections and the firewall.** No allow-list. An outbound
    connection from the daemon to a database somebody explicitly added is the
    feature working, not a hole; there is no inbound surface to open and nothing

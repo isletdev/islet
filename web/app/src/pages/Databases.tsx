@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DBDetail, type DBInstance } from "@/lib/api";
+import { sql, type Connection } from "@/lib/sql";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
@@ -27,8 +28,14 @@ export default function Databases() {
   const [list, setList] = useState<DBInstance[]>([]);
   const [error, setError] = useState<string | null>(null);
   const selected = params.get("i");
+  const [external, setExternal] = useState<Connection[]>([]);
   const load = useCallback(() => api.databases().then((l) => { setList(l); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    // Only the ones somebody added by hand: the rest are the cards above.
+    void sql.connections().then((c) => setExternal(c.filter((x) => !x.managed))).catch(() => {});
+  }, [isAdmin]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -62,6 +69,36 @@ export default function Databases() {
           </div>
         )}
       </div>
+      {isAdmin && external.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold">Databases somewhere else</h2>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Added by hand, on another server or installed outside Islet. There is nothing to manage here:
+            open one in the SQL editor and it is the same client.
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {external.map((c) => (
+              <Link
+                key={c.ref}
+                to={`/sql?ref=${encodeURIComponent(c.ref)}`}
+                className="rounded-lg border border-border bg-surface p-3 hover:bg-surface-2"
+              >
+                <div className="flex items-center gap-2.5">
+                  <AppIcon slug={c.engine} category="database" name={c.engine} size="sm" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
+                  {c.environment === "production" && (
+                    <span className="shrink-0 rounded-sm bg-danger-soft px-1 text-[10px] text-danger">production</span>
+                  )}
+                  {c.readOnly && (
+                    <span className="shrink-0 rounded-sm bg-surface-2 px-1 text-[10px] text-ink-muted">read-only</span>
+                  )}
+                </div>
+                <div className="mt-1.5 truncate font-mono text-[11px] text-ink-faint">{c.host}:{c.port}{c.database ? "/" + c.database : ""}</div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       {selected && <Detail name={selected} isAdmin={isAdmin} onChanged={load} />}
     </div>
   );

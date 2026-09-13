@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   run, sql, SqlError,
   type Cell, type Column, type Connection, type Environment, type HistoryEntry,
@@ -46,6 +46,9 @@ interface TableTab {
   id: string;
   kind: "table";
   title: string;
+  /** The connection this table belongs to. A query tab has no such tie: the
+      same SQL can be run anywhere, and a table cannot. */
+  ref: string;
   schema: string;
   table: string;
   filter?: TableFilter | null;
@@ -139,6 +142,21 @@ export default function Sql() {
   }, [ref]);
 
   useEffect(() => { if (panel === "history") loadHistory(); }, [panel, loadHistory]);
+
+  // Table tabs belong to the connection they were opened on. Carrying them to
+  // the next one shows "relation does not exist" for a table that is simply
+  // somewhere else, so they are closed instead. A query tab stays: the SQL in
+  // it is the person's, and it may well be what they want to run here.
+  useEffect(() => {
+    if (!ref) return;
+    setTabs((all) => {
+      const kept = all.filter((t) => t.kind !== "table" || t.ref === ref);
+      if (kept.length === all.length) return all;
+      const next = kept.length > 0 ? kept : [newQueryTab()];
+      setActiveTab((a) => (next.some((t) => t.id === a) ? a : next[0].id));
+      return next;
+    });
+  }, [ref]);
 
   // Remember where you were. A query editor that forgets the query on a reload
   // is a query editor nobody trusts with anything longer than one line.
@@ -320,13 +338,13 @@ export default function Sql() {
 
   // ---- tabs ---------------------------------------------------------------
   function openTable(schema: string, table: string, filter?: TableFilter) {
-    const id = `t:${schema}.${table}`;
+    const id = `t:${ref}:${schema}.${table}`;
     setTabs((all) => {
       const existing = all.find((t) => t.id === id);
       if (existing) {
         return all.map((t) => (t.id === id && t.kind === "table" ? { ...t, filter: filter ?? null } : t));
       }
-      return [...all, { id, kind: "table", title: table, schema, table, filter: filter ?? null }];
+      return [...all, { id, kind: "table", title: table, ref, schema, table, filter: filter ?? null }];
     });
     setActiveTab(id);
   }
@@ -419,6 +437,14 @@ export default function Sql() {
         >
           <DatabasesIcon className="h-4 w-4" />
         </button>
+
+        {/* No sidebar entry leads here, so nothing in it says where you are. */}
+        <Link
+          to="/databases"
+          className="-my-1 hidden shrink-0 items-center gap-1 py-1 text-xs text-ink-muted hover:text-ink sm:flex"
+        >
+          ← Databases
+        </Link>
 
         <Select
           value={ref}
