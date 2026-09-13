@@ -9,17 +9,6 @@ import (
 	"strings"
 )
 
-// NginxSite is one server block found in an nginx configuration.
-type NginxSite struct {
-	Hosts    []string `json:"hosts"`
-	Upstream string   `json:"upstream"` // proxy_pass target, when any
-	Root     string   `json:"root"`     // static root, when any
-	Include  string   `json:"include,omitempty"`
-	RawUp    string   `json:"rawUpstream,omitempty"` // proxy_pass that still held a variable
-	TLS      bool     `json:"tls"`
-	File     string   `json:"file"`
-}
-
 var (
 	serverBlockRe = regexp.MustCompile(`(?s)server\s*\{`)
 	directiveRe   = regexp.MustCompile(`(?:^|[\s{;])(server_name|proxy_pass|root|listen|include)\s+([^;{}]+);`)

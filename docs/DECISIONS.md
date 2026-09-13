@@ -508,3 +508,46 @@ Sizes come from Docker as `"1.09GB"` and `"10.4kB"`, which sort as text into
 nonsense. `sizeToBytes` parses them back to numbers, decimal and binary units
 alike, so the images table can default to largest-first — which is the only
 reason anyone opens it.
+
+## 2026-09-13 — An import wizard reads whatever is already there
+"Import from nginx" was a textarea on the Domains page, and the name was a
+guess about what the person is running. Somebody migrating onto Islet may have
+Caddy, Apache, or Nginx Proxy Manager in a container, and telling them their
+setup is not supported when the parser is thirty lines away is a poor welcome.
+
+`internal/proxy/discover.go` reads every location those four keep virtual hosts
+in — including `/var/lib/docker/volumes/*/_data/nginx/proxy_host/*.conf`, which
+is where NPM writes the only machine-readable copy of its hosts. It only reads:
+nothing is stopped and nothing is written until the person picks rows from a
+table and presses the button. The parsers are deliberately shallow — they look
+for the names and the upstream and ignore everything else — because a reverse
+proxy can express things Islet has no equivalent for, and half-understanding
+those is worse than not reading them.
+
+Pasted text is not asked about either: `ParseText` tells the three formats
+apart, and a `$forward_scheme` in the file is what distinguishes Nginx Proxy
+Manager from nginx.
+
+## 2026-09-13 — A CDN in front of a domain is not a misconfiguration
+The DNS check reported "Not yet — currently points to 104.21.83.116" for a
+domain that was working perfectly, because it was behind Cloudflare. A check
+that calls a correct setup broken is worse than no check: it teaches people to
+ignore it.
+
+`internal/proxy/cdn.go` carries the Cloudflare and Fastly ranges and answers
+which one an address belongs to. The check now says "Behind Cloudflare, which
+is why the record does not point here directly", and tells them the two things
+that actually matter in that setup — that the origin has to be this server and
+port 80 has to reach it, or the certificate has to be issued over DNS-01.
+
+## 2026-09-13 — Say when the certificate renews, rather than offering to renew it
+The question was whether certificates auto-renew, and whether it should be an
+option. They do: Traefik renews about thirty days before expiry, and
+`acme.json` is on a mount so a restart does not lose them. There was nothing to
+build. The gap was that nothing on the page *said* so, and an absence of
+information reads as an absence of the feature.
+
+The proxy card is now a status strip — ports, certificates with the next
+renewal date, any renewal notices, wildcards — with the settings form behind a
+button. The facts are what somebody opens the page for; the form is what they
+open it for once.

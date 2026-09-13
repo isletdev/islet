@@ -14,11 +14,15 @@ import (
 
 // DNSCheck is the DNS helper result for a host.
 type DNSCheck struct {
-	Host       string   `json:"host"`
-	Expected   string   `json:"expected"` // this server's public IPv4
-	Resolved   []string `json:"resolved"`
-	OK         bool     `json:"ok"`
-	Suggestion string   `json:"suggestion"`
+	Host     string   `json:"host"`
+	Expected string   `json:"expected"` // this server's public IPv4
+	Resolved []string `json:"resolved"`
+	OK       bool     `json:"ok"`
+	// ProxiedBy names the reverse proxy the record points at, when it points
+	// at one. A domain behind Cloudflare resolves to Cloudflare and not to
+	// this server, which is correct rather than broken.
+	ProxiedBy  string `json:"proxiedBy,omitempty"`
+	Suggestion string `json:"suggestion"`
 }
 
 // PublicIP finds the server's public IPv4: a global interface address, or
@@ -59,11 +63,21 @@ func CheckDNS(ctx context.Context, host string) DNSCheck {
 			}
 		}
 	}
+	for _, ip := range out.Resolved {
+		if name := cdnFor(ip); name != "" {
+			out.ProxiedBy = name
+			break
+		}
+	}
+
 	switch {
 	case out.Expected == "":
 		out.Suggestion = "Could not determine this server's public IP."
 	case out.OK:
 		out.Suggestion = "DNS points here. Certificates can be issued."
+	case out.ProxiedBy != "":
+		out.Suggestion = "Behind " + out.ProxiedBy + ", which is why the record does not point here directly. " +
+			"Make sure the origin is " + out.Expected + " and that port 80 is forwarded, or issue the certificate over DNS-01."
 	case len(out.Resolved) == 0:
 		out.Suggestion = "Create an A record: " + host + " → " + out.Expected + ". Propagation usually takes a few minutes."
 	default:

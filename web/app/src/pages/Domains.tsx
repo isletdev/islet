@@ -1,7 +1,8 @@
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, RequestError, type Container, type Domain, type ProxyStatus } from "@/lib/api";
+import { api, RequestError, type Container, type Domain, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { useDialog } from "@/lib/dialogs";
 
 const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, createdAt: "", updatedAt: "" };
@@ -15,15 +16,16 @@ export default function Domains() {
   const [containers, setContainers] = useState<Container[]>([]);
   const [certs, setCerts] = useState<{ domain: string; notAfter: string; issuer: string }[]>([]);
   const [editing, setEditing] = useState<Domain | null>(null);
-  const [dns, setDns] = useState<Record<string, { ok: boolean; suggestion: string; expected: string }>>({});
+  const [dns, setDns] = useState<Record<string, DNSCheck>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [providers, setProviders] = useState<Record<string, string[]>>({});
   const [dnsProvider, setDnsProvider] = useState("");
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
+  // The form is hidden once there is nothing to decide; this opens it again.
+  const [settings, setSettings] = useState(false);
   useEffect(() => { void api.dnsProviders().then(setProviders).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
@@ -43,7 +45,7 @@ export default function Domains() {
 
   const install = async () => {
     setBusy(true); setMsg(null);
-    try { await api.proxyInstall(email, { dnsProvider, dnsEnv }); setDnsEnv({}); setMsg("Proxy is running."); await load(); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); }
+    try { await api.proxyInstall(email, { dnsProvider, dnsEnv }); setDnsEnv({}); setSettings(false); setMsg("Proxy is running."); await load(); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); }
     finally { setBusy(false); }
   };
   const save = async (e: FormEvent) => {
@@ -80,29 +82,66 @@ export default function Domains() {
             {isAdmin && <Button className="mt-2 h-8 text-xs" disabled={busy} onClick={() => void install()}>{busy ? "Applying…" : "Apply the new settings"}</Button>}
           </div>
         )}
-        <div className="flex flex-wrap items-start gap-3">
-          <Field label="Let's Encrypt email" hint="Used for certificate expiry notices. Required for public certificates.">
-            <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" />
-          </Field>
-          <FieldAction className="flex flex-wrap items-center gap-2">
-            {isAdmin && <Button onClick={() => void install()} disabled={busy}>{status?.installed ? "Reinstall / apply" : "Install proxy"}</Button>}
-            {isAdmin && status?.installed && <Button variant="secondary" onClick={() => api.proxyRemove().then(load)}>Remove</Button>}
-            {msg && <span className="text-sm text-ink-muted">{msg}</span>}
-          </FieldAction>
-        </div>
-        <div className="mt-3 flex flex-wrap items-start gap-3 border-t border-border pt-3">
-          <Field label="DNS provider for wildcards" hint="Optional. Lets *.example.com get a certificate through DNS-01."><Select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)} className="w-56"><option value="">None (HTTP-01 only)</option>{Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}</Select></Field>
-          {dnsProvider && (providers[dnsProvider] ?? []).map((k) => <Field key={k} label={k} hint={status?.dnsProvider === dnsProvider ? "Leave empty to keep the stored value." : undefined}><Input type="password" value={dnsEnv[k] ?? ""} onChange={(e) => setDnsEnv({ ...dnsEnv, [k]: e.target.value })} autoComplete="off" className="w-56 font-mono" /></Field>)}
-        </div>
-        <p className="mt-3 text-xs text-ink-muted">Ports 80 and 443 belong to the proxy. Apps are reached by domain, not by published ports. Press "Reinstall / apply" after changing the DNS provider.</p>
+        {status?.installed && !settings && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <Fact label="Ports">{status.httpPort} and {status.httpsPort}</Fact>
+            <Fact label="Certificates">
+              {certs.length === 0
+                ? <span className="text-ink-muted">none yet</span>
+                : <>{certs.length}, next renewal {renewalDate(certs)}</>}
+            </Fact>
+            <Fact label="Renewal notices">
+              {status.acmeEmail || <span className="text-warning">no email set</span>}
+            </Fact>
+            <Fact label="Wildcards">
+              {status.dnsProvider || <span className="text-ink-muted">off, HTTP-01 only</span>}
+            </Fact>
+            {isAdmin && (
+              <Button variant="secondary" className="ml-auto h-8 px-2.5 text-xs" onClick={() => setSettings(true)}>
+                Settings
+              </Button>
+            )}
+          </div>
+        )}
+
+        {(!status?.installed || settings) && (
+          <>
+            <div className="flex flex-wrap items-start gap-3">
+              <Field label="Let's Encrypt email" hint="Where expiry notices go. Required for public certificates.">
+                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" />
+              </Field>
+              <Field label="Wildcard certificates" className="w-56" hint="Lets *.example.com get a certificate over DNS-01.">
+                <Select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)}>
+                  <option value="">Off — HTTP-01 only</option>
+                  {Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}
+                </Select>
+              </Field>
+              {dnsProvider && (providers[dnsProvider] ?? []).map((k) => (
+                <Field key={k} label={k} className="w-56" hint={status?.dnsProvider === dnsProvider ? "Leave empty to keep the stored value." : undefined}>
+                  <Input type="password" value={dnsEnv[k] ?? ""} onChange={(e) => setDnsEnv({ ...dnsEnv, [k]: e.target.value })} autoComplete="off" className="font-mono" />
+                </Field>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {isAdmin && <Button onClick={() => void install()} disabled={busy}>{status?.installed ? "Apply" : "Install the proxy"}</Button>}
+              {settings && <Button variant="secondary" onClick={() => setSettings(false)}>Cancel</Button>}
+              {isAdmin && status?.installed && <Button variant="danger" className="ml-auto" onClick={() => api.proxyRemove().then(load)}>Remove the proxy</Button>}
+              {msg && <span className="text-sm text-ink-muted">{msg}</span>}
+            </div>
+            <p className="mt-3 text-xs text-ink-muted">
+              Ports 80 and 443 belong to the proxy; apps are reached by domain rather than by a published port. Certificates
+              renew on their own, about thirty days before they expire. Changing the wildcard provider takes effect when you
+              press Apply.
+            </p>
+          </>
+        )}
       </Card>
 
-      {importing && <NginxImport onDone={async () => { setImporting(false); await load(); }} />}
 
       <div className="rounded-lg border border-border bg-surface">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <span className="font-semibold">Routed domains</span>
-          {isAdmin && <Button variant="secondary" className="h-8 text-xs" onClick={() => setImporting(!importing)}>Import from nginx</Button>}
+          {isAdmin && <Link to="/domains/import" className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs text-ink hover:bg-surface-2">Import existing sites</Link>}
           {isAdmin && <Button className="h-8 text-xs" onClick={() => { setEditing({ ...EMPTY }); setMsg(null); }}>Add domain</Button>}
         </div>
         <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
@@ -112,13 +151,13 @@ export default function Domains() {
               const c = dns[d.id]; const cert = certFor(d.host);
               return (
                 <tr key={d.id} className={d.enabled ? "" : "opacity-60"}>
-                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
+                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="-my-1 inline-block py-1 font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
                   <td className="py-2 font-mono text-xs text-ink-muted">{d.targetType === "container" ? `${d.target}:${d.port}` : d.targetType === "panel" ? "Islet panel" : d.target}</td>
-                  <td className="py-2 text-xs"><span className={`inline-flex items-center gap-1.5 ${c ? (c.ok ? "text-success" : "text-warning") : "text-ink-muted"}`}><span className={`h-1.5 w-1.5 rounded-full ${c ? (c.ok ? "bg-success" : "bg-warning") : "bg-ink-faint"}`} />{c ? (c.ok ? "Points here" : "Not yet") : "Checking…"}</span>{c && !c.ok && <div className="mt-0.5 max-w-[32ch] text-ink-muted">{c.suggestion}</div>}</td>
+                  <td className="py-2 text-xs"><DnsCell check={c} /></td>
                   <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - Date.now() < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {new Date(cert.notAfter).toLocaleDateString()}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
                   <td className="py-2 pr-4 text-right whitespace-nowrap">
-                    <button type="button" onClick={() => void checkDns(d)} className="text-xs text-ink-muted hover:text-ink">Recheck</button>
-                    {isAdmin && <><button type="button" onClick={() => setEditing({ ...d, basicAuth: "" })} className="ml-3 text-xs text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={() => void remove(d)} className="ml-3 text-xs text-danger hover:underline">Remove</button></>}
+                    <button type="button" onClick={() => void checkDns(d)} className="-my-1 py-1 text-xs text-ink-muted hover:text-ink">Recheck</button>
+                    {isAdmin && <><button type="button" onClick={() => setEditing({ ...d, basicAuth: "" })} className="-my-1 ml-3 py-1 text-xs text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={() => void remove(d)} className="-my-1 ml-3 py-1 text-xs text-danger hover:underline">Remove</button></>}
                   </td>
                 </tr>
               );
@@ -166,17 +205,60 @@ export default function Domains() {
   );
 }
 
-function NginxImport({ onDone }: { onDone: () => Promise<void> }) {
-  const [text, setText] = useState("");
-  const [found, setFound] = useState<{ host: string; target: string; note: string; saved: boolean }[] | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const preview = async () => { setMsg(null); try { const r = await api.nginxImport(text, false); setFound(r); if (r.length === 0) setMsg(text ? "No server blocks with a server_name found." : "No nginx sites found under /etc/nginx; paste a config below."); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
-  const save = async () => { const r = await api.nginxImport(text, true); setFound(r); setMsg(`${r.filter((x) => x.saved).length} domain(s) added. Stop nginx (or move it off ports 80 and 443) so Traefik can answer.`); await onDone(); };
+/**
+ * What DNS says about a host.
+ *
+ * Three outcomes, not two. A domain behind Cloudflare resolves to Cloudflare
+ * and not to this server, which is the proxy doing its job; calling that "not
+ * yet" and telling the person to change their A record is telling them to
+ * switch off the thing they deliberately switched on.
+ */
+function DnsCell({ check }: { check?: DNSCheck }) {
+  if (!check) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-ink-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-ink-faint" />Checking…
+      </span>
+    );
+  }
+  const state = check.ok
+    ? { dot: "bg-success", text: "text-success", label: "Points here" }
+    : check.proxiedBy
+      ? { dot: "bg-accent", text: "text-accent", label: `Behind ${check.proxiedBy}` }
+      : { dot: "bg-warning", text: "text-warning", label: "Not yet" };
   return (
-    <Card title="Import from nginx" description="Reads sites-enabled and conf.d, or paste a config. Proxied sites become domains pointing at the same upstream; static roots are listed so you can deploy them as apps.">
-      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder="server { server_name app.example.com; location / { proxy_pass http://127.0.0.1:3000; } }" />
-      <div className="mt-2 flex items-center gap-2"><Button variant="secondary" className="h-8 text-xs" onClick={() => void preview()}>Preview</Button>{found && found.some((f) => f.target) && <Button className="h-8 text-xs" onClick={() => void save()}>Import proxied sites</Button>}{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>
-      {found && found.length > 0 && <ul className="mt-3 divide-y divide-border text-xs">{found.map((f, i) => <li key={i} className="py-1.5"><span className="font-mono">{f.host}</span>{f.target && <span className="ml-2 font-mono text-ink-muted">→ {f.target}</span>}<div className="text-ink-muted">{f.saved ? "added" : f.note}</div></li>)}</ul>}
-    </Card>
+    <>
+      <span className={`inline-flex items-center gap-1.5 ${state.text}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />{state.label}
+      </span>
+      {!check.ok && <div className="mt-0.5 max-w-[32ch] text-ink-muted">{check.suggestion}</div>}
+    </>
   );
+}
+
+
+/** One fact on the proxy card: a label above the thing it names. */
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[11px] text-ink-faint">{label}</div>
+      <div className="text-sm">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * When the next certificate renews.
+ *
+ * Traefik renews about thirty days before expiry, so the earliest expiry minus
+ * thirty days is the next time anything happens. Saying so is the answer to
+ * "do these renew by themselves", asked in front of the evidence.
+ */
+function renewalDate(certs: { notAfter: string }[]): string {
+  const soonest = certs
+    .map((c) => new Date(c.notAfter).getTime())
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => a - b)[0];
+  if (!soonest) return "unknown";
+  return new Date(soonest - 30 * 864e5).toLocaleDateString();
 }

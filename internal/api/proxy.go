@@ -54,8 +54,23 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
 }
 
-// handleNginxImport previews or imports nginx server blocks as domains.
-func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
+// handleImportScan reads every place a known reverse proxy keeps its sites and
+// reports what is there. It only reads: whatever is serving these names keeps
+// serving them until somebody moves it aside.
+func (s *Server) handleImportScan(w http.ResponseWriter, r *http.Request) {
+	if userFrom(r.Context()).Role != "admin" {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins import sites"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"found": proxy.Discover()})
+}
+
+// handleImport previews or imports virtual hosts as domains.
+//
+// Pasted text says which product wrote it by its own shape, so the request does
+// not carry a format: somebody pasting a Caddyfile knows it is one and should
+// not have to say so.
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	if u.Role != "admin" {
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins import sites"})
@@ -64,27 +79,38 @@ func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text string `json:"text"`
 		Save bool   `json:"save"`
+		// Only these hosts are written. Empty means every one that can be,
+		// which is what the old endpoint did.
+		Hosts []string `json:"hosts"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
-	var sites []proxy.NginxSite
+	var sites []proxy.Site
 	if req.Text != "" {
-		sites = proxy.ParseNginx(req.Text, "pasted")
+		sites, _ = proxy.ParseText(req.Text)
 	} else {
-		sites = proxy.ReadNginxSites()
+		for _, f := range proxy.Discover() {
+			sites = append(sites, f.Sites...)
+		}
+	}
+	wanted := map[string]bool{}
+	for _, h := range req.Hosts {
+		wanted[strings.ToLower(strings.TrimSpace(h))] = true
 	}
 	type proposal struct {
 		Host   string `json:"host"`
 		Target string `json:"target"`
 		Note   string `json:"note"`
+		Source string `json:"source,omitempty"`
+		File   string `json:"file,omitempty"`
 		Saved  bool   `json:"saved"`
 	}
 	out := []proposal{}
 	for _, site := range sites {
 		for _, h := range site.Hosts {
-			p := proposal{Host: h}
+			p := proposal{Host: h, Source: site.Source, File: site.File}
 			// A container upstream becomes a container target, so Islet
 			// attaches it to the proxy network itself instead of relying on
 			// the two proxies sharing one.
@@ -101,16 +127,16 @@ func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if p.Note == "" {
-					p.Note = "proxied to the same upstream nginx used; the app keeps running, Traefik takes over the domain"
+					p.Note = "proxied to the same place " + sourceName(site.Source) + " sends it; the app keeps running and Traefik takes over the domain"
 				}
 			case site.RawUp != "":
-				p.Note = "upstream is " + site.RawUp + " and the variables behind it are not in this text; paste the whole file, including the set directives above the server block"
+				p.Note = "the upstream is " + site.RawUp + " and the variables behind it are not in this text; paste the whole file, including the lines that define them"
 			case site.Root != "":
 				p.Note = "static site under " + site.Root + ": deploy it as an app (New app, local path) or serve it from a container; not imported"
 			default:
 				p.Note = "no proxy_pass or root; not imported"
 			}
-			if req.Save && p.Target != "" {
+			if req.Save && p.Target != "" && (len(wanted) == 0 || wanted[strings.ToLower(h)]) {
 				if _, err := s.proxy.Save(r.Context(), u.Username, &dom); err == nil {
 					p.Saved = true
 				} else {
@@ -121,7 +147,13 @@ func (s *Server) handleNginxImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Save {
-		_ = s.store.Audit(r.Context(), u.Username, "domain.import", "nginx", strconv.Itoa(len(out)))
+		saved := 0
+		for _, p := range out {
+			if p.Saved {
+				saved++
+			}
+		}
+		_ = s.store.Audit(r.Context(), u.Username, "domain.import", "sites", strconv.Itoa(saved))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -240,4 +272,13 @@ func (s *Server) handleDNSCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, proxy.CheckDNS(r.Context(), host))
+}
+
+// sourceName names the software a site came out of, for a note that reads the
+// same whether the file was nginx's, Caddy's or Apache's.
+func sourceName(source string) string {
+	if source == "" {
+		return "the old proxy"
+	}
+	return source
 }

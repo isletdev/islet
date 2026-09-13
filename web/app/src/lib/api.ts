@@ -91,7 +91,7 @@ export interface TrashItem { id: string; original: string; name: string; isDir: 
 
 export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string; needsRestart?: boolean }
 export interface Domain { id: string; host: string; targetType: "container" | "panel" | "url"; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; enabled: boolean; createdAt: string; updatedAt: string }
-export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; suggestion: string }
+export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; proxiedBy?: string; suggestion: string }
 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface MailRelay { domain: string; hostname: string; relayhost?: string; installed: boolean; running: boolean; publicIp: string; panelSmtp: string; appSmtp: string; records: { name: string; type: string; value: string; found?: string; ok: boolean; purpose: string }[] }
@@ -316,7 +316,10 @@ export const api = {
   github: () => request<GitHubState>("/api/v1/github"),
   githubSave: (b: { appId: string; clientId: string; slug: string; privateKey: string; webhookSecret: string }) => post<void>("/api/v1/github", b),
   githubRepos: () => request<GitHubRepo[]>("/api/v1/github/repos"),
-  sidebar: () => request<{ label: string; url: string }[]>("/api/v1/sidebar"),
+  /** What the sidebar shows: links somebody added, plus catalog apps with a domain. */
+  sidebar: () => request<{ label: string; url: string; auto?: boolean }[]>("/api/v1/sidebar"),
+  /** Only the links the editor may change; the automatic ones are left out. */
+  sidebarManual: () => request<{ label: string; url: string }[]>("/api/v1/sidebar?manual=1"),
   sidebarSet: (links: { label: string; url: string }[]) => post<{ label: string; url: string }[]>("/api/v1/sidebar", links),
   geo: () => request<{ enabled: boolean }>("/api/v1/auth/geo"),
   geoSet: (enabled: boolean) => post<{ enabled: boolean }>("/api/v1/auth/geo", { enabled }),
@@ -420,7 +423,10 @@ export const api = {
   cronTemplates: () => request<JobTemplate[]>("/api/v1/cron/templates"),
   cronLint: (script: string) => post<{ available: boolean; output: string }>("/api/v1/cron/lint", { script }),
   cronImport: (text: string, save: boolean, source = "crontab") => post<Job[]>("/api/v1/cron/import", { text, save, source }),
-  nginxImport: (text: string, save: boolean) => post<{ host: string; target: string; note: string; saved: boolean }[]>("/api/v1/domains/import/nginx", { text, save }),
+  /** Everything a known reverse proxy is already serving on this server. */
+  importScan: () => request<{ found: { source: string; files: string[]; sites: { hosts: string[]; upstream: string; root: string; rawUpstream?: string; tls: boolean; file: string; source?: string }[] }[] }>("/api/v1/domains/import/scan"),
+  importSites: (b: { text: string; save: boolean; hosts?: string[] }) =>
+    post<{ host: string; target: string; note: string; source?: string; file?: string; saved: boolean }[]>("/api/v1/domains/import", { text: b.text, save: b.save, hosts: b.hosts ?? [] }),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),
