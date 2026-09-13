@@ -211,3 +211,13 @@ Only the proxy ports face the world. The panel is the daemon on the host, so it 
 
 ## 2026-09-13 — Settings is tabbed, not one long scroll
 Seventeen cards in a single column meant hunting by scrollbar, and the jump links only moved the scroll position rather than reducing what was on screen. Each section is a tab now and only the chosen one renders, so Account shows four cards instead of everything. The tab lives in the URL as `?tab=`, which keeps a link to a section shareable, and an old `#anchor` link selects the matching tab instead of scrolling.
+
+## 2026-09-13 — Tabs live in one component, and grids get a column template at every width
+A tab strip built as an `overflow-x-auto` box with `-mb-px` on the buttons shows a scrollbar for one stray pixel: once either axis is not `visible`, the browser promotes the other to `auto` too, and the negative margin makes the content one pixel taller than the box. The rule now sits on a wrapper and the scrolling on the inner row, so nothing overflows its own scroll box. The row still scrolls sideways, because five tabs genuinely do not fit a phone, but the scrollbar chrome is hidden since that only happens where the row is dragged.
+
+Tabs are one component now, used by Settings and Apps, so the two cannot drift apart and a fix lands in both.
+
+Separately, a grid that set columns only at a breakpoint had no template below it, so items fell into an implicit `auto` column that sized to its content and pushed whole cards past a phone screen. Every grid now declares `grid-cols-1`, and custom templates use `minmax(0, …)` so an `fr` track can shrink below its content and let the scroll container inside do its job.
+
+## 2026-09-13 — A layout audit, because these faults only appear at some widths
+`hack/layout-audit.mjs` drives a headless browser over the panel and reports scrollbars nobody asked for, content spilling past the viewport with nothing able to reach it, and controls too small to hit. It found both faults above, and it exits non-zero so it can gate a release. Reviewing a diff does not catch a fault that needs a 390px viewport to appear.

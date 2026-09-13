@@ -102,7 +102,7 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
 
   return (
     <Card title={c.id ? `Edit ${c.name}` : "Add channel"} description={t?.help}>
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Type"><Select value={c.type} onChange={(e) => setC({ ...c, type: e.target.value, config: {} })} disabled={!!c.id}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
         <Field label="Name"><Input value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} required placeholder="Ops channel" /></Field>
         {t?.fields.map((f) => (
@@ -153,7 +153,7 @@ function MailRelayCard() {
       <div className="border-b border-border px-4 py-3"><span className="font-semibold">Outbound mail</span><p className="mt-0.5 text-xs text-ink-muted">A Postfix relay with DKIM signing for the apps on this server and for the email channel above. Needs a domain you control; port 25 must be open at your provider, or use an upstream relay.</p></div>
       <div className="p-4 text-sm">
         {!m.domain ? (
-          <form onSubmit={setup} className="grid gap-3 sm:grid-cols-2">
+          <form onSubmit={setup} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Sender domain" hint="Mail is sent as something@this-domain."><Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="example.com" className="font-mono" required /></Field>
             <Field label="Mail host name" hint="Defaults to mail.<domain>; needs an A record and a PTR record."><Input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="mail.example.com" className="font-mono" /></Field>
             <Field label="Upstream relay (optional)" hint="[smtp.provider.com]:587 when the provider blocks port 25."><Input value={relayhost} onChange={(e) => setRelayhost(e.target.value)} className="font-mono" /></Field>

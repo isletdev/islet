@@ -202,7 +202,7 @@ function Logs({ id }: { id: string }) {
 function Details({ c }: { c: ContainerDetail }) {
   const [showEnv, setShowEnv] = useState(false);
   return (
-    <div className="grid gap-4 overflow-auto md:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 overflow-auto md:grid-cols-2">
       <Card title="Runtime">
         <dl className="space-y-1.5 text-sm">
           <Row k="State" v={c.state} /><Row k="Started" v={c.startedAt ? new Date(c.startedAt).toLocaleString() : "–"} /><Row k="Restart policy" v={c.restartPolicy || "no"} />
@@ -225,7 +225,7 @@ function Details({ c }: { c: ContainerDetail }) {
 }
 
 function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
-  return <div className="grid grid-cols-[9rem_1fr] gap-2"><dt className="text-ink-muted">{k}</dt><dd className={`break-all ${mono ? "font-mono text-xs" : ""}`}>{v}</dd></div>;
+  return <div className="grid grid-cols-[9rem_minmax(0,1fr)] gap-2"><dt className="text-ink-muted">{k}</dt><dd className={`break-all ${mono ? "font-mono text-xs" : ""}`}>{v}</dd></div>;
 }
 
 function Limits({ c, onSaved }: { c: ContainerDetail; onSaved: () => Promise<void> }) {
@@ -240,7 +240,7 @@ function Limits({ c, onSaved }: { c: ContainerDetail; onSaved: () => Promise<voi
   };
   return (
     <Card title="Resource limits" description="0 means unlimited. Memory is in MB.">
-      <form onSubmit={submit} className="grid max-w-xl gap-4 md:grid-cols-3">
+      <form onSubmit={submit} className="grid grid-cols-1 max-w-xl gap-4 md:grid-cols-3">
         <Field label="Memory (MB)"><Input value={mem} onChange={(e) => setMem(e.target.value)} inputMode="numeric" /></Field>
         <Field label="CPUs"><Input value={cpus} onChange={(e) => setCpus(e.target.value)} inputMode="decimal" /></Field>
         <Field label="Restart policy">

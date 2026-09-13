@@ -37,7 +37,7 @@ export default function Runners() {
       </div>
       {error && <Alert>{error}</Alert>}
       {editing && <PoolForm initial={editing} onClose={() => setEditing(null)} onSaved={async (p) => { setEditing(null); await load(); setParams({ pool: p.id }); }} />}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {pools.map((p) => (
           <button key={p.id} type="button" onClick={() => setParams({ pool: p.id })} className={`rounded-lg border p-4 text-left transition-colors ${selected === p.id ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
             <div className="flex items-center justify-between"><span className="font-semibold">{p.name}</span><span className={`h-2 w-2 rounded-full ${!p.enabled ? "bg-ink-faint" : p.busy > 0 ? "bg-accent" : p.idle > 0 ? "bg-success" : "bg-warning"}`} /></div>
@@ -59,7 +59,7 @@ function PoolDetail({ pool, isAdmin, onEdit, onDelete }: { pool: RunnerPool; isA
   useEffect(() => { void api.runnerJobs(pool.id).then(setJobs).catch(() => {}); setWf(null); }, [pool.id]);
   const hookUrl = `${location.origin}/api/v1/hooks/runner/${pool.id}`;
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title={pool.name} description={`${PROVIDERS[pool.provider]?.label} · ${pool.url}`}>
         <ul className="divide-y divide-border text-sm">
           {pool.runners.map((r) => <li key={r.name} className="flex items-center justify-between py-1.5"><span className="font-mono text-xs">{r.name}</span><span className="text-xs text-ink-muted">{r.state}{r.busy && " · running a job"}{r.state === "running" && <Link to={`/logs?source=container:${r.name}`} className="ml-2 hover:text-ink">logs</Link>}</span></li>)}
@@ -99,7 +99,7 @@ function PoolForm({ initial, onClose, onSaved }: { initial: Partial<RunnerPool>;
   const submit = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await onSaved(await api.runnerPoolSave(p)); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title={p.id ? `Settings for ${initial.name}` : "New runner pool"} description="Runners run inside Docker on this server. Jobs get a clean container each time.">
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Name"><Input value={p.name ?? ""} onChange={(e) => set({ name: e.target.value })} required disabled={!!p.id} placeholder="main" /></Field>
         <Field label="Provider"><Select value={p.provider} onChange={(e) => set({ provider: e.target.value })} disabled={!!p.id}>{Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
         <Field label="URL" hint={pr.urlHint}><Input value={p.url ?? ""} onChange={(e) => set({ url: e.target.value })} className="font-mono" required /></Field>

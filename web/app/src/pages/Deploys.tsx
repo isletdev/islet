@@ -41,7 +41,7 @@ export default function Deploys() {
       {error && <Alert>{error}</Alert>}
       {editing && <AppForm initial={editing} onClose={() => setEditing(null)} onSaved={async (a) => { setEditing(null); await load(); setParams({ app: a.id }); }} />}
       {apps.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {apps.map((a) => (
             <button key={a.id} type="button" onClick={() => setParams({ app: a.id })} className={`rounded-lg border p-4 text-left transition-colors ${selected === a.id ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
               <div className="flex items-center justify-between"><span className="font-semibold">{a.name}</span><span className={`h-2 w-2 rounded-full ${a.deploying ? "bg-accent animate-pulse" : a.status === "live" ? "bg-success" : a.status === "failed" ? "bg-danger" : "bg-ink-faint"}`} /></div>
@@ -165,7 +165,7 @@ function EnvGroups() {
   return (
     <Card title="Shared env groups" description="The same variables across apps (a Sentry DSN, an SMTP relay). Add a line @name to an app's environment to pull a group in; the app's own lines win on conflicts.">
       <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Delete group @${g.name}?`)) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet. Good first group: @shared with SENTRY_DSN and SMTP_URL, then add the line @shared to each app.</li>}</ul>
-      <form onSubmit={save} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[200px_1fr_auto]">
+      <form onSubmit={save} className="mt-3 grid grid-cols-1 gap-2 border-t border-border pt-3 sm:grid-cols-[200px_minmax(0,1fr)_auto]">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="group-name" className="font-mono" required />
         <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"SENTRY_DSN=https://…\nSMTP_URL=smtp://…"} required />
         <Button type="submit" className="h-9 self-start text-xs">Save group</Button>
@@ -262,7 +262,7 @@ function AppForm({ initial, onClose, onSaved }: { initial: Partial<DeployApp>; o
 
   return (
     <Card title={isNew ? "New app" : `Settings for ${initial.name}`} description={isNew ? "Point Islet at a repository. It clones it, tells you what it found, and you can change anything before the first deploy." : "Changes apply on the next deploy."}>
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Name" hint="Lowercase, becomes the container name and preview domain."><Input value={a.name ?? ""} onChange={(e) => set({ name: e.target.value })} required disabled={!isNew} placeholder="shop" /></Field>
         <Field label="Source"><Select value={a.source} onChange={(e) => set({ source: e.target.value as "git" | "image" | "upload", strategy: e.target.value === "image" ? "image" : "auto" })} disabled={!isNew}><option value="git">Git repository</option><option value="image">Docker image</option><option value="upload">Upload a folder or zip</option></Select></Field>
         {a.source === "upload" ? (

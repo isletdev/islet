@@ -37,7 +37,7 @@ export default function Databases() {
         <Button type="button" onClick={() => nav("/apps?tab=catalog&category=database")}>Install a database</Button>
       </div>
       {error && <Alert>{error}</Alert>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list.map((i) => (
           <button key={i.name} type="button" onClick={() => setParams({ i: i.name })} className={`rounded-lg border p-4 text-left transition-colors ${selected === i.name ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
             <div className="flex items-center gap-2.5">
@@ -132,7 +132,7 @@ Host port to publish on:`, String(d?.port));
         {d.stats?.extra && <p className="mb-3 text-xs text-ink-muted">{d.stats.extra.join(" · ")}</p>}
         {isAdmin && d.engine !== "redis" && <p className="mb-3 text-xs"><button type="button" disabled={!!busy} onClick={() => void openAdminer()} className="text-accent hover:underline">{busy === "adminer" ? "Preparing Adminer…" : "Open in Adminer"}</button><span className="ml-2 text-ink-muted">One Adminer serves every database here; it is attached to this one's network when you open it.</span></p>}
         {adminer && <AdminerSetup s={adminer} onCancel={() => setAdminer(null)} onSubmit={(v) => { setAdminer(null); void openAdminer(v); }} />}
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">From other containers</span>{isAdmin && d.internalUrl && <Copy text={d.internalUrl} />}</div>
             <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.internalUrl) : "(admins only)"}</pre>
@@ -158,7 +158,7 @@ Host port to publish on:`, String(d?.port));
         {msg && <p className="mt-3 text-sm text-ink-muted">{msg}</p>}
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title={d.engine === "redis" ? "Keyspaces" : "Databases"} description={sqlish ? "Each database gets its own user with full rights on it." : undefined}>
           <table className="w-full text-sm"><tbody className="divide-y divide-border">
             {d.databases.map((x) => (
@@ -184,7 +184,7 @@ Host port to publish on:`, String(d?.port));
       </div>
 
       {d.engine === "postgres" && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card title="Extensions" description={`Toggled in the ${d.database} database.`}>
             <ul className="divide-y divide-border text-sm">
               {d.extensions.map((e) => (
@@ -210,7 +210,7 @@ function CreateForm({ name, onDone }: { name: string; onDone: () => Promise<void
   const submit = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.dbCreate(name, { name: db, user, password: pw }); setResult(r.url); setDb(""); setUser(""); setPw(""); await onDone(); } catch (er) { setMsg(err(er)); } };
   return (
     <form onSubmit={submit} className="mt-3 border-t border-border pt-3">
-      <div className="grid gap-2 sm:grid-cols-3"><Input value={db} onChange={(e) => setDb(e.target.value)} placeholder="database name" required /><Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="user (defaults to name)" /><Input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="password (generated if empty)" /></div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3"><Input value={db} onChange={(e) => setDb(e.target.value)} placeholder="database name" required /><Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="user (defaults to name)" /><Input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="password (generated if empty)" /></div>
       <div className="mt-2 flex items-center gap-2"><Button type="submit" className="h-8 text-xs">Create database and user</Button>{msg && <span className="text-xs text-danger">{msg}</span>}</div>
       {result && <div className="mt-2"><div className="mb-1 flex items-center justify-between text-xs"><span className="text-ink-muted">Created. Copy the URL now; the password is not stored by Islet.</span><Copy text={result} /></div><pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{result}</pre></div>}
     </form>
@@ -244,7 +244,7 @@ function AdminerSetup({ s, onCancel, onSubmit }: { s: { suggestedHost: string; p
   const parent = s.panelHost ? s.panelHost.split(".").slice(-2).join(".") : "";
   const cookieOk = !protect || (!!s.cookieDomain && host.endsWith(s.cookieDomain));
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ host: host.trim(), tls, protect }); }} className="mb-3 grid gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
+    <form onSubmit={(e) => { e.preventDefault(); onSubmit({ host: host.trim(), tls, protect }); }} className="mb-3 grid grid-cols-1 gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
       <p className="text-xs text-ink-muted sm:col-span-2">Adminer is not installed yet. It runs as one small container for every database on this server, reachable only through the proxy on the name you choose.</p>
       <Field label="Host" hint={host.endsWith(".sslip.io") ? "A free name that resolves to this server. Let's Encrypt limits certificates per registered domain and every sslip.io user shares one, so a name under your own domain is far more likely to get a real certificate." : "An A record for this name must point at this server."}>
         <Input value={host} onChange={(e) => setHost(e.target.value)} className="font-mono" required />

@@ -68,7 +68,7 @@ function CheckDetail({ check, canEdit }: { check: Check; canEdit: boolean }) {
   const max = Math.max(1, ...pts.map((r) => r.latencyMs));
   const incidents = results.filter((r) => !r.ok).slice(0, 10);
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <Card title={check.name} description={`${check.type.toUpperCase()} · every ${check.intervalSec}s · timeout ${check.timeoutSec}s${check.expectStatus ? ` · expects ${check.expectStatus}` : ""}${check.keyword ? ` · keyword "${check.keyword}"` : ""}`}>
         {canEdit && <div className="mb-3 flex items-center gap-3"><Button variant="secondary" className="h-8 text-xs" onClick={() => void probe()}>Probe now</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>}
         <div className="text-xs text-ink-muted">Latency, last {pts.length} probes · max {max} ms</div>
@@ -88,7 +88,7 @@ function CheckForm({ initial, onClose, onSaved }: { initial: Partial<Check>; onC
   const submit = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await onSaved(await api.checkSave(c)); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title={c.id ? `Edit ${initial.name}` : "New check"} description="Two failures in a row count as down and raise a critical event; the recovery is reported too.">
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-3">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Field label="Name"><Input value={c.name ?? ""} onChange={(e) => set({ name: e.target.value })} required placeholder="Marketing site" /></Field>
         <Field label="Type"><Select value={c.type} onChange={(e) => set({ type: e.target.value as Check["type"], target: e.target.value === "tcp" ? "" : (c.target || "https://") })}><option value="http">HTTP status</option><option value="keyword">HTTP keyword</option><option value="tcp">TCP port</option></Select></Field>
         <Field label={c.type === "tcp" ? "Host and port" : "URL"}><Input value={c.target ?? ""} onChange={(e) => set({ target: e.target.value })} className="font-mono" placeholder={c.type === "tcp" ? "db.example.com:5432" : "https://example.com/health"} required /></Field>

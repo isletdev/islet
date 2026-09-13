@@ -96,7 +96,7 @@ export default function Overview() {
 
       <Attention />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Tile label={t("overview.cpu")} value={latest ? pct(latest.cpuPct) : "–"} sub={latest ? `load ${latest.load1.toFixed(2)} / ${latest.load5.toFixed(2)} / ${latest.load15.toFixed(2)}` : ""} warn={!!latest && latest.cpuPct >= 90}>
           <Sparkline points={series.cpu} max={100} format={pct} />
         </Tile>
@@ -112,7 +112,7 @@ export default function Overview() {
         </Tile>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card title={t("overview.processes")} description={t("overview.processes.desc")}>
           <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
             <thead className="text-left text-xs text-ink-muted">

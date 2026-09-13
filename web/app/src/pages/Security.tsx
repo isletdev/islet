@@ -48,7 +48,7 @@ export default function Security() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card>
           <div className="text-center">
             <div className={`font-mono text-6xl font-semibold tabular-nums ${tone}`}>{r.score}</div>
@@ -70,17 +70,17 @@ export default function Security() {
       </div>
       {out && <Card title={out.title}><pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-xs">{out.text}</pre></Card>}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <FirewallCard s={s} isAdmin={isAdmin} onChanged={load} onFix={() => void fix("firewall")} onFixRoutes={() => void fix("firewall-routes")} busy={busy} />
         <SSHCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title="Blocked IPs" description="fail2ban bans after repeated failed SSH logins.">
           <ul className="divide-y divide-border text-xs">{s.banned.map((b) => <li key={b} className="flex items-center justify-between py-1.5"><span className="font-mono">{b}</span>{isAdmin && <button type="button" onClick={async () => { await api.unban(b.split(" ")[0]); await load(); }} className="text-ink-muted hover:text-ink">Unban</button>}</li>)}{s.banned.length === 0 && <li className="py-2 text-ink-muted">{r.linux ? "Nobody is banned right now." : "Available on Linux servers."}</li>}</ul>
         </Card>
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
-      {isAdmin && r.linux && <div className="grid gap-4 lg:grid-cols-2"><ServerSetup onChanged={load} /><HostAuditCard /></div>}
+      {isAdmin && r.linux && <div className="grid grid-cols-1 gap-4 lg:grid-cols-2"><ServerSetup onChanged={load} /><HostAuditCard /></div>}
       {isAdmin && r.linux && <LynisCard onChanged={load} />}
       <Diagnostics />
     </div>
@@ -105,17 +105,17 @@ function ServerSetup({ onChanged }: { onChanged: () => Promise<void> }) {
   const run = async (fn: () => Promise<{ output?: string; timezone?: string }>) => { setMsg(null); try { const r = await fn(); setMsg(r.output ?? (r.timezone ? `Timezone is now ${r.timezone}.` : "Done.")); await onChanged(); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title="Server setup" description="The three steps every fresh server needs: a sudo user so root stays unused, your key on it, the right clock.">
-      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostUser(user, key)); }} className="grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostUser(user, key)); }} className="grid grid-cols-1 gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto]">
         <Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="deploy" className="font-mono" required />
         <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="ssh-ed25519 AAAA… (optional)" className="font-mono" />
         <Button type="submit" variant="secondary" className="h-9 text-xs">Create sudo user</Button>
       </form>
-      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostSSHKey(keyUser, key2)); }} className="mt-2 grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostSSHKey(keyUser, key2)); }} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto]">
         <Input value={keyUser} onChange={(e) => setKeyUser(e.target.value)} className="font-mono" required />
         <Input value={key2} onChange={(e) => setKey2(e.target.value)} placeholder="ssh-ed25519 AAAA…" className="font-mono" required />
         <Button type="submit" variant="secondary" className="h-9 text-xs">Add SSH key</Button>
       </form>
-      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostTimezoneSet(tz)); }} className="mt-2 grid gap-2 sm:grid-cols-[140px_1fr_auto]">
+      <form onSubmit={(e) => { e.preventDefault(); void run(() => api.hostTimezoneSet(tz)); }} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[140px_minmax(0,1fr)_auto]">
         <span className="self-center text-xs text-ink-muted">Timezone {cur && <span className="font-mono">({cur})</span>}</span>
         <Input value={tz} onChange={(e) => setTz(e.target.value)} placeholder="Europe/Skopje" className="font-mono" required />
         <Button type="submit" variant="secondary" className="h-9 text-xs">Set timezone</Button>
@@ -235,7 +235,7 @@ function SSHCard({ s, isAdmin, onChanged }: { s: SecurityState; isAdmin: boolean
   return (
     <Card title="SSH" description={s.report.linux ? (s.sshHasKeys ? "authorized_keys found. Settings are validated with sshd -t before reload." : "No authorized_keys found yet. Add your public key before turning off passwords.") : "Available on Linux servers."}>
       {s.sshRollback && <Alert tone="warning">A change is waiting. Open a new SSH session to make sure you can still get in, then <button type="button" onClick={() => void confirm_()} className="underline">confirm it</button>. Otherwise it rolls back in five minutes.</Alert>}
-      <form onSubmit={apply} className="mt-3 grid gap-3 sm:grid-cols-2">
+      <form onSubmit={apply} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Port"><Input type="number" value={cfg.port} onChange={(e) => set({ port: +e.target.value })} disabled={!isAdmin || !s.report.linux} /></Field>
         <Field label="Max auth tries"><Input type="number" value={cfg.maxAuthTries} onChange={(e) => set({ maxAuthTries: +e.target.value })} disabled={!isAdmin || !s.report.linux} /></Field>
         <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={cfg.permitRootLogin} onChange={(e) => set({ permitRootLogin: e.target.checked })} disabled={!isAdmin} />Allow root login with a password</label>

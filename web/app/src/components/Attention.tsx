@@ -18,7 +18,7 @@ export default function Attention() {
   for (const c of a.criticals.slice(0, 3)) issues.push({ text: c.title, to: c.link || "/notifications", tone: "danger" });
   const tone = a.securityScore >= 90 ? "text-success" : a.securityScore >= 60 ? "text-warning" : "text-danger";
   return (
-    <div className="grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
       <Link to="/security" className="rounded-lg border border-border bg-surface p-3 transition-colors hover:bg-surface-2">
         <div className="text-xs text-ink-muted">Security Score</div>
         <div className={`mt-1 font-mono text-3xl font-semibold tabular-nums ${tone}`}>{a.securityScore}</div>

@@ -3,7 +3,7 @@ import QRCode from "qrcode";
 import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
+import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
 
@@ -43,20 +43,13 @@ export default function Settings() {
       <h1 className="text-xl font-semibold tracking-[-0.02em]">Settings</h1>
       <p className="mt-1 text-ink-muted">Signed in as <span className="font-medium text-ink">{me.user.username}</span>, role {me.user.role}.</p>
 
-      <div className="mt-5 flex gap-1 overflow-x-auto border-b border-border text-sm" role="tablist" aria-label="Settings sections">
+      <Tabs label="Settings sections" className="mt-5">
         {shown.map((sec) => (
-          <button
-            key={sec.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === sec.id}
-            onClick={() => setParams(sec.id === "account" ? {} : { tab: sec.id })}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 ${tab === sec.id ? "border-ink font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"}`}
-          >
+          <Tab key={sec.id} active={tab === sec.id} onClick={() => setParams(sec.id === "account" ? {} : { tab: sec.id })}>
             {sec.label}
-          </button>
+          </Tab>
         ))}
-      </div>
+      </Tabs>
 
       <p className="mt-3 text-xs text-ink-muted">{current.description}</p>
 
@@ -147,7 +140,7 @@ function TwoFactor({ enabled, codesLeft, onChange }: { enabled: boolean; codesLe
         )}
         {!enabled && !setup && !recovery && <Button onClick={() => void begin()} disabled={busy}>Set up two-factor</Button>}
         {setup && (
-          <form onSubmit={enable} className="grid gap-4 md:grid-cols-[192px_1fr]">
+          <form onSubmit={enable} className="grid grid-cols-1 gap-4 md:grid-cols-[192px_minmax(0,1fr)]">
             <img src={setup.qr} alt="QR code for your authenticator app" width={192} height={192} className="rounded-md border border-border bg-white" />
             <div className="space-y-3">
               <p className="text-sm text-ink-muted">Scan with an authenticator app, or enter the secret by hand:</p>
@@ -197,7 +190,7 @@ function ChangePassword() {
 
   return (
     <Card title="Password" description="Changing it signs out every other session.">
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-3">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {msg && <div className="md:col-span-3"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
         <Field label="Current password"><Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" /></Field>
         <Field label="New password"><Input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={12} autoComplete="new-password" /></Field>
@@ -263,7 +256,7 @@ function Tokens() {
         {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No tokens yet.</li>}
       </ul>
       {created && <div className="mt-3 rounded-md border border-success/40 bg-success-soft p-3 text-sm"><div className="mb-1 text-success">Copy this token now. It is not shown again.</div><pre className="overflow-x-auto font-mono text-xs">{created}</pre><pre className="mt-2 overflow-x-auto font-mono text-xs text-ink-muted">islet login --url {location.origin} --token {created}</pre></div>}
-      <form onSubmit={create} className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-[1fr_auto_auto]">
+      <form onSubmit={create} className="mt-3 grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="CI deploys" required /></Field>
         <Field label="Expires"><Select value={ttl} onChange={(e) => setTtl(+e.target.value)} className="w-auto"><option value={0}>Never</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></Select></Field>
         <FieldAction><Button type="submit" className="h-9">Create token</Button></FieldAction>
@@ -300,7 +293,7 @@ function Users({ meId }: { meId: string }) {
           </li>
         ))}
       </ul>
-      <form onSubmit={create} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+      <form onSubmit={create} className="mt-3 grid grid-cols-1 gap-2 border-t border-border pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
         <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" required autoComplete="off" />
         <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password (12+ characters)" required autoComplete="new-password" />
         <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-auto"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></Select>
@@ -438,7 +431,7 @@ function GitHubApp() {
           <button type="button" onClick={() => void clear()} className="mt-2 text-xs text-danger hover:underline">Remove</button>
         </div>
       )}
-      <form onSubmit={save} className="grid gap-3 sm:grid-cols-3">
+      <form onSubmit={save} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="App ID"><Input value={form.appId} onChange={(e) => setForm({ ...form, appId: e.target.value })} className="font-mono" required /></Field>
         <Field label="Client ID"><Input value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="font-mono" /></Field>
         <Field label="App slug" hint="From the app URL, github.com/apps/<slug>"><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className="font-mono" /></Field>

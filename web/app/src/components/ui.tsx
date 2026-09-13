@@ -71,6 +71,46 @@ export function Select({ className = "", children, ...rest }: SelectHTMLAttribut
   );
 }
 
+/**
+ * A row of tabs sitting on a hairline rule.
+ *
+ * The rule lives on the wrapper and the scrolling happens on the inner row, so
+ * the tabs never overflow their own scroll box. Doing it the other way round,
+ * with a negative margin on the buttons inside an `overflow-x-auto` box, makes
+ * the browser promote the vertical axis to `auto` as well and show a scrollbar
+ * for one stray pixel. The horizontal scrollbar is hidden because the row only
+ * overflows on a phone, where it is dragged rather than clicked.
+ */
+export function Tabs({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={`border-b border-border ${className}`}>
+      <div
+        role="tablist"
+        aria-label={label}
+        className="-mb-px flex gap-1 overflow-x-auto overflow-y-hidden text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`whitespace-nowrap border-b-2 px-3 py-2 transition-colors ${
+        active ? "border-ink font-medium text-ink" : "border-transparent text-ink-muted hover:text-ink"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function Alert({ tone = "danger", children }: { tone?: "danger" | "success" | "warning"; children: ReactNode }) {
   const styles = {
     danger: "border-danger/40 bg-danger-soft text-danger",

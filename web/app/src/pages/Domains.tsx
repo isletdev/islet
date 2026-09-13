@@ -121,7 +121,7 @@ export default function Domains() {
 
       {editing && (
         <Card title={editing.id ? `Edit ${editing.host}` : "Add domain"} description="Create the DNS A record first; the helper checks it for you.">
-          <form onSubmit={save} className="grid gap-4 md:grid-cols-2">
+          <form onSubmit={save} className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Host" hint="e.g. app.example.com. Wildcards need a DNS provider (later)."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => setEditing({ ...editing, host: e.target.value })} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
             <Field label="Target">
               <Select value={editing.targetType} onChange={(e) => setEditing({ ...editing, targetType: e.target.value as Domain["targetType"] })}>

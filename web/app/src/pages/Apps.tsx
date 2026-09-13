@@ -6,7 +6,7 @@ const RecipesPage = lazy(() => import("./Recipes"));
 import { api, RequestError, type CatalogApp, type InstalledApp } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { postStream } from "@/lib/stream";
-import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, Select, Tab, Tabs } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
 
 export default function Apps() {
@@ -41,9 +41,13 @@ export default function Apps() {
         <h1 className="text-xl font-semibold tracking-[-0.02em]">Apps</h1>
         <p className="mt-1 text-ink-muted">Deploy your own code from Git, or install one-click apps from the catalog.</p>
       </div>
-      <div className="flex gap-1 border-b border-border text-sm">
-        {(["deploys", "catalog", "recipes"] as const).map((t) => <button key={t} type="button" onClick={() => setParams(t === "deploys" ? {} : { tab: t })} className={`-mb-px border-b-2 px-3 py-2 ${tab === t ? "border-ink font-medium" : "border-transparent text-ink-muted hover:text-ink"}`}>{t === "deploys" ? "Your apps" : t === "catalog" ? "Catalog" : "Recipes"}</button>)}
-      </div>
+      <Tabs label="App sections">
+        {(["deploys", "catalog", "recipes"] as const).map((t) => (
+          <Tab key={t} active={tab === t} onClick={() => setParams(t === "deploys" ? {} : { tab: t })}>
+            {t === "deploys" ? "Your apps" : t === "catalog" ? "Catalog" : "Recipes"}
+          </Tab>
+        ))}
+      </Tabs>
       {tab === "deploys" && <Suspense fallback={<p className="text-sm text-ink-muted">Loading…</p>}><Deploys /></Suspense>}
       {tab === "recipes" && <Suspense fallback={<p className="text-sm text-ink-muted">Loading…</p>}><RecipesPage /></Suspense>}
       {tab === "catalog" && <>
@@ -77,7 +81,7 @@ export default function Apps() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {shown.map((a) => (
           <button key={a.slug} type="button" onClick={() => setSel(a)} className="flex gap-3 rounded-lg border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong">
             <AppIcon slug={a.slug} category={a.category} name={a.name} />
@@ -121,7 +125,7 @@ function Installer({ app, canInstall, onClose, onDone }: { app: CatalogApp; canI
 
   return (
     <Card title={`Install ${app.name}`} description={app.description} icon={<AppIcon slug={app.slug} category={app.category} name={app.name} />}>
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Stack name" hint="Lowercase, digits and dashes. Containers are named after it."><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
         {app.category === "database" ? (
           <Field label="Domain" hint="Databases speak their own protocol, so a domain would not reach this one. Other containers connect by name, and the Databases page opens a browser client for you.">

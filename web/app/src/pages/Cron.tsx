@@ -110,7 +110,7 @@ function JobDetail({ job, canRun, canEdit, onChanged }: { job: Job; canRun: bool
   const pingUrl = `${location.origin}/api/v1/ping/${job.command}`;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <Card title={job.name} description={TYPES[job.type]?.help}>
         <div className="flex flex-wrap items-center gap-2">
           {job.type === "heartbeat" ? (
@@ -189,11 +189,11 @@ function JobEditor({ initial, jobs, onClose, onSaved }: { initial: Partial<Job>;
 
   return (
     <Card title={j.id ? `Edit ${initial.name}` : "New job"} description={t?.help}>
-      <form onSubmit={submit} className="grid gap-4 md:grid-cols-2">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Name"><Input value={j.name ?? ""} onChange={(e) => set({ name: e.target.value })} required placeholder="Nightly Postgres backup" /></Field>
         <Field label="Type"><Select value={j.type} onChange={(e) => set({ type: e.target.value })}>{Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select></Field>
 
-        <div className="md:col-span-2 grid gap-3 rounded-md border border-border p-3 md:grid-cols-[1fr_1fr_200px]">
+        <div className="md:col-span-2 grid grid-cols-1 gap-3 rounded-md border border-border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_200px]">
           <Field label={j.type === "heartbeat" ? "Expected schedule" : "Schedule"} hint="Five cron fields, or @hourly, @daily, @weekly. Leave empty for manual only.">
             <div className="flex gap-2"><Input value={j.schedule ?? ""} onChange={(e) => set({ schedule: e.target.value })} className="font-mono" placeholder="0 3 * * *" /><Select value="" onChange={(e) => e.target.value && set({ schedule: e.target.value })} className="w-36"><option value="">Presets</option>{PRESETS.map(([l, s]) => <option key={s} value={s}>{l}</option>)}</Select><Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => setBuilder(!builder)}>Build</Button></div>
             {builder && <ScheduleBuilder onPick={(s) => { set({ schedule: s }); setBuilder(false); }} />}

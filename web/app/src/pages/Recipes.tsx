@@ -22,7 +22,7 @@ export default function Recipes() {
       {cats.map((c) => (
         <div key={c}>
           <h2 className="mb-2 text-[11px] font-medium text-ink-faint">{c}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {list.filter((r) => r.category === c).map((r) => (
               <button key={r.slug} type="button" onClick={() => { setSel(r); window.scrollTo({ top: 0 }); }} className={`rounded-lg border bg-surface p-4 text-left transition-colors hover:border-border-strong ${sel?.slug === r.slug ? "border-ink" : "border-border"}`}>
                 <div className="flex items-center gap-2.5">
@@ -61,7 +61,7 @@ function Runner({ recipe, isAdmin, onClose }: { recipe: Recipe; isAdmin: boolean
   const step = log ? log.filter((l) => l.startsWith("[recipe] step")).length : 0;
   return (
     <Card title={recipe.name} description={recipe.description} icon={<AppIcon slug={recipe.slug} category={recipe.category} name={recipe.name} />}>
-      <form onSubmit={run} className="grid gap-3 sm:grid-cols-2">
+      <form onSubmit={run} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {recipe.inputs.map((i) => (
           <Field key={i.key} label={i.label + (i.optional ? " (optional)" : "")} hint={i.hint}>
             {i.type === "select" ? (
