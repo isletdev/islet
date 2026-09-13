@@ -51,6 +51,25 @@ func (s *Server) handleCatalogInstall(w http.ResponseWriter, r *http.Request) {
 	streamLines(w, r, rc, wait)
 }
 
+// digestOf pulls a sha256 digest out of what a docker command printed, and
+// returns "" for anything that is not one.
+//
+// Being strict is the point. Both commands have a way of answering with
+// something other than a digest — a name@digest reference, a JSON string, a
+// whole report — and a comparison against text we did not understand reads as
+// "there is an update" every single time.
+func digestOf(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Trim(s, `"`)
+	if i := strings.LastIndex(s, "@"); i >= 0 {
+		s = s[i+1:]
+	}
+	if !strings.HasPrefix(s, "sha256:") || strings.ContainsAny(s, " \t\r\n") {
+		return ""
+	}
+	return s
+}
+
 // handleInstalledUpdates compares each installed app's images with the
 // registry and reports which have a newer digest.
 func (s *Server) handleInstalledUpdates(w http.ResponseWriter, r *http.Request) {
@@ -71,15 +90,16 @@ func (s *Server) handleInstalledUpdates(w http.ResponseWriter, r *http.Request) 
 			if err != nil {
 				continue
 			}
-			remote, err := s.runner.Run(r.Context(), actor, "docker", "buildx", "imagetools", "inspect", "--format", "{{.Manifest.Digest}}", img)
+			// `{{json .Manifest.Digest}}` rather than `{{.Manifest.Digest}}`:
+			// buildx ignores the plain template and prints its whole human
+			// report instead, which never equals a digest, so every app
+			// claimed an update was waiting for it forever.
+			remote, err := s.runner.Run(r.Context(), actor, "docker", "buildx", "imagetools", "inspect", "--format", "{{json .Manifest.Digest}}", img)
 			if err != nil {
 				continue
 			}
-			ld := strings.TrimSpace(local.Stdout)
-			rd := strings.TrimSpace(remote.Stdout)
-			if i := strings.Index(ld, "@"); i >= 0 {
-				ld = ld[i+1:]
-			}
+			ld := digestOf(local.Stdout)
+			rd := digestOf(remote.Stdout)
 			if rd != "" && ld != "" && rd != ld {
 				out[it.Name] = append(out[it.Name], img)
 			}

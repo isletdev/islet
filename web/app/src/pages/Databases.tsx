@@ -7,7 +7,7 @@ import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
-import { SqlIcon } from "@/components/icons";
+import { SqlIcon, TrashIcon } from "@/components/icons";
 import { capLines } from "@/lib/logcap";
 import { useDialog } from "@/lib/dialogs";
 
@@ -15,6 +15,36 @@ const ENGINE: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL",
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function bytes(n: number) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`; }
 function err(e: unknown) { return e instanceof RequestError ? e.message : e instanceof Error ? e.message : String(e); }
+
+/**
+ * Ask what removing a database server means, and answer with the volumes flag.
+ *
+ * Two questions rather than a checkbox: the container and the data are not the
+ * same decision, and only one of them can be undone. `null` means the person
+ * stopped at the first one.
+ */
+async function askRemoveServer(ask: ReturnType<typeof useDialog>, name: string, engine: string): Promise<boolean | null> {
+  const ok = await ask.confirm({
+    title: `Remove the ${ENGINE[engine] ?? "database"} server ${name}?`,
+    body: (
+      <div className="space-y-2">
+        <p>The container is stopped and deleted, along with the Compose file Islet wrote for it.</p>
+        <p className="text-ink-muted">Anything connecting to it stops working the moment it goes.</p>
+      </div>
+    ),
+    confirmLabel: "Remove it",
+    tone: "danger",
+    typeToConfirm: name,
+  });
+  if (!ok) return null;
+  return await ask.confirm({
+    title: `Delete ${name}'s data as well?`,
+    body: "Its volume holds every database on this server. Deleting it cannot be undone; keeping it means a new server with the same name finds the data again.",
+    confirmLabel: "Delete the data too",
+    cancelLabel: "Keep the data",
+    tone: "danger",
+  });
+}
 
 function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
@@ -31,6 +61,9 @@ export default function Databases() {
   const selected = params.get("i");
   const [external, setExternal] = useState<Connection[]>([]);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Connection | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const ask = useDialog();
   const load = useCallback(() => api.databases().then((l) => { setList(l); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); }, [load]);
   // Only the ones somebody added by hand: the rest are the cards above.
@@ -42,6 +75,40 @@ export default function Databases() {
     if (!isAdmin) return;
     void loadExternal();
   }, [isAdmin, loadExternal]);
+
+  const removeServer = async (name: string, engine: string) => {
+    const volumes = await askRemoveServer(ask, name, engine);
+    if (volumes === null) return;
+    setRemoving(name);
+    try {
+      await api.stackRemove(name, volumes);
+      if (selected === name) setParams({});
+      await load();
+    } catch (e) {
+      void ask.alert({ title: `Could not remove ${name}`, body: err(e), tone: "danger" });
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  // Forgetting a connection is forgetting an address and a password. The
+  // database it points at is somewhere else and is not touched, which is the
+  // whole difference from the cards above, so the question says so.
+  const forget = async (c: Connection) => {
+    const ok = await ask.confirm({
+      title: `Forget ${c.name}?`,
+      body: `Islet drops the address and the stored password. The database at ${c.host}:${c.port} keeps running, untouched, and you can add it again later.`,
+      confirmLabel: "Forget it",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await sql.deleteConnection(c.ref);
+      await loadExternal();
+    } catch (e) {
+      void ask.alert({ title: `Could not forget ${c.name}`, body: err(e), tone: "danger" });
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -55,15 +122,32 @@ export default function Databases() {
       {error && <Alert>{error}</Alert>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {list.map((i) => (
-          <button key={i.name} type="button" onClick={() => setParams({ i: i.name })} className={`rounded-lg border p-4 text-left transition-colors ${selected === i.name ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
-            <div className="flex items-center gap-2.5">
-              <AppIcon slug={i.engine} category="database" name={ENGINE[i.engine]} size="sm" />
-              <span className="min-w-0 flex-1 truncate font-semibold">{i.name}</span>
-              <span className={`h-2 w-2 shrink-0 rounded-full ${i.state === "running" ? "bg-success" : i.state === "missing" ? "bg-ink-faint" : "bg-danger"}`} />
-            </div>
-            <div className="mt-2 text-xs text-ink-muted">{ENGINE[i.engine]} · {i.image.split("@")[0]}</div>
-            <div className="mt-2 font-mono text-[11px] text-ink-faint">{i.container}:{i.port}{i.public && <span className="ml-2 rounded-sm bg-warning-soft px-1 text-warning">public</span>}</div>
-          </button>
+          // The card is a button, so Remove cannot be one inside it. It sits
+          // over the corner instead — visible rather than waiting for a hover,
+          // because not finding it was the complaint in the first place.
+          <div key={i.name} className="relative">
+            <button type="button" onClick={() => setParams({ i: i.name })} className={`w-full rounded-lg border p-4 text-left transition-colors ${selected === i.name ? "border-ink bg-surface-2" : "border-border bg-surface hover:bg-surface-2"}`}>
+              <div className="flex items-center gap-2.5">
+                <AppIcon slug={i.engine} category="database" name={ENGINE[i.engine]} size="sm" />
+                <span className="min-w-0 flex-1 truncate font-semibold">{i.name}</span>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${i.state === "running" ? "bg-success" : i.state === "missing" ? "bg-ink-faint" : "bg-danger"}`} />
+              </div>
+              <div className="mt-2 text-xs text-ink-muted">{ENGINE[i.engine]} · {i.image.split("@")[0]}</div>
+              <div className="mt-2 font-mono text-[11px] text-ink-faint">{i.container}:{i.port}{i.public && <span className="ml-2 rounded-sm bg-warning-soft px-1 text-warning">public</span>}</div>
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                title={`Remove ${i.name}`}
+                aria-label={`Remove ${i.name}`}
+                disabled={removing === i.name}
+                onClick={() => void removeServer(i.name, i.engine)}
+                className="absolute right-2 bottom-2 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-ink-faint transition-colors hover:text-danger"
+              >
+                <TrashIcon className="h-3.5 w-3.5" />{removing === i.name ? "Removing…" : "Remove"}
+              </button>
+            )}
+          </div>
         ))}
         {list.length === 0 && !error && (
           <div className="col-span-full rounded-lg border border-dashed border-border p-8 text-center">
@@ -91,20 +175,31 @@ export default function Databases() {
           </div>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {external.map((c) => (
-              <Link
-                key={c.ref}
-                to={`/sql?ref=${encodeURIComponent(c.ref)}`}
-                className="rounded-lg border border-border bg-surface p-3 hover:bg-surface-2"
-              >
-                <div className="flex items-center gap-2.5">
-                  <AppIcon slug={c.engine} category="database" name={c.engine} size="sm" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
-                  {c.readOnly && (
-                    <span className="shrink-0 rounded-sm bg-surface-2 px-1 text-[10px] text-ink-muted">read-only</span>
-                  )}
+              <div key={c.ref} className="relative">
+                <Link
+                  to={`/sql?ref=${encodeURIComponent(c.ref)}`}
+                  className="block rounded-lg border border-border bg-surface p-3 pb-8 hover:bg-surface-2"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <AppIcon slug={c.engine} category="database" name={c.engine} size="sm" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
+                    {c.readOnly && (
+                      <span className="shrink-0 rounded-sm bg-surface-2 px-1 text-[10px] text-ink-muted">read-only</span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 truncate font-mono text-[11px] text-ink-faint">{c.host}:{c.port}{c.database ? "/" + c.database : ""}</div>
+                </Link>
+                <div className="absolute right-2 bottom-1.5 flex items-center gap-2 text-[11px]">
+                  <button type="button" onClick={() => setEditing(c)} className="text-ink-faint hover:text-ink">Edit</button>
+                  <button
+                    type="button"
+                    onClick={() => void forget(c)}
+                    className="inline-flex items-center gap-1 text-ink-faint transition-colors hover:text-danger"
+                  >
+                    <TrashIcon className="h-3.5 w-3.5" />Remove
+                  </button>
                 </div>
-                <div className="mt-1.5 truncate font-mono text-[11px] text-ink-faint">{c.host}:{c.port}{c.database ? "/" + c.database : ""}</div>
-              </Link>
+              </div>
             ))}
           </div>
           {external.length === 0 && (
@@ -114,20 +209,20 @@ export default function Databases() {
           )}
         </section>
       )}
-      {adding && (
+      {(adding || editing) && (
         <ConnectionForm
-          connection={null}
-          onClose={() => setAdding(false)}
-          onSaved={async () => { setAdding(false); await loadExternal(); }}
-          onDeleted={async () => { setAdding(false); await loadExternal(); }}
+          connection={editing}
+          onClose={() => { setAdding(false); setEditing(null); }}
+          onSaved={async () => { setAdding(false); setEditing(null); await loadExternal(); }}
+          onDeleted={async () => { setAdding(false); setEditing(null); await loadExternal(); }}
         />
       )}
-      {selected && <Detail name={selected} isAdmin={isAdmin} onChanged={load} />}
+      {selected && <Detail name={selected} isAdmin={isAdmin} onChanged={load} onRemoved={() => setParams({})} />}
     </div>
   );
 }
 
-function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; onChanged: () => Promise<void> }) {
+function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin: boolean; onChanged: () => Promise<void>; onRemoved: () => void }) {
   const ask = useDialog();
   const [d, setD] = useState<DBDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -198,6 +293,23 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
       else setMsg(err(e));
     } finally { setBusy(null); }
   };
+  // Removing the server is removing its container; its data is the separate
+  // question, because only one of the two can be undone.
+  const removeServer = async () => {
+    const volumes = await askRemoveServer(ask, name, d?.engine ?? "postgres");
+    if (volumes === null) return;
+    setBusy("remove");
+    try {
+      await api.stackRemove(name, volumes);
+      onRemoved();
+      await onChanged();
+    } catch (e) {
+      setMsg(err(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const mask = (s: string) => showSecrets ? s : s.replace(/:\/\/([^:@]+):([^@]+)@/, "://$1:••••••••@");
 
   if (error) return <Alert>{error}</Alert>;
@@ -235,11 +347,12 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
             <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{d.public ? "From the internet" : "From your machine"}</span>{isAdmin && d.publicUrl && <Copy text={d.publicUrl} />}</div>
             {d.public ? <><pre className="overflow-x-auto rounded-md border border-warning/40 bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.publicUrl ?? "") : "(admins only)"}</pre>{d.allowFrom && <p className="mt-1 text-xs text-ink-muted">Firewall allows only: <span className="font-mono">{d.allowFrom}</span></p>}</>
               : <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">ssh -N -L {d.port}:{d.ip || "CONTAINER-IP"}:{d.port} you@your-server{"\n"}# then point the client at localhost:{d.port}{"\n"}# this address moves when the container is recreated; publishing the port{"\n"}# on 127.0.0.1 gives a tunnel target that does not.</pre>}
-            {isAdmin && <div className="mt-1 flex items-center gap-3 text-xs">
-              <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="text-ink-muted hover:text-ink">{showSecrets ? "Hide passwords" : "Show passwords"}</button>
-              <button type="button" disabled={busy === "public"} onClick={() => void togglePublic(!d.public)} className={d.public ? "text-ink-muted hover:text-ink" : "text-warning hover:underline"}>{d.public ? "Stop publishing the port" : "Publish the port to the internet…"}</button>
+            {isAdmin && <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
+              <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="-my-1 py-1 text-ink-muted hover:text-ink">{showSecrets ? "Hide passwords" : "Show passwords"}</button>
+              <button type="button" disabled={busy === "public"} onClick={() => void togglePublic(!d.public)} className={`-my-1 py-1 ${d.public ? "text-ink-muted hover:text-ink" : "text-warning hover:underline"}`}>{d.public ? "Stop publishing the port" : "Publish the port to the internet…"}</button>
+              <button type="button" disabled={busy === "remove"} onClick={() => void removeServer()} className="-my-1 ml-auto py-1 text-danger hover:underline">{busy === "remove" ? "Removing…" : "Remove this database server"}</button>
             </div>}
-            {d.public && <p className="mt-1 text-xs text-warning">Published on every interface. An IP allowlist arrives with the firewall in v0.6; until then use strong passwords.</p>}
+            {d.public && !d.allowFrom && <p className="mt-1 text-xs text-warning">Published on every interface, so anything that can reach this server can try to log in. Narrow it to the addresses you connect from when you publish the port, and keep the password strong either way.</p>}
           </div>
         </div>
         {log && <pre className="mt-3 max-h-40 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-2 font-mono text-xs text-[#FAFAFA]">{log.join("\n") || "…"}</pre>}

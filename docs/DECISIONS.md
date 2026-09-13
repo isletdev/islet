@@ -551,3 +551,50 @@ The proxy card is now a status strip — ports, certificates with the next
 renewal date, any renewal notices, wildcards — with the settings form behind a
 button. The facts are what somebody opens the page for; the form is what they
 open it for once.
+
+## 2026-09-13 — Installing is a dialog, and it does not end by offering to install again
+Clicking a card in the catalog rendered the installer *below* the grid, off the
+bottom of the screen. From the person's side nothing had happened. It is a
+dialog now, at the top of the viewport, over the grid it came from.
+
+Worse was the ending. The install finished, the form reset, and the Install
+button came back — the exact state that invites a second copy of the same app.
+The dialog now stays open and says what happened: the stack name, the address
+if it has one, and a way to go to it under Your apps. Install something else is
+a deliberate second choice, not the default one.
+
+The same argument applies before the install: if the app is already installed,
+the dialog says so and offers the existing one, and the suggested stack name
+becomes the first free `slug-2`, so the form is never pre-filled with a name
+that will be rejected.
+
+Catalog cards are uniform height, three lines of description, with a line
+reserved for the status badge whether or not there is a badge — a row of cards
+that changes height with its text reads as a mistake rather than a catalogue.
+
+## 2026-09-13 — Delete lives where the thing is listed
+Removing an installed app or a database meant knowing it was a Compose stack
+and going to the stacks list. Two different mental models for one act.
+
+Apps installed from the catalog now appear under **Your apps**, which is where
+somebody looks for something they installed, and each row has Remove. Database
+cards have Remove, and so do external connections. Every one of them asks twice
+— the container, then the data — because those are two decisions and only one
+of them can be undone. Forgetting an external connection says what it does
+*not* do: the database keeps running, untouched.
+
+An app with a domain also appears in the sidebar on its own. The panel
+installed it and knows its address; making somebody type a link to it is asking
+them to tell us what we just told them. Those links are marked `auto` and are
+never written into the stored list, so removing the app removes the link.
+
+## 2026-09-13 — Never report an update from output you did not understand
+Every installed app claimed an update was available, forever. The check
+compares the local image digest with the registry's, and asked buildx for the
+latter with `--format '{{.Manifest.Digest}}'`. buildx ignores that template and
+prints its whole human report, which is never equal to a digest.
+
+The template is fixed, but the fix that matters is `digestOf`: anything that is
+not a bare `sha256:` string is "" and the comparison is skipped. A badge that
+cries wolf is worse than no badge, and the failure mode of a loose comparison
+is always to claim there is news.

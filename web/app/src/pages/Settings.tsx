@@ -309,7 +309,7 @@ function Users({ meId }: { meId: string }) {
 function SidebarLinks() {
   const [links, setLinks] = useState<{ label: string; url: string }[] | null>(null);
   const [label, setLabel] = useState(""); const [url, setUrl] = useState(""); const [msg, setMsg] = useState<string | null>(null);
-  useEffect(() => { void api.sidebar().then(setLinks).catch(() => {}); }, []);
+  useEffect(() => { void api.sidebarManual().then(setLinks).catch(() => {}); }, []);
   if (!links) return null;
   const save = async (next: { label: string; url: string }[]) => { setMsg(null); try { setLinks(await api.sidebarSet(next)); setLabel(""); setUrl(""); setMsg("Saved. Reload to see the sidebar change."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
