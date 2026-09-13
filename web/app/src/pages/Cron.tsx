@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
+import { useDialog } from "@/lib/dialogs";
 
 const CodeEditor = lazy(() => import("@/components/CodeEditor"));
 
@@ -27,6 +28,7 @@ function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function dur(ms: number) { return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60000)} min`; }
 
 export default function Cron() {
+  const ask = useDialog();
   const { state } = useAuth();
   const role = state.status === "authed" ? state.me.user.role : "viewer";
   const canEdit = role === "admin";
@@ -41,7 +43,7 @@ export default function Cron() {
   useEffect(() => { void load(); const stop = pollInterval(() => void load(), 10000); return stop; }, [load]);
 
   const toggle = async (j: Job) => { await api.jobSave({ ...j, enabled: !j.enabled }); await load(); };
-  const remove = async (j: Job) => { if (!confirm(`Delete job "${j.name}" and its history?`)) return; await api.jobDelete(j.id); if (selected === j.id) setParams({}); await load(); };
+  const remove = async (j: Job) => { if (!(await ask.confirm({ title: `Delete the job ${j.name}?`, body: "Its schedule and its whole run history go with it.", confirmLabel: "Delete job", tone: "danger" }))) return; await api.jobDelete(j.id); if (selected === j.id) setParams({}); await load(); };
 
   const sel = jobs.find((j) => j.id === selected);
   return (

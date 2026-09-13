@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
 export function Mark({ className = "" }: { className?: string }) {
   return (
@@ -11,7 +11,9 @@ export function Mark({ className = "" }: { className?: string }) {
   );
 }
 
-export function Button({ variant = "primary", className = "", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
+// React 19 passes ref through props, so these stay plain functions and still
+// accept a ref, which the dialog needs to place focus.
+export function Button({ variant = "primary", className = "", ...rest }: ComponentPropsWithRef<"button"> & { variant?: "primary" | "secondary" | "danger" }) {
   const base = "inline-flex h-9 items-center justify-center rounded-md px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
   const styles = {
     primary: "bg-ink text-on-ink hover:opacity-90",
@@ -50,7 +52,7 @@ export function FieldAction({ className = "", children }: { className?: string; 
   );
 }
 
-export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className = "", ...rest }: ComponentPropsWithRef<"input">) {
   return (
     <input
       className={`h-9 w-full rounded-md border border-border-strong bg-bg px-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent ${className}`}
@@ -60,7 +62,7 @@ export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInput
 }
 
 /** The same box as Input, so a select never sits a pixel off the field beside it. */
-export function Select({ className = "", children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className = "", children, ...rest }: ComponentPropsWithRef<"select">) {
   return (
     <select
       className={`h-9 w-full rounded-md border border-border-strong bg-bg px-2.5 text-sm text-ink focus:border-accent ${className}`}

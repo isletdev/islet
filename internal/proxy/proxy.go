@@ -32,6 +32,12 @@ const (
 	ContainerName = "islet-proxy"
 	NetworkName   = "islet-proxy"
 	mountPath     = "/etc/islet-proxy"
+
+	// argsVersion changes when the container has to be started with different
+	// flags. A running proxy whose label differs still serves every route, so
+	// the panel offers to recreate it rather than doing it during an unrelated
+	// save.
+	argsVersion = "3"
 )
 
 // Manager owns the proxy container and its config directory.
@@ -196,6 +202,10 @@ type Status struct {
 	HTTPPort    string `json:"httpPort"`
 	HTTPSPort   string `json:"httpsPort"`
 	Error       string `json:"error,omitempty"`
+	// NeedsRestart is true when the running container was started by an older
+	// Islet with different flags. Routes still work; the container is simply
+	// out of date, and recreating it is a deliberate act.
+	NeedsRestart bool `json:"needsRestart"`
 }
 
 // Status inspects the proxy container.
@@ -212,6 +222,9 @@ func (m *Manager) Status(ctx context.Context) Status {
 	st.Running = len(f) > 0 && f[0] == "true"
 	if len(f) > 1 {
 		st.Image = f[1]
+	}
+	if lbl, err := m.run.Run(ctx, "system", "docker", "inspect", "--format", "{{index .Config.Labels \"islet.proxy.args\"}}", ContainerName); err == nil {
+		st.NeedsRestart = strings.TrimSpace(lbl.Stdout) != argsVersion
 	}
 	return st
 }
@@ -256,7 +269,32 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 	if _, err := m.run.Run(ctx, actor, "docker", "pull", Image); err != nil {
 		return fmt.Errorf("pull traefik: %w", err)
 	}
-	_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", ContainerName)
+
+	// Keep the current proxy until the new one is proven. Removing it first
+	// meant a failure here left nothing serving, and the usual failure is a
+	// port already taken, which is exactly when people are reinstalling.
+	previous := ContainerName + "-prev"
+	_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", previous)
+	hadOne := m.Status(ctx).Installed
+	if hadOne {
+		_, _ = m.run.Run(ctx, actor, "docker", "stop", ContainerName)
+		if _, err := m.run.Run(ctx, actor, "docker", "rename", ContainerName, previous); err != nil {
+			// Renaming failed, so the old one is still in place under its own
+			// name and nothing has been lost. Remove it and carry on.
+			_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", ContainerName)
+			hadOne = false
+		}
+	}
+	restore := func(cause error) error {
+		_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", ContainerName)
+		if hadOne {
+			if _, err := m.run.Run(ctx, actor, "docker", "rename", previous, ContainerName); err == nil {
+				_, _ = m.run.Run(ctx, actor, "docker", "start", ContainerName)
+				return fmt.Errorf("%w; the previous proxy was put back and your sites are still served", cause)
+			}
+		}
+		return cause
+	}
 
 	dir := m.dir
 	args := []string{"run", "-d", "--name", ContainerName, "--restart", "unless-stopped",
@@ -264,7 +302,7 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 		"-p", m.httpP + ":80", "-p", m.httpsP + ":443",
 		"-v", dir + ":" + mountPath,
 		"--add-host", "host.docker.internal:host-gateway",
-		"--label", "islet.managed=proxy", "--label", "islet.proxy.args=3",
+		"--label", "islet.managed=proxy", "--label", "islet.proxy.args=" + argsVersion,
 		Image,
 		// Every route comes from the file provider below. Traefik's Docker
 		// provider would add nothing, needs the daemon socket, and its client
@@ -307,10 +345,27 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 		}
 	}
 	if _, err := m.run.Run(ctx, actor, "docker", args...); err != nil {
-		return fmt.Errorf("start traefik: %w", err)
+		return restore(fmt.Errorf("start traefik: %w", err))
 	}
+	// Starting is not running. A port collision or a rejected flag exits the
+	// container a moment later, and that is the case the rollback exists for.
+	time.Sleep(2 * time.Second)
+	if res, err := m.run.Run(ctx, actor, "docker", "inspect", "--type", "container", "--format", "{{.State.Running}}", ContainerName); err != nil || strings.TrimSpace(res.Stdout) != "true" {
+		logs, _ := m.run.Run(ctx, actor, "docker", "logs", "--tail", "20", ContainerName)
+		return restore(fmt.Errorf("the new proxy did not stay up: %s", lastLines(logs.Stdout+logs.Stderr)))
+	}
+	_, _ = m.run.Run(ctx, actor, "docker", "rm", "-f", previous)
 	_ = m.st.Audit(ctx, actor, "proxy.install", ContainerName, "email="+acmeEmail)
 	return nil
+}
+
+// lastLines keeps the tail of command output short enough to show in the panel.
+func lastLines(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > 5 {
+		lines = lines[len(lines)-5:]
+	}
+	return strings.Join(lines, " | ")
 }
 
 // Remove stops and deletes the proxy container. Config and certificates stay.
@@ -556,11 +611,11 @@ func (m *Manager) Delete(ctx context.Context, actor, id string) error {
 
 // Reconcile writes the Traefik dynamic config from the domains table.
 func (m *Manager) Reconcile(ctx context.Context) error {
-	if res, err := m.run.Run(ctx, "system", "docker", "inspect", "--format", "{{index .Config.Labels \"islet.proxy.args\"}}", ContainerName); err == nil && strings.TrimSpace(res.Stdout) != "3" {
-		if err := m.Install(ctx, "system", ""); err != nil {
-			return fmt.Errorf("upgrade proxy: %w", err)
-		}
-	}
+	// Recreating the proxy is the most destructive routine operation here, and
+	// saving a domain is not a reason to do it: domains arrive through the file
+	// written below, which Traefik watches. An upgrade that changed the
+	// container's flags is reported on the Domains page instead, so a person
+	// chooses when to take the sites down for a moment.
 	domains, err := m.Domains(ctx)
 	if err != nil {
 		return err

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type Container, type Domain, type ProxyStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
+import { useDialog } from "@/lib/dialogs";
 
 const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, createdAt: "", updatedAt: "" };
 
 export default function Domains() {
+  const ask = useDialog();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [status, setStatus] = useState<ProxyStatus | null>(null);
@@ -52,7 +54,7 @@ export default function Domains() {
     finally { setBusy(false); }
   };
   const remove = async (d: Domain) => {
-    if (!confirm(`Remove ${d.host}? The route disappears; the container keeps running.`)) return;
+    if (!(await ask.confirm({ title: `Stop routing ${d.host}?`, body: "The domain stops resolving to anything here. Whatever it points at keeps running.", confirmLabel: "Remove route", tone: "danger" }))) return;
     try { await api.domainDelete(d.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
   };
   const suggest = async () => {
@@ -71,6 +73,13 @@ export default function Domains() {
       {err && <Alert>{err}</Alert>}
 
       <Card title="Reverse proxy" description={status?.running ? `Traefik is running on ports ${status.httpPort} and ${status.httpsPort}.` : status?.installed ? "Traefik is installed but not running." : "Not installed. Install it to route domains."}>
+        {status?.needsRestart && status.running && (
+          <div className="mb-3 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
+            <p className="font-medium">The proxy is running with settings from an older version of Islet.</p>
+            <p className="mt-1">Your sites are being served and every domain still works. Recreating the container applies the newer settings and takes a moment, during which sites are briefly unreachable, so it waits for you. If the new container does not come up, the current one is put back.</p>
+            {isAdmin && <Button className="mt-2 h-8 text-xs" disabled={busy} onClick={() => void install()}>{busy ? "Applying…" : "Apply the new settings"}</Button>}
+          </div>
+        )}
         <div className="flex flex-wrap items-start gap-3">
           <Field label="Let's Encrypt email" hint="Used for certificate expiry notices. Required for public certificates.">
             <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" />

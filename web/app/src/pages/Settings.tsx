@@ -6,6 +6,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
+import { useDialog } from "@/lib/dialogs";
 
 const SECTIONS: { id: string; label: string; description: string; adminOnly?: boolean }[] = [
   { id: "account", label: "Account", description: "Your sign-in, your sessions and your tokens." },
@@ -269,6 +270,7 @@ function Tokens() {
 }
 
 function Users({ meId }: { meId: string }) {
+  const ask = useDialog();
   const [list, setList] = useState<User[]>([]);
   const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [role, setRole] = useState("deployer");
   const [msg, setMsg] = useState<string | null>(null);
@@ -276,9 +278,9 @@ function Users({ meId }: { meId: string }) {
   useEffect(() => { void load(); }, []);
   const create = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.userCreate({ username, password, role }); setUsername(""); setPassword(""); setMsg(`Created ${username}. Share the password over a safe channel; they can change it and enable 2FA in Settings.`); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   const setRoleFor = async (u: User, r: string) => { try { await api.userUpdate(u.id, { role: r, password: "" }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
-  const setProjects = async (u: User) => { const v = prompt(`Apps ${u.username} may see and work on: app names or globs, comma separated (shop, shop-*). Their containers, databases and domains follow. Empty = everything the role allows.`, u.projects ?? ""); if (v === null) return; try { await api.userUpdate(u.id, { role: "", password: "", projects: v }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
-  const resetPw = async (u: User) => { const pw = prompt(`New password for ${u.username} (at least 12 characters). Their sessions are signed out.`); if (!pw) return; try { await api.userUpdate(u.id, { role: "", password: pw }); setMsg(`Password for ${u.username} changed.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
-  const remove = async (u: User) => { if (!confirm(`Delete ${u.username}? Their sessions and API tokens are revoked.`)) return; try { await api.userDelete(u.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const setProjects = async (u: User) => { const v = await ask.prompt({ title: `What can ${u.username} work on?`, body: "App names or patterns, comma separated. Their containers, databases and domains follow the same list. Leave it empty for everything their role allows.", label: "Apps", defaultValue: u.projects ?? "", placeholder: "shop, shop-*", mono: true, confirmLabel: "Save" }); if (v === null) return; try { await api.userUpdate(u.id, { role: "", password: "", projects: v }); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const resetPw = async (u: User) => { const pw = await ask.prompt({ title: `Set a new password for ${u.username}`, body: "At least 12 characters. Every session of theirs is signed out.", label: "New password", confirmLabel: "Set password", tone: "danger" }); if (!pw) return; try { await api.userUpdate(u.id, { role: "", password: pw }); setMsg(`Password for ${u.username} changed.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const remove = async (u: User) => { if (!(await ask.confirm({ title: `Delete the user ${u.username}?`, body: "Every session and API token of theirs stops working immediately.", typeToConfirm: u.username, confirmLabel: "Delete user", tone: "danger" }))) return; try { await api.userDelete(u.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
     <Card title="Users" description="Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read. A projects list narrows a deployer or viewer to some apps and what belongs to them.">
       <ul className="divide-y divide-border">
@@ -413,6 +415,7 @@ function Provider() {
 }
 
 function GitHubApp() {
+  const ask = useDialog();
   const [st, setSt] = useState<GitHubState | null>(null);
   const [form, setForm] = useState({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" });
   const [msg, setMsg] = useState<string | null>(null);
@@ -420,7 +423,7 @@ function GitHubApp() {
   const load = () => api.github().then((s) => { setSt(s); setForm((f) => ({ ...f, appId: s.config.appId, clientId: s.config.clientId, slug: s.config.slug })); }).catch(() => {});
   useEffect(() => { void load(); }, []);
   const save = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { await api.githubSave(form); setForm((f) => ({ ...f, privateKey: "", webhookSecret: "" })); setMsg("Saved and verified with GitHub."); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
-  const clear = async () => { if (!confirm("Remove the GitHub App credentials? Apps and runners fall back to tokens.")) return; await api.githubSave({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" }); await load(); };
+  const clear = async () => { if (!(await ask.confirm({ title: "Remove the GitHub App?", body: "Repository pickers stop listing private repositories, and apps and runners fall back to personal access tokens.", confirmLabel: "Remove", tone: "danger" }))) return; await api.githubSave({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" }); await load(); };
   if (!st) return null;
   return (
     <Card title="GitHub App" description="Lets people pick repositories from a list, clones private repositories with short-lived tokens, registers runners without personal access tokens, and receives one webhook for pushes and CI jobs.">

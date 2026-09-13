@@ -4,6 +4,7 @@ import { api, RequestError, type RunnerJob, type RunnerPool } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { pollInterval } from "@/lib/poll";
+import { useDialog } from "@/lib/dialogs";
 
 const PROVIDERS: Record<string, { label: string; urlHint: string; tokenHint: string }> = {
   github: { label: "GitHub Actions", urlHint: "https://github.com/org/repo for one repository, https://github.com/org for the whole organisation.", tokenHint: "A fine-grained or classic personal access token with repo (or admin:org) scope. Stored encrypted; used only to fetch short-lived registration tokens. A GitHub App will replace this." },
@@ -15,6 +16,7 @@ function err(e: unknown) { return e instanceof RequestError ? e.message : String
 const blank = (): Partial<RunnerPool> => ({ id: "", provider: "github", name: "", url: "", token: "", labels: "", minIdle: 1, maxRunners: 2, dockerAccess: false, memoryMb: 0, cpus: 0, enabled: true });
 
 export default function Runners() {
+  const ask = useDialog();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [params, setParams] = useSearchParams();
@@ -25,7 +27,7 @@ export default function Runners() {
   const load = useCallback(() => api.runnerPools().then((p) => { setPools(p); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); const stop = pollInterval(() => void load(), 15000); return stop; }, [load]);
   const sel = pools.find((p) => p.id === selected);
-  const remove = async (p: RunnerPool) => { if (!confirm(`Delete pool ${p.name}? Its runner containers are removed.`)) return; await api.runnerPoolDelete(p.id); if (selected === p.id) setParams({}); await load(); };
+  const remove = async (p: RunnerPool) => { if (!(await ask.confirm({ title: `Delete the pool ${p.name}?`, body: "Its runner containers are removed and jobs stop being picked up.", confirmLabel: "Delete pool", tone: "danger" }))) return; await api.runnerPoolDelete(p.id); if (selected === p.id) setParams({}); await load(); };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

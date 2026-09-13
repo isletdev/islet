@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./lib/auth";
+import { DialogProvider } from "./lib/dialogs";
 import { stampTheme } from "./lib/theme";
 
 // theme.js already did this before the first paint; repeating it here keeps the
@@ -17,9 +18,11 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
+      <DialogProvider>
+        <AuthProvider>
         <App />
       </AuthProvider>
+      </DialogProvider>
     </BrowserRouter>
   </StrictMode>,
 );

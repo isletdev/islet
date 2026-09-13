@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type FileEntry, type TrashItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useDialog } from "@/lib/dialogs";
 import { bytes } from "@/lib/format";
 import { Alert, Button, Input } from "@/components/ui";
 import CodeEditor from "@/components/CodeEditor";
@@ -31,6 +32,7 @@ function crumbs(p: string) {
 
 export default function Files() {
   const { state } = useAuth();
+  const ask = useDialog();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [params, setParams] = useSearchParams();
   const path = params.get("path") || "";
@@ -72,25 +74,61 @@ export default function Files() {
   const op = async (body: Record<string, unknown>, then?: () => void) => {
     try { await api.filesOp(body); then?.(); void load(cur); } catch (er) { fail(er); }
   };
-  const confirmProtected = (paths: string[]) => {
+  const confirmProtected = async (paths: string[]) => {
     const prot = paths.filter((p) => entries.find((e) => e.path === p)?.protected);
     if (prot.length === 0) return true;
-    return prompt(`These are protected system paths:\n${prot.join("\n")}\n\nType DELETE to continue.`) === "DELETE";
+    return ask.confirm({
+      title: prot.length === 1 ? "That is a protected system path" : `${prot.length} of these are protected system paths`,
+      body: <>The server may stop working without them.<pre className="mt-2 max-h-32 overflow-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{prot.join("\n")}</pre></>,
+      typeToConfirm: "DELETE",
+      confirmLabel: "Delete anyway",
+      tone: "danger",
+    });
   };
-  const del = (paths: string[], permanent = false) => {
+  const del = async (paths: string[], permanent = false) => {
     if (paths.length === 0) return;
-    if (!confirmProtected(paths)) return;
-    if (permanent && !confirm(`Permanently delete ${paths.length} item(s)? This cannot be undone.`)) return;
+    if (!(await confirmProtected(paths))) return;
+    const what = paths.length === 1 ? paths[0].split(/[\\/]/).pop() : `${paths.length} items`;
+    const ok = permanent
+      ? await ask.confirm({ title: `Delete ${what} for good?`, body: "This does not go to the trash and cannot be undone.", confirmLabel: "Delete for good", tone: "danger" })
+      : await ask.confirm({ title: `Move ${what} to the trash?`, body: "Items in the trash are kept for 7 days and can be restored.", confirmLabel: "Move to trash" });
+    if (!ok) return;
     void op({ op: "delete", paths, permanent }, () => setMsg(permanent ? "Deleted." : `Moved ${paths.length} item(s) to trash.`));
   };
-  const rename = (e: FileEntry) => { const n = prompt("New name", e.name); if (n && n !== e.name) void op({ op: "rename", path: e.path, to: join(cur, n) }); };
-  const moveTo = (paths: string[]) => { const d = prompt("Move to directory", cur); if (d) for (const p of paths) void op({ op: "move", path: p, to: join(d, p.split(/[\\/]/).pop()!) }); };
-  const copyTo = (e: FileEntry) => { const d = prompt("Copy to path", join(cur, "copy-of-" + e.name)); if (d) void op({ op: "copy", path: e.path, to: d }); };
-  const chmod = (e: FileEntry) => { const m = prompt(`Mode for ${e.name} (octal)`, e.mode); if (m && m !== e.mode) void op({ op: "chmod", path: e.path, mode: m, recursive: e.isDir && confirm("Apply recursively to everything inside?") }); };
-  const mkdir = () => { const n = prompt("Folder name"); if (n) void op({ op: "mkdir", path: join(cur, n) }); };
-  const touch = () => { const n = prompt("File name"); if (n) void op({ op: "touch", path: join(cur, n) }, () => void openEntry({ name: n, path: join(cur, n), isDir: false, size: 0 } as FileEntry)); };
-  const archive = (paths: string[]) => { const t = prompt("Archive name (.zip or .tar.gz)", join(cur, "archive.zip")); if (t) void op({ op: "archive", paths, to: t }); };
-  const extract = (e: FileEntry) => { const d = prompt("Extract into", cur); if (d) void op({ op: "extract", path: e.path, to: d }); };
+  const rename = async (e: FileEntry) => {
+    const n = await ask.prompt({ title: `Rename ${e.name}`, label: "New name", defaultValue: e.name, mono: true, confirmLabel: "Rename" });
+    if (n && n !== e.name) void op({ op: "rename", path: e.path, to: join(cur, n) });
+  };
+  const moveTo = async (paths: string[]) => {
+    const d = await ask.prompt({ title: paths.length === 1 ? "Move one item" : `Move ${paths.length} items`, label: "Destination directory", defaultValue: cur, mono: true, confirmLabel: "Move" });
+    if (d) for (const p of paths) void op({ op: "move", path: p, to: join(d, p.split(/[\\/]/).pop()!) });
+  };
+  const copyTo = async (e: FileEntry) => {
+    const d = await ask.prompt({ title: `Copy ${e.name}`, label: "Copy to", defaultValue: join(cur, "copy-of-" + e.name), mono: true, confirmLabel: "Copy" });
+    if (d) void op({ op: "copy", path: e.path, to: d });
+  };
+  const chmod = async (e: FileEntry) => {
+    const m = await ask.prompt({ title: `Permissions for ${e.name}`, label: "Mode, in octal", defaultValue: e.mode, mono: true, placeholder: "0644", confirmLabel: "Apply" });
+    if (!m || m === e.mode) return;
+    const recursive = e.isDir && await ask.confirm({ title: "Apply to everything inside as well?", body: `${e.name} is a folder. The mode can be set on it alone, or on every file and folder under it.`, confirmLabel: "Everything inside", cancelLabel: "This folder only" });
+    void op({ op: "chmod", path: e.path, mode: m, recursive });
+  };
+  const mkdir = async () => {
+    const n = await ask.prompt({ title: "New folder", label: "Name", placeholder: "reports", mono: true, confirmLabel: "Create" });
+    if (n) void op({ op: "mkdir", path: join(cur, n) });
+  };
+  const touch = async () => {
+    const n = await ask.prompt({ title: "New file", label: "Name", placeholder: "notes.md", mono: true, confirmLabel: "Create" });
+    if (n) void op({ op: "touch", path: join(cur, n) }, () => void openEntry({ name: n, path: join(cur, n), isDir: false, size: 0 } as FileEntry));
+  };
+  const archive = async (paths: string[]) => {
+    const t = await ask.prompt({ title: paths.length === 1 ? "Compress one item" : `Compress ${paths.length} items`, label: "Archive name", body: "Ending in .zip or .tar.gz decides the format.", defaultValue: join(cur, "archive.zip"), mono: true, confirmLabel: "Compress" });
+    if (t) void op({ op: "archive", paths, to: t });
+  };
+  const extract = async (e: FileEntry) => {
+    const d = await ask.prompt({ title: `Extract ${e.name}`, label: "Extract into", defaultValue: cur, mono: true, confirmLabel: "Extract" });
+    if (d) void op({ op: "extract", path: e.path, to: d });
+  };
   const doUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const fd = new FormData(); for (const f of Array.from(files)) fd.append("file", f);
@@ -120,8 +158,8 @@ export default function Files() {
         <label className="flex items-center gap-1 text-xs text-ink-muted"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />Hidden</label>
         <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => { setSearch({ q: "", content: false, hits: [] }); setTrash(null); }}>Search</Button>
         {isAdmin && <>
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={mkdir}>New folder</Button>
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={touch}>New file</Button>
+          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => void mkdir()}>New folder</Button>
+          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => void touch()}>New file</Button>
           <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => upload.current?.click()}>Upload</Button>
           <input ref={upload} type="file" multiple hidden onChange={(e) => void doUpload(e.target.files)} />
           <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => { void loadTrash(); setSearch(null); }}>Trash</Button>
@@ -134,10 +172,10 @@ export default function Files() {
       {selected.length > 0 && isAdmin && (
         <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs">
           <span className="font-medium">{selected.length} selected</span>
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => moveTo(selected)}>Move to…</Button>
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => archive(selected)}>Archive</Button>
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => del(selected)}>Trash</Button>
-          <Button variant="danger" className="h-7 px-2 text-xs" onClick={() => del(selected, true)}>Delete permanently</Button>
+          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void moveTo(selected)}>Move to…</Button>
+          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void archive(selected)}>Archive</Button>
+          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void del(selected)}>Trash</Button>
+          <Button variant="danger" className="h-7 px-2 text-xs" onClick={() => void del(selected, true)}>Delete permanently</Button>
         </div>
       )}
 
@@ -160,10 +198,10 @@ export default function Files() {
                   <td className="py-1.5 pr-3 text-right whitespace-nowrap opacity-0 group-hover:opacity-100">
                     <a href={`/api/v1/files/download?path=${encodeURIComponent(e.path)}`} className="text-xs text-ink-muted hover:text-ink">Download</a>
                     {isAdmin && <>
-                      <button type="button" onClick={() => rename(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Rename</button>
-                      <button type="button" onClick={() => copyTo(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Copy</button>
-                      {/\.(zip|tar|tgz|tar\.gz)$/i.test(e.name) && <button type="button" onClick={() => extract(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Extract</button>}
-                      <button type="button" onClick={() => del([e.path])} className="ml-2 text-xs text-danger hover:underline">Trash</button>
+                      <button type="button" onClick={() => void rename(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Rename</button>
+                      <button type="button" onClick={() => void copyTo(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Copy</button>
+                      {/\.(zip|tar|tgz|tar\.gz)$/i.test(e.name) && <button type="button" onClick={() => void extract(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Extract</button>}
+                      <button type="button" onClick={() => void del([e.path])} className="ml-2 text-xs text-danger hover:underline">Trash</button>
                     </>}
                   </td>
                 </tr>
@@ -177,7 +215,7 @@ export default function Files() {
           <div className="flex min-h-0 flex-col">
             <div className="mb-2 flex items-center justify-between gap-2 text-sm">
               <span className="truncate font-mono text-xs">{open.path}{open.dirty && " •"}{open.tail && <span className="ml-2 text-ink-muted">(last 64 KB of a large file, read-only)</span>}</span>
-              <div className="flex gap-2">{!open.tail && isAdmin && <Button className="h-7 px-2.5 text-xs" onClick={() => void save()} disabled={!open.dirty}>Save</Button>}<Button variant="secondary" className="h-7 px-2.5 text-xs" onClick={() => { if (!open.dirty || confirm("Discard unsaved changes?")) setOpen(null); }}>Close</Button></div>
+              <div className="flex gap-2">{!open.tail && isAdmin && <Button className="h-7 px-2.5 text-xs" onClick={() => void save()} disabled={!open.dirty}>Save</Button>}<Button variant="secondary" className="h-7 px-2.5 text-xs" onClick={async () => { if (!open.dirty || await ask.confirm({ title: "Discard your changes?", body: `${open.path} has edits that have not been saved.`, confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" })) setOpen(null); }}>Close</Button></div>
             </div>
             {open.tail ? <pre className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-code-bg p-3 font-mono text-xs text-code-fg">{open.content}</pre>
               : <CodeEditor name={open.path.split(/[\\/]/).pop() || ""} value={open.content} onChange={(v) => setOpen((o) => o && { ...o, content: v, dirty: true })} onSave={() => void save()} className="min-h-0 flex-1" />}
@@ -191,9 +229,9 @@ export default function Files() {
         )}
         {trash && (
           <div className="flex min-h-0 flex-col rounded-lg border border-border bg-surface">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm"><span className="font-semibold">Trash</span><div className="flex gap-2"><Button variant="danger" className="h-7 px-2 text-xs" onClick={() => { if (confirm("Empty the trash permanently?")) api.trashOp({ op: "purge", id: "" }).then(loadTrash).catch(fail); }}>Empty</Button><Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => setTrash(null)}>Close</Button></div></div>
+            <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm"><span className="font-semibold">Trash</span><div className="flex gap-2"><Button variant="danger" className="h-7 px-2 text-xs" onClick={async () => { if (await ask.confirm({ title: "Empty the trash?", body: `${trash.length === 1 ? "One item" : `${trash.length} items`} will be deleted for good. This cannot be undone.`, confirmLabel: "Empty the trash", tone: "danger" })) api.trashOp({ op: "purge", id: "" }).then(loadTrash).catch(fail); }}>Empty</Button><Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => setTrash(null)}>Close</Button></div></div>
             <ul className="min-h-0 flex-1 divide-y divide-border overflow-auto text-sm">
-              {trash.map((t) => <li key={t.id} className="flex items-center justify-between gap-2 px-4 py-2"><div className="min-w-0"><div className="truncate font-medium">{t.name}</div><div className="truncate font-mono text-xs text-ink-muted">{t.original} · {new Date(t.deletedAt).toLocaleString()}</div></div><div className="flex gap-1"><Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => api.trashOp({ op: "restore", id: t.id }).then(() => { void loadTrash(); void load(cur); }).catch(fail)}>Restore</Button><Button variant="danger" className="h-7 px-2 text-xs" onClick={() => api.trashOp({ op: "purge", id: t.id }).then(loadTrash).catch(fail)}>Delete</Button></div></li>)}
+              {trash.map((t) => <li key={t.id} className="flex items-center justify-between gap-2 px-4 py-2"><div className="min-w-0"><div className="truncate font-medium">{t.name}</div><div className="truncate font-mono text-xs text-ink-muted">{t.original} · {new Date(t.deletedAt).toLocaleString()}</div></div><div className="flex gap-1"><Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => api.trashOp({ op: "restore", id: t.id }).then(() => { void loadTrash(); void load(cur); }).catch(fail)}>Restore</Button><Button variant="danger" className="h-7 px-2 text-xs" onClick={async () => { if (await ask.confirm({ title: `Delete ${t.name} for good?`, body: "It leaves the trash and cannot be restored.", confirmLabel: "Delete for good", tone: "danger" })) api.trashOp({ op: "purge", id: t.id }).then(loadTrash).catch(fail); }}>Delete</Button></div></li>)}
               {trash.length === 0 && <li className="px-4 py-6 text-center text-ink-muted">Trash is empty. Items are kept for 7 days.</li>}
             </ul>
           </div>

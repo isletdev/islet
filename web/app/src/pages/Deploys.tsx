@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
+import { useDialog } from "@/lib/dialogs";
 
 const SAMPLES = [
   { dir: "static-site", label: "Static site (HTML + CSS)" },
@@ -60,6 +61,7 @@ export default function Deploys() {
 }
 
 function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: DeployApp; apps: DeployApp[]; canEdit: boolean; canDeploy: boolean; onChanged: () => Promise<void>; onEdit: () => void }) {
+  const ask = useDialog();
   const targets = apps.filter((x) => x.id !== app.id && x.source === "git" && x.strategy !== "compose");
   const [releases, setReleases] = useState<Release[]>([]);
   const [log, setLog] = useState<string[] | null>(null);
@@ -88,7 +90,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
   };
   const cancel = async () => { try { await api.deployCancel(app.id); } catch (e) { setMsg(err(e)); } };
   const addService = async (engine: string) => {
-    if (!confirm(`Install ${engine} next to ${app.name}, create a database for it and put the connection URL in the app's environment?`)) return;
+    if (!(await ask.confirm({ title: `Add ${engine} to ${app.name}?`, body: "Islet installs it, creates a database, and puts the connection URL into the app's environment. The next deploy picks it up.", confirmLabel: `Add ${engine}` }))) return;
     setBusy(true); setLog([]); setOpen(null);
     try { await postStream(`/api/v1/apps/${app.id}/services`, (l) => { setLog((p) => capLines(p, l)); if (l.startsWith("error:")) throw new Error(l); }, { engine }); }
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
@@ -96,13 +98,13 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
   };
   const promote = async (to: string) => {
     const t = targets.find((x) => x.id === to);
-    if (!t || !confirm(`Deploy the image that is live on ${app.name} to ${t.name} without rebuilding?`)) return;
+    if (!t || !(await ask.confirm({ title: `Promote ${app.name} to ${t.name}?`, body: "The image that is live now is deployed as it is, with no rebuild, so what you tested is what ships.", confirmLabel: "Promote" }))) return;
     setBusy(true); setLog([]); setOpen(null); setMsg(null);
     try { await postStream(`/api/v1/apps/${app.id}/promote`, (l) => setLog((p) => capLines(p, l)), { to }); setMsg(`Promoted to ${t.name}.`); }
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await onChanged(); }
   };
-  const remove = async () => { if (!confirm(`Delete ${app.name}? Its containers, images, releases and route are removed. Volumes are kept.`)) return; await api.deployAppDelete(app.id); await onChanged(); };
+  const remove = async () => { if (!(await ask.confirm({ title: `Delete the app ${app.name}?`, body: "Its containers, images, release history and domain route are removed. Volumes are kept, so any data stays.", typeToConfirm: app.name, confirmLabel: "Delete app", tone: "danger" }))) return; await api.deployAppDelete(app.id); await onChanged(); };
   const show = async (r: Release) => { setLog(null); setOpen(await api.release(app.id, r.id)); };
   const hookUrl = `${location.origin}/api/v1/hooks/deploy/${app.id}`;
   const last = app.lastRelease;
@@ -159,6 +161,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
 }
 
 function EnvGroups() {
+  const ask = useDialog();
   const [list, setList] = useState<{ name: string; keys: string[]; env?: string }[]>([]);
   const [name, setName] = useState(""); const [env, setEnv] = useState(""); const [msg, setMsg] = useState<string | null>(null);
   const load = () => api.envGroups().then(setList).catch(() => {});
@@ -166,7 +169,7 @@ function EnvGroups() {
   const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { await api.envGroupSave(name, env); setName(""); setEnv(""); await load(); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title="Shared env groups" description="The same variables across apps (a Sentry DSN, an SMTP relay). Add a line @name to an app's environment to pull a group in; the app's own lines win on conflicts.">
-      <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Delete group @${g.name}?`)) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet. Good first group: @shared with SENTRY_DSN and SMTP_URL, then add the line @shared to each app.</li>}</ul>
+      <ul className="divide-y divide-border text-sm">{list.map((g) => <li key={g.name} className="flex items-center justify-between py-1.5"><span><span className="font-mono">@{g.name}</span> <span className="text-xs text-ink-muted">{g.keys.join(", ")}</span></span><span className="flex gap-3 text-xs"><button type="button" onClick={() => { setName(g.name); setEnv(g.env ?? ""); }} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (await ask.confirm({ title: `Delete the group @${g.name}?`, body: "Apps using it lose those variables on their next deploy.", confirmLabel: "Delete group", tone: "danger" })) { await api.envGroupDelete(g.name); await load(); } }} className="text-danger hover:underline">Delete</button></span></li>)}{list.length === 0 && <li className="py-1.5 text-xs text-ink-muted">No groups yet. Good first group: @shared with SENTRY_DSN and SMTP_URL, then add the line @shared to each app.</li>}</ul>
       <form onSubmit={save} className="mt-3 grid grid-cols-1 gap-2 border-t border-border pt-3 sm:grid-cols-[200px_minmax(0,1fr)_auto]">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="group-name" className="font-mono" required />
         <textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" placeholder={"SENTRY_DSN=https://…\nSMTP_URL=smtp://…"} required />

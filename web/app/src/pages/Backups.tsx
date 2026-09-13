@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
+import { useDialog } from "@/lib/dialogs";
 
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 function bytes(n: number) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`; }
@@ -22,6 +23,7 @@ const PRESETS: { label: string; schedule: string; keep: [number, number, number,
 ];
 
 export default function Backups() {
+  const ask = useDialog();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [o, setO] = useState<BackupOverview | null>(null);
@@ -60,7 +62,7 @@ export default function Backups() {
             {o.destinations.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div><span className="font-medium">{d.name}</span> <span className="ml-1 font-mono text-[11px] text-ink-muted">{d.repo}</span><div className="text-xs text-ink-muted">{d.lastCheck ? `${d.checkOk ? "verified" : "check FAILED"} ${fmt(d.lastCheck)}` : "not verified yet"}{d.size > 0 && ` · ${bytes(d.size)} stored · about $${(d.size / 1073741824 * 0.006).toFixed(2)}/month at typical object storage prices`}{d.lastRestoreTest && ` · restore test ${d.restoreTestOk ? "passed" : "FAILED"} ${fmt(d.lastRestoreTest)}`}</div></div>
-                <div className="flex gap-3 text-xs"><button type="button" onClick={() => setBrowse(browse === d.id ? null : d.id)} className="text-ink-muted hover:text-ink">Snapshots</button>{isAdmin && <><button type="button" onClick={async () => { try { await api.destinationVerify(d.id); await load(); } catch (e) { alert(err(e)); } }} className="text-ink-muted hover:text-ink">Verify</button><button type="button" onClick={async () => { try { const r = await api.destinationRestoreTest(d.id); alert(r.output); await load(); } catch (e) { alert(err(e)); } }} className="text-ink-muted hover:text-ink">Restore test</button><button type="button" onClick={() => setEditDest({ ...d })} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Remove destination ${d.name}? Snapshots stay in the repository.`)) { try { await api.destinationDelete(d.id); await load(); } catch (e) { alert(err(e)); } } }} className="text-danger hover:underline">Remove</button></>}</div>
+                <div className="flex gap-3 text-xs"><button type="button" onClick={() => setBrowse(browse === d.id ? null : d.id)} className="text-ink-muted hover:text-ink">Snapshots</button>{isAdmin && <><button type="button" onClick={async () => { try { await api.destinationVerify(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="text-ink-muted hover:text-ink">Verify</button><button type="button" onClick={async () => { try { const r = await api.destinationRestoreTest(d.id); void ask.alert({ title: "Restore test finished", body: <pre className="max-h-64 overflow-auto font-mono text-xs whitespace-pre-wrap">{r.output}</pre> }); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="text-ink-muted hover:text-ink">Restore test</button><button type="button" onClick={() => setEditDest({ ...d })} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (confirm(`Remove destination ${d.name}? Snapshots stay in the repository.`)) { try { await api.destinationDelete(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } } }} className="text-danger hover:underline">Remove</button></>}</div>
               </li>
             ))}
             {o.destinations.length === 0 && <li className="py-2 text-ink-muted">None yet.</li>}
@@ -90,12 +92,13 @@ export default function Backups() {
 }
 
 function HostCard() {
+  const ask = useDialog();
   const [h, setH] = useState<BackupHost | null>(null);
   const [domain, setDomain] = useState(""); const [tls, setTls] = useState("letsencrypt"); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [show, setShow] = useState(false);
   useEffect(() => { void api.backupHost().then(setH).catch(() => setH({ domain: "", tls: "", user: "", url: "" })); }, []);
   if (!h) return null;
   const setup = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { setH(await api.backupHostSet(domain, tls)); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
-  const remove = async () => { if (!confirm("Stop hosting backups here? The stored repositories stay in the islet-rest-server_data volume.")) return; await api.backupHostRemove(); setH({ domain: "", tls: "", user: "", url: "" }); };
+  const remove = async () => { if (!(await ask.confirm({ title: "Stop hosting backups on this server?", body: "Other machines can no longer send backups here. What is already stored stays in the islet-rest-server_data volume.", confirmLabel: "Stop hosting", tone: "danger" }))) return; await api.backupHostRemove(); setH({ domain: "", tls: "", user: "", url: "" }); };
   return (
     <Card title="Host backups for another Islet server" description="Runs restic's rest-server here, append-only, so a second server can back up to this one (and this one to it). No cloud account needed.">
       {h.domain ? (
@@ -174,6 +177,7 @@ function PlanForm({ initial, o, onClose, onSaved }: { initial: Partial<BackupPla
 }
 
 function PlanDetail({ plan, isAdmin, onChanged, onEdit }: { plan: BackupPlan; isAdmin: boolean; onChanged: () => Promise<void>; onEdit: () => void }) {
+  const ask = useDialog();
   const [runs, setRuns] = useState<BackupRun[]>([]);
   const [live, setLive] = useState<string[] | null>(null);
   const [open, setOpen] = useState<BackupRun | null>(null);
@@ -189,7 +193,7 @@ function PlanDetail({ plan, isAdmin, onChanged, onEdit }: { plan: BackupPlan; is
         {isAdmin && <Button className="h-8 text-xs" disabled={busy || plan.running} onClick={() => void run()}>{busy || plan.running ? "Running…" : "Back up now"}</Button>}
         {isAdmin && (busy || plan.running) && <Button variant="danger" className="h-8 text-xs" onClick={() => void api.planCancel(plan.id)}>Cancel</Button>}
         {isAdmin && <button type="button" onClick={onEdit} className="text-xs text-ink-muted hover:text-ink">Edit plan</button>}
-        {isAdmin && <button type="button" onClick={async () => { if (confirm(`Delete plan ${plan.name}? Snapshots stay in the repository.`)) { await api.planDelete(plan.id); await onChanged(); } }} className="ml-auto text-xs text-danger hover:underline">Delete plan</button>}
+        {isAdmin && <button type="button" onClick={async () => { if (await ask.confirm({ title: `Delete the plan ${plan.name}?`, body: "The schedule stops. Snapshots already taken stay in the repository and can still be restored.", confirmLabel: "Delete plan", tone: "danger" })) { await api.planDelete(plan.id); await onChanged(); } }} className="ml-auto text-xs text-danger hover:underline">Delete plan</button>}
       </div>
       {(live || open) && <div className="mt-3"><div className="mb-1 flex items-center justify-between text-xs text-ink-muted"><span>{open ? `Run #${open.id} · ${open.status} · ${open.trigger} · ${fmt(open.startedAt)}` : "Live output"}</span><button type="button" onClick={() => { setLive(null); setOpen(null); }} className="hover:text-ink">Close</button></div><pre ref={box} className="max-h-72 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-3 font-mono text-xs text-[#FAFAFA] whitespace-pre-wrap">{open ? open.log || "(no log)" : (live ?? []).join("\n") || "starting…"}</pre></div>}
       <table className="mt-3 w-full text-xs"><tbody className="divide-y divide-border">
@@ -201,6 +205,7 @@ function PlanDetail({ plan, isAdmin, onChanged, onEdit }: { plan: BackupPlan; is
 }
 
 function SnapshotBrowser({ destId, isAdmin, volumes }: { destId: string; isAdmin: boolean; volumes: string[] }) {
+  const ask = useDialog();
   const [snaps, setSnaps] = useState<Snapshot[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -214,16 +219,16 @@ function SnapshotBrowser({ destId, isAdmin, volumes }: { destId: string; isAdmin
     try { const r = await api.restore(destId, { snapshot: sel!, include, newVolume: "", dryRun: true }); setPreview(r.target); setMsg(null); } catch (e) { setMsg(err(e)); }
   };
   const restoreDb = async (path: string) => {
-    const name = prompt(`Restore ${path} into a NEW database instance named:`, path.split("/")[3] + "-restored");
+    const name = await ask.prompt({ title: "Restore a database", body: <>Restoring <span className="font-mono">{path}</span> creates a new instance. Nothing that is running is touched.</>, label: "New instance name", defaultValue: path.split("/")[3] + "-restored", mono: true, confirmLabel: "Restore" });
     if (!name) return;
     setMsg(`Restoring into a new instance ${name}: installing the engine, waiting for it, loading the dump…`);
     try { const r = await api.restoreDatabase(destId, { snapshot: sel!, path, newInstance: name }); setMsg(`Restored database ${r.database} into ${r.instance}. Connection URL is on the Databases page.`); } catch (e) { setMsg(err(e)); }
   };
   const restore = async (include: string) => {
     const isVol = include.startsWith("/data/volumes/") && include.split("/").length === 4;
-    const vol = isVol ? prompt(`Restore ${include} into a NEW Docker volume named:`, include.split("/")[3] + "-restored") : "";
+    const vol = isVol ? await ask.prompt({ title: "Restore a volume", body: <>Restoring <span className="font-mono">{include}</span> creates a new volume, so the live one is left alone. Swap it in once you have checked it.</>, label: "New volume name", defaultValue: include.split("/")[3] + "-restored", mono: true, confirmLabel: "Restore" }) : "";
     if (isVol && !vol) return;
-    if (!isVol && !confirm(`Restore ${include} into a folder under the Islet data directory?`)) return;
+    if (!isVol && !(await ask.confirm({ title: "Restore these files?", body: <>They are written to a folder under the Islet data directory, not back over the originals. You can move them where you want afterwards.</>, confirmLabel: "Restore" }))) return;
     setMsg("Restoring…");
     try { const r = await api.restore(destId, { snapshot: sel!, include, newVolume: vol ?? "" }); setMsg(`Restored to ${r.target}`); } catch (e) { setMsg(err(e)); }
   };

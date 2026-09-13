@@ -4,11 +4,13 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
 import { capLines } from "@/lib/logcap";
+import { useDialog } from "@/lib/dialogs";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
 
 export default function Security() {
+  const ask = useDialog();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [s, setS] = useState<SecurityState | null>(null);
@@ -25,7 +27,13 @@ export default function Security() {
     finally { setBusy(null); }
   };
   const panic = async () => {
-    if (!prompt(`This blocks ALL inbound traffic except from your IP (${s?.clientIp}), signs out every other session and revokes every API token. Sites go offline until you undo it in the Firewall section. Type PANIC to continue.`)?.match(/^PANIC$/)) return;
+    if (!(await ask.confirm({
+      title: "Lock this server down?",
+      body: <>Everything coming in is blocked except your own address, <span className="font-mono">{s?.clientIp}</span>. Every other session is signed out and every API token is revoked. Your sites go offline until you undo it in the Firewall section below.</>,
+      typeToConfirm: "PANIC",
+      confirmLabel: "Lock it down",
+      tone: "danger",
+    }))) return;
     setBusy("panic");
     try { const r = await api.panic(); setOut({ title: "Locked down", text: r.message + "\n" + r.output }); await load(); } catch (e) { setOut({ title: "Panic failed", text: err(e) }); } finally { setBusy(null); }
   };
@@ -180,6 +188,7 @@ function Diagnostics() {
 }
 
 function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: SecurityState; isAdmin: boolean; onChanged: () => Promise<void>; onFix: () => void; onFixRoutes: () => void; busy: string | null }) {
+  const ask = useDialog();
   const fw = s.firewall;
   const [port, setPort] = useState(""); const [proto, setProto] = useState("tcp"); const [from, setFrom] = useState(""); const [comment, setComment] = useState("");
   const [routed, setRouted] = useState(true);
@@ -199,7 +208,7 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: 
       {fw.active && (
         <>
           <table className="w-full text-xs"><tbody className="divide-y divide-border">
-            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">{r.routed ? <span title="Reaches a port published by a container" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to containers</span> : <span title="Reaches a port the server itself listens on" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to this server</span>}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (confirm(`Remove the rule for ${r.port}?`)) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from, routed: !!r.routed }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
+            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">{r.routed ? <span title="Reaches a port published by a container" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to containers</span> : <span title="Reaches a port the server itself listens on" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to this server</span>}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (await ask.confirm({ title: `Remove the rule for port ${r.port}?`, body: "Whatever that rule was letting through stops reaching this server.", confirmLabel: "Remove rule", tone: "danger" })) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from, routed: !!r.routed }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
           </tbody></table>
           {isAdmin && <PanelRestrict cidr={s.panelCidr ?? ""} onChanged={onChanged} />}
           {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
@@ -217,8 +226,9 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: 
 }
 
 function PanelRestrict({ cidr, onChanged }: { cidr: string; onChanged: () => Promise<void> }) {
+  const ask = useDialog();
   const [v, setV] = useState(cidr); const [msg, setMsg] = useState<string | null>(null);
-  const apply = async (c: string) => { if (c && !confirm(`Allow the panel port only from ${c}? Make sure you are connected through that range first, or you lock yourself out (your current IP is kept as a fallback).`)) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
+  const apply = async (c: string) => { if (c && !(await ask.confirm({ title: `Reach the panel only from ${c}?`, body: "Connect through that range first and check it works. Your current address is kept as a fallback, but if it changes, SSH is the way back.", confirmLabel: "Restrict the panel", tone: "danger" }))) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
   return (
     <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
       <Field label="Panel only via VPN" hint="CIDR of your VPN: 10.8.0.0/24 for wg-easy, 100.64.0.0/10 for Tailscale."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>

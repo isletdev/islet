@@ -3,6 +3,7 @@ import { api, RequestError, type Channel, type IsletEvent, type MailRelay } from
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { pollInterval } from "@/lib/poll";
+import { useDialog } from "@/lib/dialogs";
 
 const TYPES: Record<string, { label: string; fields: { key: string; label: string; hint?: string; secret?: boolean }[]; help: string }> = {
   telegram: { label: "Telegram", help: "Create a bot with @BotFather, paste its token, send the bot a message, then click Detect chat.", fields: [{ key: "token", label: "Bot token", secret: true }, { key: "chatId", label: "Chat ID" }] },
@@ -17,6 +18,7 @@ const TYPES: Record<string, { label: string; fields: { key: string; label: strin
 const CATEGORIES = ["system", "security", "deploy", "container", "database", "domain", "cron", "backup", "runner", "uptime", "report", "custom"];
 
 export default function Notifications() {
+  const ask = useDialog();
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -29,7 +31,7 @@ export default function Notifications() {
   useEffect(() => { void load(); const stop = pollInterval(() => void load(), 15000); return stop; }, [load]);
 
   const test = async (c: Channel) => { setMsg(null); try { await api.channelTest(c.id); setMsg(`Sent a test to ${c.name}.`); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); } };
-  const remove = async (c: Channel) => { if (!confirm(`Remove channel ${c.name}?`)) return; await api.channelDelete(c.id); await load(); };
+  const remove = async (c: Channel) => { if (!(await ask.confirm({ title: `Remove the channel ${c.name}?`, body: "Alerts stop going there. Any other channel keeps working.", confirmLabel: "Remove channel", tone: "danger" }))) return; await api.channelDelete(c.id); await load(); };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -140,6 +142,7 @@ function ChannelForm({ initial, onClose, onSaved }: { initial: Channel; onClose:
 }
 
 function MailRelayCard() {
+  const ask = useDialog();
   const [m, setM] = useState<MailRelay | null>(null);
   const [domain, setDomain] = useState(""); const [hostname, setHostname] = useState(""); const [relayhost, setRelayhost] = useState(""); const [ru, setRu] = useState(""); const [rp, setRp] = useState("");
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState<string | null>(null); const [to, setTo] = useState("");
@@ -148,7 +151,7 @@ function MailRelayCard() {
   if (!m) return null;
   const setup = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { setM(await api.mailRelaySet({ domain, hostname, relayhost, relayUser: ru, relayPassword: rp })); setMsg("Relay running. Publish the records below, then send a test."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
   const test = async () => { setBusy(true); setMsg(null); try { const r = await api.mailRelayTest(to); setMsg(`Queued for ${to}. ${r.queue ? "Queue: " + r.queue : "Queue is empty, so it was handed off."}`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
-  const remove = async () => { if (!confirm("Remove the mail relay? The DKIM key volume is kept.")) return; await api.mailRelayRemove(); await load(); };
+  const remove = async () => { if (!(await ask.confirm({ title: "Remove the mail relay?", body: "Email notifications stop. The DKIM key volume is kept, so the same signing key comes back if you set it up again.", confirmLabel: "Remove relay", tone: "danger" }))) return; await api.mailRelayRemove(); await load(); };
   return (
     <div className="rounded-lg border border-border bg-surface">
       <div className="border-b border-border px-4 py-3"><span className="font-semibold">Outbound mail</span><p className="mt-0.5 text-xs text-ink-muted">A Postfix relay with DKIM signing for the apps on this server and for the email channel above. Needs a domain you control; port 25 must be open at your provider, or use an upstream relay.</p></div>

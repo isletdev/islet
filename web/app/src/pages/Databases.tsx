@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
 import { capLines } from "@/lib/logcap";
+import { useDialog } from "@/lib/dialogs";
 
 const ENGINE: Record<string, string> = { postgres: "PostgreSQL", mysql: "MySQL", redis: "Redis", mongo: "MongoDB" };
 function fmt(s: string) { return s ? new Date(s).toLocaleString() : ""; }
@@ -66,6 +67,7 @@ export default function Databases() {
 }
 
 function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; onChanged: () => Promise<void> }) {
+  const ask = useDialog();
   const [d, setD] = useState<DBDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -86,19 +88,33 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
     let allowFrom = "";
     let bind = "";
     if (on) {
-      const where = prompt(`Where should port ${d?.port} be reachable?
-
-  local   only from this server, for an SSH tunnel (recommended)
-  public  from the internet
-`, "local");
-      if (!where) return;
-      bind = where.trim().toLowerCase().startsWith("pub") ? "" : "127.0.0.1";
-      if (bind === "") allowFrom = prompt("Only allow these addresses (IPs or CIDRs, comma separated). Leave empty for anyone; needs ufw enabled on the Security page to be enforced:", d?.allowFrom ?? "") ?? "";
-      const v = prompt(bind === "" ? `Publishing on every interface. Anyone on the internet can reach the server and try passwords.
-
-Host port to publish on:` : `The port will be bound to 127.0.0.1, so only an SSH tunnel reaches it.
-
-Host port to publish on:`, String(d?.port));
+      const toInternet = await ask.confirm({
+        title: `Who should reach port ${d?.port}?`,
+        body: "Bound to this server, only something already on the machine reaches it, which is what an SSH tunnel uses. Open to the internet, anyone can connect and try passwords.",
+        cancelLabel: "This server only",
+        confirmLabel: "Open to the internet",
+        tone: "danger",
+      });
+      bind = toInternet ? "" : "127.0.0.1";
+      if (toInternet) {
+        allowFrom = (await ask.prompt({
+          title: "Which addresses may connect?",
+          body: "Addresses or ranges, comma separated. Leaving it empty lets anyone try. The list is only enforced while the firewall is on, which is on the Security page.",
+          label: "Allowed addresses",
+          defaultValue: d?.allowFrom ?? "",
+          placeholder: "203.0.113.4, 198.51.100.0/24",
+          mono: true,
+          confirmLabel: "Continue",
+        })) ?? "";
+      }
+      const v = await ask.prompt({
+        title: "Which port on the server?",
+        body: toInternet ? "This port will answer on every network interface." : "This port answers on 127.0.0.1 only, so an SSH tunnel is the way in.",
+        label: "Host port",
+        defaultValue: String(d?.port),
+        mono: true,
+        confirmLabel: "Publish",
+      });
       if (!v) return;
       hostPort = +v;
     }
@@ -164,7 +180,7 @@ Host port to publish on:`, String(d?.port));
           <table className="w-full text-sm"><tbody className="divide-y divide-border">
             {d.databases.map((x) => (
               <tr key={x.name}><td className="py-1.5 font-medium">{x.name}{x.owner && <span className="ml-2 text-xs text-ink-muted">{x.owner}</span>}</td><td className="py-1.5 text-xs text-ink-muted">{x.size}{x.connections > 0 && ` · ${x.connections} conn`}</td>
-                <td className="py-1.5 text-right text-xs whitespace-nowrap">{isAdmin && d.engine !== "redis" && <><button type="button" disabled={!!busy} onClick={() => void act("dump" + x.name, () => api.dbDump(name, x.name), `Dumped ${x.name}.`)} className="text-ink-muted hover:text-ink">{busy === "dump" + x.name ? "Dumping…" : "Dump now"}</button><button type="button" disabled={!!busy} onClick={() => { if (confirm(`Drop database ${x.name} and its user? This cannot be undone.`)) void act("drop", () => api.dbDrop(name, x.name)); }} className="ml-3 text-danger hover:underline">Drop</button></>}</td></tr>
+                <td className="py-1.5 text-right text-xs whitespace-nowrap">{isAdmin && d.engine !== "redis" && <><button type="button" disabled={!!busy} onClick={() => void act("dump" + x.name, () => api.dbDump(name, x.name), `Dumped ${x.name}.`)} className="text-ink-muted hover:text-ink">{busy === "dump" + x.name ? "Dumping…" : "Dump now"}</button><button type="button" disabled={!!busy} onClick={async () => { if (await ask.confirm({ title: `Drop the database ${x.name}?`, body: "The database and its user are removed. Everything in it is gone and this cannot be undone.", typeToConfirm: x.name, confirmLabel: "Drop database", tone: "danger" })) void act("drop", () => api.dbDrop(name, x.name)); }} className="ml-3 text-danger hover:underline">Drop</button></>}</td></tr>
             ))}
             {d.databases.length === 0 && <tr><td className="py-2 text-ink-muted">{d.state === "running" ? "Nothing to list." : "Instance is not running."}</td></tr>}
           </tbody></table>
@@ -177,7 +193,7 @@ Host port to publish on:`, String(d?.port));
           <ul className="mt-3 divide-y divide-border text-xs">
             {d.dumps.map((f) => (
               <li key={f.file} className="flex flex-wrap items-center justify-between gap-2 py-1.5"><span className="font-mono">{f.file}</span><span className="text-ink-muted">{bytes(f.size)} · {fmt(f.createdAt)}</span>
-                {isAdmin && <span className="flex gap-3"><a href={`/api/v1/databases/${name}/dumps/${f.file}`} className="text-ink-muted hover:text-ink">Download</a>{d.engine !== "redis" && <button type="button" disabled={!!busy} onClick={() => { const into = prompt("Restore into which database? It is created if missing. Existing objects are replaced.", f.database); if (into) void act("restore", () => api.dbRestore(name, f.file, into), `Restored ${f.file} into ${into}.`); }} className="text-ink-muted hover:text-ink">Restore…</button>}<button type="button" onClick={() => void act("del", () => api.dbDumpDelete(name, f.file))} className="text-danger hover:underline">Delete</button></span>}</li>
+                {isAdmin && <span className="flex gap-3"><a href={`/api/v1/databases/${name}/dumps/${f.file}`} className="text-ink-muted hover:text-ink">Download</a>{d.engine !== "redis" && <button type="button" disabled={!!busy} onClick={async () => { const into = await ask.prompt({ title: "Restore this dump", body: "The database is created if it is missing. If it already exists, objects in it with the same names are replaced, so restoring into a live database overwrites it.", label: "Restore into", defaultValue: f.database, mono: true, confirmLabel: "Restore", tone: "danger" }); if (into) void act("restore", () => api.dbRestore(name, f.file, into), `Restored ${f.file} into ${into}.`); }} className="text-ink-muted hover:text-ink">Restore…</button>}<button type="button" onClick={() => void act("del", () => api.dbDumpDelete(name, f.file))} className="text-danger hover:underline">Delete</button></span>}</li>
             ))}
             {d.dumps.length === 0 && <li className="py-2 text-ink-muted">No dumps yet. Dump now takes a logical copy you can download; scheduled dumps are cron jobs, and Backups keeps encrypted snapshots off-site.</li>}
           </ul>

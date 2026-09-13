@@ -7,6 +7,7 @@ import TermView from "@/components/TermView";
 import { bytes } from "@/lib/format";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
+import { useDialog, failure } from "@/lib/dialogs";
 
 const TABS = [
   { to: "/containers", label: "Containers", end: true },
@@ -64,10 +65,11 @@ function Frame({ status }: { status: DockerStatus | null }) {
 
 /** Trivy findings for the container's image, from the Security page scans. */
 function ImageFindings({ image }: { image: string }) {
+  const ask = useDialog();
   const [sc, setSc] = useState<{ critical: number; high: number; medium: number; low: number; at: string } | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   useEffect(() => { void api.security().then((s) => setSc(s.scans.find((x) => x.target === image) ?? null)).catch(() => setSc(null)); }, [image]);
-  const scan = async () => { setBusy(true); try { const r = await api.scanImage(image); setSc(r); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); } finally { setBusy(false); } };
+  const scan = async () => { setBusy(true); try { const r = await api.scanImage(image); setSc(r); } catch (e) { void ask.alert({ title: "The scan did not run", body: failure(e), tone: "danger" }); } finally { setBusy(false); } };
   if (sc === undefined) return null;
   return (
     <p className="mt-1 text-xs">
@@ -92,12 +94,13 @@ function useList<T>(load: () => Promise<T[]>, every = 5000) {
 }
 
 function List() {
+  const ask = useDialog();
   const { rows, err, refresh } = useList<Container>(api.containers);
   const [busy, setBusy] = useState<string | null>(null);
   const act = async (id: string, action: string) => {
-    if (action === "remove" && !confirm("Remove this container? Its writable layer is lost; named volumes stay.")) return;
+    if (action === "remove" && !(await ask.confirm({ title: "Remove this container?", body: "Anything written inside the container is lost. Named volumes are kept.", confirmLabel: "Remove", tone: "danger" }))) return;
     setBusy(id + action);
-    try { await api.containerAction(id, action); await refresh(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); }
+    try { await api.containerAction(id, action); await refresh(); } catch (e) { void ask.alert({ title: `Could not ${action} the container`, body: failure(e), tone: "danger" }); }
     finally { setBusy(null); }
   };
   return (
@@ -139,6 +142,7 @@ function Act({ children, onClick, busy, danger }: { children: string; onClick: (
 // ---- detail ----
 
 function Detail() {
+  const ask = useDialog();
   const { id = "" } = useParams();
   const [c, setC] = useState<ContainerDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -146,7 +150,7 @@ function Detail() {
   const load = useCallback(() => api.container(id).then((d) => { setC(d); setErr(null); }).catch((e) => setErr(e instanceof RequestError ? e.message : String(e))), [id]);
   useEffect(() => { void load(); }, [load]);
   const act = async (action: string) => {
-    try { await api.containerAction(id, action); await load(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); }
+    try { await api.containerAction(id, action); await load(); } catch (e) { void ask.alert({ title: `Could not ${action} the container`, body: failure(e), tone: "danger" }); }
   };
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col">
@@ -160,7 +164,7 @@ function Detail() {
         {c && (
           <div className="flex gap-1">
             {c.state === "running" ? <><Act onClick={() => act("restart")}>Restart</Act><Act onClick={() => act("stop")}>Stop</Act></> : <Act onClick={() => act("start")}>Start</Act>}
-            <Act onClick={() => { if (confirm("Remove this container?")) void act("remove"); }} danger>Remove</Act>
+            <Act onClick={async () => { if (await ask.confirm({ title: "Remove this container?", body: "Anything written inside the container is lost. Named volumes are kept.", confirmLabel: "Remove", tone: "danger" })) void act("remove"); }} danger>Remove</Act>
           </div>
         )}
       </div>
@@ -267,6 +271,7 @@ const EXAMPLE = `services:
 `;
 
 function Stacks() {
+  const ask = useDialog();
   const { rows, err, refresh } = useList<Stack>(api.stacks, 8000);
   const [params] = useSearchParams();
   const wanted = params.get("stack") ?? "";
@@ -298,8 +303,8 @@ function Stacks() {
     finally { setBusy(false); }
   };
   const remove = async (name: string) => {
-    if (!confirm(`Remove stack ${name}? Containers are stopped and removed. Volumes are kept.`)) return;
-    try { await api.stackRemove(name, false); await refresh(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); }
+    if (!(await ask.confirm({ title: `Remove the stack ${name}?`, body: "Its containers are stopped and removed. Volumes are kept, so the data survives.", confirmLabel: "Remove stack", tone: "danger" }))) return;
+    try { await api.stackRemove(name, false); await refresh(); } catch (e) { void ask.alert({ title: "Could not remove the stack", body: failure(e), tone: "danger" }); }
   };
 
   return (
@@ -314,7 +319,7 @@ function Stacks() {
         <ul className="divide-y divide-border">
           {rows.map((s) => (
             <li key={s.name} className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm ${s.name === wanted ? "bg-surface-2" : ""}`}>
-              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!confirm(`Adopt ${s.name}? Its Compose file is copied into Islet so you can edit and update it here.`)) return; try { const r = await api.stackImport(s.name); alert(r.note); await refresh(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } }} className="ml-2 text-[11px] text-accent hover:underline">Adopt</button>}</div>
+              <div><span className="font-medium">{s.name}</span> <span className="ml-2 font-mono text-xs text-ink-muted">{s.status}</span>{!s.managed && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-muted">not managed by Islet</span>}{!s.managed && s.path && <button type="button" onClick={async () => { if (!(await ask.confirm({ title: `Adopt the stack ${s.name}?`, body: "Its Compose file is copied into Islet so you can edit and update it here. The running containers are not touched.", confirmLabel: "Adopt" }))) return; try { const r = await api.stackImport(s.name); void ask.alert({ title: `Adopted ${s.name}`, body: r.note }); await refresh(); } catch (e) { void ask.alert({ title: "Could not adopt the stack", body: failure(e), tone: "danger" }); } }} className="ml-2 text-[11px] text-accent hover:underline">Adopt</button>}</div>
               {s.managed && (
                 <div className="flex gap-1">
                   <Act onClick={() => open(s.name)}>Edit</Act>
@@ -369,6 +374,7 @@ function Registries() {
 }
 
 function Images() {
+  const ask = useDialog();
   const { rows, err, refresh } = useList<DockerImage>(api.images, 15000);
   const [ref, setRef] = useState("");
   const [out, setOut] = useState<string[] | null>(null);
@@ -379,7 +385,7 @@ function Images() {
     catch (er) { setOut((o) => [...(o ?? []), String(er instanceof Error ? er.message : er)]); }
     finally { setBusy(false); }
   };
-  const remove = async (id: string) => { try { await api.imageRemove(id); await refresh(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); } };
+  const remove = async (id: string) => { try { await api.imageRemove(id); await refresh(); } catch (e) { void ask.alert({ title: "Could not remove the image", body: failure(e), tone: "danger" }); } };
   return (
     <div className="space-y-4">
       {err && <Alert>{err}</Alert>}
@@ -407,13 +413,14 @@ function Images() {
 }
 
 function Prune({ onDone }: { onDone: () => Promise<void> }) {
+  const ask = useDialog();
   const [df, setDf] = useState<{ type: string; total: number; active: number; size: string; reclaimable: string }[]>([]);
   const [sel, setSel] = useState({ containers: true, images: true, allImages: false, volumes: false, networks: true, builder: true });
   const [res, setRes] = useState<string | null>(null);
   const load = () => api.dockerDF().then(setDf).catch(() => {});
   useEffect(() => { void load(); }, []);
   const prune = async () => {
-    if (sel.volumes && !confirm("Remove ALL unused volumes? Data in them is deleted permanently.")) return;
+    if (sel.volumes && !(await ask.confirm({ title: "Remove every unused volume?", body: "A volume counts as unused when no container is using it right now, which includes volumes belonging to a stack you have stopped. Whatever is in them is deleted for good.", typeToConfirm: "DELETE", confirmLabel: "Remove volumes", tone: "danger" }))) return;
     try { const r = await api.dockerPrune(sel); setRes(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(", ") || "nothing to remove"); await load(); await onDone(); }
     catch (e) { setRes(e instanceof RequestError ? e.message : String(e)); }
   };
@@ -431,8 +438,9 @@ function Prune({ onDone }: { onDone: () => Promise<void> }) {
 }
 
 function Volumes() {
+  const ask = useDialog();
   const { rows, err, refresh } = useList<DockerVolume>(api.volumes, 15000);
-  const remove = async (n: string) => { if (!confirm(`Delete volume ${n}? Its data is gone for good.`)) return; try { await api.volumeRemove(n); await refresh(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); } };
+  const remove = async (n: string) => { if (!(await ask.confirm({ title: `Delete the volume ${n}?`, body: "Everything stored in it is gone for good.", typeToConfirm: "DELETE", confirmLabel: "Delete volume", tone: "danger" }))) return; try { await api.volumeRemove(n); await refresh(); } catch (e) { void ask.alert({ title: "Could not delete the volume", body: failure(e), tone: "danger" }); } };
   return (
     <div className="rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
@@ -450,8 +458,9 @@ function Volumes() {
 }
 
 function Networks() {
+  const ask = useDialog();
   const { rows, err, refresh } = useList<DockerNetwork>(api.networks, 15000);
-  const remove = async (n: string) => { try { await api.networkRemove(n); await refresh(); } catch (e) { alert(e instanceof RequestError ? e.message : String(e)); } };
+  const remove = async (n: string) => { try { await api.networkRemove(n); await refresh(); } catch (e) { void ask.alert({ title: "Could not remove the network", body: failure(e), tone: "danger" }); } };
   return (
     <div className="rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
