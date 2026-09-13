@@ -5,6 +5,7 @@ import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
+import { SqlIcon } from "@/components/icons";
 import { capLines } from "@/lib/logcap";
 import { useDialog } from "@/lib/dialogs";
 
@@ -147,7 +148,17 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
       <Card title={`${d.name} · ${ENGINE[d.engine]}`} description={d.stats ? `${d.stats.version} · up ${d.stats.uptime} · ${d.stats.connections}/${d.stats.maxConnections} connections · ${d.stats.dataSize || "size n/a"}` : d.state === "running" ? "Collecting stats…" : `Container is ${d.state}. Start it from Containers.`}>
         {d.error && <Alert>{d.error}</Alert>}
         {d.stats?.extra && <p className="mb-3 text-xs text-ink-muted">{d.stats.extra.join(" · ")}</p>}
-        {isAdmin && d.engine !== "redis" && <p className="mb-3 text-xs"><button type="button" disabled={!!busy} onClick={() => void openAdminer()} className="text-accent hover:underline">{busy === "adminer" ? "Preparing Adminer…" : "Open in Adminer"}</button><span className="ml-2 text-ink-muted">One Adminer serves every database here; it is attached to this one's network when you open it.</span></p>}
+        {isAdmin && (d.engine === "postgres" || d.engine === "mysql") && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Link to={`/sql?ref=islet:${encodeURIComponent(name)}`} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-ink px-2.5 text-xs font-medium text-on-ink hover:opacity-90">
+              <SqlIcon className="h-4 w-4" />Open in the SQL editor
+            </Link>
+            <span className="text-xs text-ink-muted">
+              Browse the schema, run queries and follow foreign keys, in the panel. Nothing to install.
+            </span>
+          </div>
+        )}
+        {isAdmin && d.engine !== "redis" && <p className="mb-3 text-xs"><button type="button" disabled={!!busy} onClick={() => void openAdminer()} className="text-ink-muted hover:text-ink hover:underline">{busy === "adminer" ? "Preparing Adminer…" : "Open in Adminer instead"}</button><span className="ml-2 text-ink-faint">Installs the Adminer container if it is not there, and serves it on a domain of its own.</span></p>}
         {adminer && <AdminerSetup s={adminer} onCancel={() => setAdminer(null)} onSubmit={(v) => { setAdminer(null); void openAdminer(v); }} />}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>

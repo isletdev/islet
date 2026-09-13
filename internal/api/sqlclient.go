@@ -39,6 +39,10 @@ type sqlInstance struct {
 	Password string
 	Database string
 	State    string
+	// PublicPort is the host port the container publishes, when it publishes
+	// one. It is the second address the client tries; see Config in
+	// internal/sqlclient/driver.go for when the first one cannot work.
+	PublicPort int
 }
 
 // installedDatabases lists the databases Islet installed, with the root
@@ -59,6 +63,7 @@ func (s *Server) installedDatabases(ctx context.Context, actor string) ([]sqlIns
 			Name: in.Name, Engine: in.Engine, Host: in.IP, Port: sqlPortFor(in),
 			User: sqlUserFor(in), Password: sqlPasswordFor(in),
 			Database: in.Database, State: in.State,
+			PublicPort: publishedPort(in.Public),
 		})
 	}
 	return out, nil
@@ -93,6 +98,19 @@ func sqlPortFor(in db.Instance) int {
 	default:
 		return 5432
 	}
+}
+
+// publishedPort is the host port out of "1.2.3.4:5432", or zero.
+func publishedPort(public string) int {
+	i := strings.LastIndex(public, ":")
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(public[i+1:])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // registerSQLRoutes wires the SQL client onto the mux. The admin check inside
@@ -802,7 +820,7 @@ func (s *Server) sqlTarget(ctx context.Context, a sqlActor, ref string) (sqlclie
 			if _, err := sqlclient.EngineSupported(in.Engine); err != nil {
 				return sqlclient.Target{}, err
 			}
-			if in.Host == "" {
+			if in.Host == "" && in.PublicPort == 0 {
 				return sqlclient.Target{}, fmt.Errorf("%s has no address to connect to: the container may be stopped", in.Name)
 			}
 			mark := s.sqlStore.MarkFor(ctx, ref)
@@ -811,10 +829,13 @@ func (s *Server) sqlTarget(ctx context.Context, a sqlActor, ref string) (sqlclie
 				ReadOnly:   mark.ReadOnly,
 				Production: mark.Environment == "production",
 				Config: sqlclient.Config{
-					Engine: in.Engine, Host: in.Host, Port: in.Port,
+					Engine: in.Engine, Host: addressOf(in), Port: portOf(in),
 					User: in.User, Password: in.Password, Database: in.Database,
 					TLS: sqlclient.TLSDisable, ReadOnly: mark.ReadOnly,
 					AppName: "islet-sql/" + a.Name,
+					// Loopback, not the advertised public address: a published
+					// port is reachable here without leaving the machine.
+					FallbackHost: fallbackHost(in), FallbackPort: in.PublicPort,
 				},
 			}, nil
 		}
@@ -873,4 +894,28 @@ func (s *Server) markConnection(w http.ResponseWriter, r *http.Request) {
 	s.sqlMgr.Forget(ref)
 	s.sqlAudit(r.Context(), a.Name, "sql.connection.mark", ref, req.Environment)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// A container with no bridge address the daemon can use still has a published
+// port, when it has one. These pick the first address to try and the second.
+
+func addressOf(in sqlInstance) string {
+	if in.Host != "" {
+		return in.Host
+	}
+	return "127.0.0.1"
+}
+
+func portOf(in sqlInstance) int {
+	if in.Host != "" {
+		return in.Port
+	}
+	return in.PublicPort
+}
+
+func fallbackHost(in sqlInstance) string {
+	if in.Host != "" && in.PublicPort > 0 {
+		return "127.0.0.1"
+	}
+	return ""
 }

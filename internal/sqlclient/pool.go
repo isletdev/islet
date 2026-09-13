@@ -83,6 +83,14 @@ func (p *pool) acquire(ctx context.Context) (Conn, error) {
 	}
 
 	conn, err := p.drv.Open(ctx, p.cfg)
+	if err != nil && p.cfg.FallbackHost != "" {
+		// The first address did not answer. See the note on Config: this is
+		// the published port, and it is tried rather than reported because a
+		// working second route is not a failure worth showing anyone.
+		if second, err2 := p.drv.Open(ctx, p.cfg.withFallback()); err2 == nil {
+			conn, err = second, nil
+		}
+	}
 	if err != nil {
 		p.mu.Lock()
 		p.inUse--

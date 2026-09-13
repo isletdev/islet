@@ -382,3 +382,19 @@ statement that returned no columns turned a cancelled query into a silent
 success — no error, no rows, nothing wrong. The cursor is always drained now,
 and there is a test with a driver that fails exactly that way.
 
+## 2026-09-13 — The way into the SQL client is on the database
+The client shipped reachable from the sidebar and from the slow-query list, and
+from nowhere else. Somebody looking at their database saw one button, "Open in
+Adminer", which installs a container on demand — so it was still offered after
+the Adminer stack had been deleted, and it looked like the only option there
+was. The database page leads with "Open in the SQL editor" now, and Adminer is
+a quiet second line that says it installs a container, because it does.
+
+The address a managed database is reached on got a second try at the same time.
+The bridge address is right on a Linux server, where the daemon and Docker share
+a host, and cannot work where they do not: Docker Desktop keeps containers in a
+VM, and a daemon in a container of its own is on another network. When the port
+is published there is a second route, and taking it beats telling somebody their
+own database is unreachable. The bridge address is still tried first and the
+fallback costs one dial, only on failure.
+

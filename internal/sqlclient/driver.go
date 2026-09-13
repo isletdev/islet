@@ -28,6 +28,24 @@ type Config struct {
 	TLS      TLSMode
 	ReadOnly bool   // enforced here, in the daemon, not in the interface
 	AppName  string // what the database's own process list will show
+
+	// FallbackHost and FallbackPort are a second address to try when the
+	// first does not answer. A database Islet installed is reached on its
+	// container's bridge address, which is right on a Linux server where the
+	// daemon and Docker share a host, and wrong wherever they do not: Docker
+	// Desktop keeps containers in a VM, and a daemon in a container of its own
+	// is on another network. When the port is published there is a second way
+	// in, and taking it beats telling somebody their own database is
+	// unreachable.
+	FallbackHost string
+	FallbackPort int
+}
+
+// withFallback returns the same configuration aimed at the second address.
+func (c Config) withFallback() Config {
+	c.Host, c.Port = c.FallbackHost, c.FallbackPort
+	c.FallbackHost, c.FallbackPort = "", 0
+	return c
 }
 
 func (c Config) dialect() Dialect { return dialectOf(c.Engine) }
