@@ -9,6 +9,7 @@ import Placeholder from "./pages/Placeholder";
 // needs before they open it.
 const Settings = lazy(() => import("./pages/Settings"));
 const Terminal = lazy(() => import("./pages/Terminal"));
+const Console = lazy(() => import("./pages/Console"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));
 const Domains = lazy(() => import("./pages/Domains"));
@@ -41,6 +42,8 @@ export default function App() {
   return (
     <Suspense fallback={<div className="p-6 text-sm text-ink-muted">{t("shell.loading")}</div>}>
     <Routes>
+      {/* Outside the shell on purpose: the window is only a terminal. */}
+      <Route path="/console" element={<Console />} />
       <Route element={<Shell />}>
         <Route index element={<Overview />} />
         <Route path="/settings" element={<Settings />} />

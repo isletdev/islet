@@ -4,6 +4,8 @@ import { api, RequestError, type Container, type ContainerDetail, type DockerIma
 import { postStream, streamLines } from "@/lib/stream";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import TermView from "@/components/TermView";
+import { openConsole } from "@/pages/Console";
+import { ExternalIcon } from "@/components/icons";
 import { bytes } from "@/lib/format";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
@@ -75,7 +77,7 @@ function ImageFindings({ image }: { image: string }) {
     <p className="mt-1 text-xs">
       {sc ? <span className={sc.critical > 0 ? "text-danger" : sc.high > 0 ? "text-warning" : "text-ink-muted"}>{sc.critical} critical · {sc.high} high · {sc.medium} medium · {sc.low} low <span className="text-ink-faint">(scanned {new Date(sc.at).toLocaleDateString()})</span></span> : <span className="text-ink-muted">Image not scanned yet.</span>}
       <button type="button" disabled={busy} onClick={() => void scan()} className="ml-2 text-accent hover:underline">{busy ? "Scanning…" : sc ? "Rescan" : "Scan for vulnerabilities"}</button>
-      <Link to="/security" className="ml-2 text-ink-muted hover:text-ink">Details</Link>
+      {sc && <Link to={`/security?scan=${encodeURIComponent(image)}`} className="ml-2 text-ink-muted hover:text-ink">See the findings</Link>}
     </p>
   );
 }
@@ -176,7 +178,17 @@ function Detail() {
       </div>
       <div className="mt-4 min-h-0 flex-1">
         {tab === "logs" && <Logs id={id} />}
-        {tab === "shell" && (c?.state === "running" ? <TermView path={`/api/v1/docker/containers/${id}/exec`} className="h-full" /> : <p className="text-ink-muted">Start the container to open a shell.</p>)}
+        {tab === "shell" && (c?.state === "running" ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="mb-2 flex justify-end">
+              <Button variant="secondary" className="h-7 gap-2 px-2.5 text-xs" onClick={() => openConsole({ container: id })}>
+                <ExternalIcon className="h-4 w-4" />
+                Open in a window
+              </Button>
+            </div>
+            <TermView path={`/api/v1/docker/containers/${id}/exec`} className="min-h-0 flex-1" />
+          </div>
+        ) : <p className="text-ink-muted">Start the container to open a shell.</p>)}
         {tab === "details" && c && <Details c={c} />}
         {tab === "limits" && c && <Limits c={c} onSaved={load} />}
       </div>

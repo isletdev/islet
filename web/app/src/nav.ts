@@ -21,9 +21,9 @@ export const NAV_GROUPS: { id: NavGroup; label: string }[] = [
 
 export const NAV: NavItem[] = [
   { path: "/", key: "overview", label: "Overview", group: "server", phase: "v0.1", ready: true, blurb: "Live CPU, memory, disk and network, plus what needs attention." },
-  { path: "/containers", key: "containers", label: "Containers", group: "server", phase: "v0.2", ready: true, blurb: "Every container, image, volume and Compose stack on this server." },
   { path: "/files", key: "files", label: "Files", group: "server", phase: "v0.2", ready: true, blurb: "Browse, edit and move files without SSH." },
   { path: "/terminal", key: "terminal", label: "Terminal", group: "server", phase: "v0.1", ready: true, blurb: "A shell on this server, in the browser." },
+  { path: "/containers", key: "containers", label: "Containers", group: "server", phase: "v0.2", ready: true, blurb: "Every container, image, volume and Compose stack on this server." },
   { path: "/logs", key: "logs", label: "Logs", group: "server", phase: "v0.4", ready: true, blurb: "One viewer across system, Docker and app logs." },
 
   { path: "/apps", key: "apps", label: "Apps", group: "deploy", phase: "v0.3", ready: true, blurb: "One-click apps from the catalog and deploys from Git." },

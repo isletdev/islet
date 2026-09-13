@@ -1,4 +1,5 @@
 import { useRef, useCallback, useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
@@ -265,13 +266,28 @@ function SSHCard({ s, isAdmin, onChanged }: { s: SecurityState; isAdmin: boolean
 }
 
 function ScanCard({ s, isAdmin, onChanged }: { s: SecurityState; isAdmin: boolean; onChanged: () => Promise<void> }) {
+  const [params] = useSearchParams();
+  // Arriving from a container's "See the findings" names the image, so open
+  // that scan and bring it into view rather than dropping the person at the top
+  // of a long page with nothing expanded.
+  const wanted = params.get("scan");
   const [image, setImage] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(wanted);
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!wanted) return;
+    setOpen(wanted);
+    card.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [wanted]);
   const scan = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { const r = await api.scanImage(image); setMsg(`${r.critical} critical, ${r.high} high, ${r.medium} medium, ${r.low} low`); setOpen(r.target); await onChanged(); } catch (er) { setMsg(err(er)); } finally { setBusy(false); } };
   return (
     <Card title="Image scans" description="Trivy runs in a container and checks an image's packages against the CVE database. The first run downloads the database.">
+      <div ref={card} />
+      {wanted && !s.scans.some((sc) => sc.target === wanted) && (
+        <p className="mb-3 text-sm text-ink-muted">There is no scan for <span className="font-mono">{wanted}</span> yet. Scan it below, or from the container.</p>
+      )}
       {isAdmin && <form onSubmit={scan} className="flex items-start gap-2"><Field label="Image"><Input value={image} onChange={(e) => setImage(e.target.value)} className="w-64 font-mono" placeholder="nginx:1.27-alpine" required /></Field><FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9 text-xs" disabled={busy}>{busy ? "Scanning…" : "Scan"}</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</FieldAction></form>}
       <ul className="mt-3 divide-y divide-border text-xs">
         {s.scans.map((sc) => (

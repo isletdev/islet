@@ -76,7 +76,6 @@ export default function Settings() {
 
         {tab === "integrations" && <>
           <CatalogSource />
-          <Provider />
           <GitHubApp />
           <MCP />
         </>}
@@ -383,33 +382,6 @@ function CatalogSource() {
         <FieldAction className="flex items-center gap-2"><Button variant="secondary" className="h-9" disabled={busy} onClick={() => void refresh()}>{busy ? "Fetching…" : "Fetch now"}</Button>{st.source.url && <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Use embedded only</button>}</FieldAction>
       </div>
       <p className="mt-2 text-xs text-ink-muted">{st.source.fetchedAt ? `Last fetched ${new Date(st.source.fetchedAt).toLocaleString()} (${st.source.apps} apps, ${st.source.recipes} recipes).` : "Not fetched yet; refreshes daily once set."}{st.source.lastError && <span className="text-danger"> Last error: {st.source.lastError}</span>}{msg && <span> {msg}</span>}</p>
-    </Card>
-  );
-}
-
-function Provider() {
-  const [st, setSt] = useState<{ kind: string; configured: boolean; lastSnapshot: string; lastReason: string } | null>(null);
-  const [token, setToken] = useState(""); const [msg, setMsg] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { void api.provider().then(setSt).catch(() => {}); }, []);
-  if (!st) return null;
-  const save = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { setSt(await api.providerSet("hetzner", token)); setToken(""); setMsg("Token verified and stored encrypted."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
-  const snap = async () => { setBusy(true); setMsg(null); try { const r = await api.providerSnapshot(); setMsg(`Snapshot ${r.snapshot} requested; it appears in the Hetzner console in a minute.`); setSt(await api.provider()); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
-  const clear = async () => { setBusy(true); try { setSt(await api.providerSet("", "")); setMsg("Removed."); } finally { setBusy(false); } };
-  return (
-    <Card title="Hosting provider" description="With a Hetzner Cloud API token (read and write), Islet takes a server snapshot before risky changes: SSH settings and the panic button. Snapshots cost a little per GB per month; delete old ones in the console.">
-      {st.configured ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span>Hetzner Cloud connected.{st.lastSnapshot && <span className="text-ink-muted"> Last snapshot {new Date(st.lastSnapshot).toLocaleString()} ({st.lastReason}).</span>}</span>
-          <Button variant="secondary" className="h-8 text-xs" disabled={busy} onClick={() => void snap()}>Take a snapshot now</Button>
-          <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Remove token</button>
-        </div>
-      ) : (
-        <form onSubmit={save} className="flex flex-wrap items-start gap-2">
-          <Field label="Hetzner Cloud API token" hint="Project → Security → API tokens → Generate (read & write)."><Input type="password" value={token} onChange={(e) => setToken(e.target.value)} className="w-80 font-mono" autoComplete="off" required /></Field>
-          <FieldAction><Button type="submit" className="h-9" disabled={busy}>{busy ? "Checking…" : "Connect"}</Button></FieldAction>
-        </form>
-      )}
-      {msg && <p className="mt-2 text-xs text-ink-muted">{msg}</p>}
     </Card>
   );
 }

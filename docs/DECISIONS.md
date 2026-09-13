@@ -255,3 +255,12 @@ Fifty-two calls to the browser's confirm, prompt and alert carried every destruc
 There is one dialog now, behind a promise-shaped API, so a handler still reads top to bottom. Every action names itself in its own button, "Move to trash" rather than "OK". Anything irreversible is styled as destructive and says what cannot be undone. The worst of them ask you to type a word first: the panic button, deleting an app, dropping a database, removing every unused volume, and deleting a protected system path.
 
 Moving a file to the trash asks now, which it never did, and says items are kept for seven days. Deleting from the trash asks separately, because that is the step that cannot be undone. Publishing a database port was three chained browser prompts, one of which asked the person to type "public"; it is one dialog per decision, and the choice between the two is a pair of buttons that each say what they do.
+
+## 2026-09-13 — No settings for one hosting company
+The panel carried a Hetzner API token so it could take a server snapshot before an SSH change. A panel that runs on any server should not have a page for one provider, and the snapshot was covering a change that already protects itself: SSH settings are validated, tested with `sshd -t`, and rolled back automatically after five minutes unless you confirm. The integration, its package, its endpoints and its settings card are gone.
+
+## 2026-09-13 — The terminal opens as its own window
+A shell wants height, and inside the panel it competes with a sidebar, a header and a page heading. `/console` renders the terminal and one thin bar naming what you are connected to, and "Open in a window" opens it as a popup sized like a terminal emulator. It is a route rather than a mode, so the window survives a reload and can be bookmarked. A folder in the file browser can open a shell that starts in it, which the PTY already supported and nothing had ever asked for.
+
+## 2026-09-13 — Picking a folder beats typing a path
+Copy and move asked for a destination in a text box, which requires knowing the answer before you start. They open a picker that walks the same tree the file list shows, can create a folder while you are in it, and refuses to drop something into itself. Row actions are icons with real labels, the name column says what a row is with an icon rather than a text arrow, and the actions stay reachable by keyboard and on a touch screen, which has no hover.

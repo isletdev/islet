@@ -6,8 +6,24 @@ import { useDialog } from "@/lib/dialogs";
 import { bytes } from "@/lib/format";
 import { Alert, Button, Input } from "@/components/ui";
 import CodeEditor from "@/components/CodeEditor";
+import FolderPicker from "@/components/FolderPicker";
+import { openConsole } from "@/pages/Console";
+import {
+  FolderIcon, FileIcon, ImageFileIcon, ArchiveFileIcon, DownloadIcon, CopyIcon,
+  MoveIcon, RenameIcon, TrashIcon, ExtractIcon, LinkIcon, NewFolderIcon,
+  UploadIcon, RefreshIcon, TerminalIcon,
+} from "@/components/icons";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+const ARCHIVE = /\.(zip|tar|tgz|tar\.gz|gz|bz2|xz|7z|rar)$/i;
+
+/** The icon that says what a row is without reading its name. */
+function entryIcon(e: FileEntry) {
+  if (e.isDir) return FolderIcon;
+  if (IMAGE.test(e.name)) return ImageFileIcon;
+  if (ARCHIVE.test(e.name)) return ArchiveFileIcon;
+  return FileIcon;
+}
 const BINARY = /\.(zip|gz|tgz|tar|bz2|xz|7z|rar|exe|dll|so|bin|iso|img|pdf|mp[34]|mkv|mov|avi|woff2?|ttf|otf|db|sqlite)$/i;
 
 function join(dir: string, name: string) {
@@ -99,13 +115,23 @@ export default function Files() {
     const n = await ask.prompt({ title: `Rename ${e.name}`, label: "New name", defaultValue: e.name, mono: true, confirmLabel: "Rename" });
     if (n && n !== e.name) void op({ op: "rename", path: e.path, to: join(cur, n) });
   };
-  const moveTo = async (paths: string[]) => {
-    const d = await ask.prompt({ title: paths.length === 1 ? "Move one item" : `Move ${paths.length} items`, label: "Destination directory", defaultValue: cur, mono: true, confirmLabel: "Move" });
-    if (d) for (const p of paths) void op({ op: "move", path: p, to: join(d, p.split(/[\\/]/).pop()!) });
+  // Copying and moving pick a folder by walking the tree, because a text box
+  // asks you to already know the answer.
+  const [picking, setPicking] = useState<{ mode: "copy" | "move"; paths: string[] } | null>(null);
+  const finishPick = (dest: string) => {
+    const job = picking;
+    setPicking(null);
+    if (!job) return;
+    for (const p of job.paths) {
+      const name = p.split(/[\\/]/).pop()!;
+      void op({ op: job.mode, path: p, to: join(dest, name) }, () => setMsg(`${job.mode === "copy" ? "Copied" : "Moved"} ${job.paths.length} item(s) to ${dest}.`));
+    }
   };
-  const copyTo = async (e: FileEntry) => {
-    const d = await ask.prompt({ title: `Copy ${e.name}`, label: "Copy to", defaultValue: join(cur, "copy-of-" + e.name), mono: true, confirmLabel: "Copy" });
-    if (d) void op({ op: "copy", path: e.path, to: d });
+  const moveTo = (paths: string[]) => setPicking({ mode: "move", paths });
+  const copyTo = (paths: string[]) => setPicking({ mode: "copy", paths });
+  const copyPath = async (p: string) => {
+    try { await navigator.clipboard.writeText(p); setMsg("Path copied."); }
+    catch { void ask.alert({ title: "Could not copy", body: p }); }
   };
   const chmod = async (e: FileEntry) => {
     const m = await ask.prompt({ title: `Permissions for ${e.name}`, label: "Mode, in octal", defaultValue: e.mode, mono: true, placeholder: "0644", confirmLabel: "Apply" });
@@ -158,13 +184,14 @@ export default function Files() {
         <label className="flex items-center gap-1 text-xs text-ink-muted"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />Hidden</label>
         <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => { setSearch({ q: "", content: false, hits: [] }); setTrash(null); }}>Search</Button>
         {isAdmin && <>
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => void mkdir()}>New folder</Button>
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => void touch()}>New file</Button>
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => upload.current?.click()}>Upload</Button>
+          <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void mkdir()}><NewFolderIcon className="h-4 w-4" />New folder</Button>
+          <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void touch()}><FileIcon className="h-4 w-4" />New file</Button>
+          <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => upload.current?.click()}><UploadIcon className="h-4 w-4" />Upload</Button>
           <input ref={upload} type="file" multiple hidden onChange={(e) => void doUpload(e.target.files)} />
-          <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => { void loadTrash(); setSearch(null); }}>Trash</Button>
+          <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => openConsole({ dir: cur })} title="Open a shell in this folder"><TerminalIcon className="h-4 w-4" />Terminal</Button>
+          <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => { void loadTrash(); setSearch(null); }}><TrashIcon className="h-4 w-4" />Trash</Button>
         </>}
-        <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => void load(cur)}>Refresh</Button>
+        <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void load(cur)}><RefreshIcon className="h-4 w-4" />Refresh</Button>
       </div>
       {protectedDir && <div className="mt-2"><Alert tone="warning">This is a protected system location. Changes here can break the server; deletions ask for typed confirmation.</Alert></div>}
       {(err || msg) && <div className="mt-2">{err ? <Alert>{err}</Alert> : <p className="text-sm text-ink-muted">{msg}</p>}</div>}
@@ -172,8 +199,9 @@ export default function Files() {
       {selected.length > 0 && isAdmin && (
         <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs">
           <span className="font-medium">{selected.length} selected</span>
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void moveTo(selected)}>Move to…</Button>
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void archive(selected)}>Archive</Button>
+          <Button variant="secondary" className="h-7 gap-1.5 px-2 text-xs" onClick={() => moveTo(selected)}><MoveIcon className="h-3.5 w-3.5" />Move to…</Button>
+          <Button variant="secondary" className="h-7 gap-1.5 px-2 text-xs" onClick={() => copyTo(selected)}><CopyIcon className="h-3.5 w-3.5" />Copy to…</Button>
+          <Button variant="secondary" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void archive(selected)}><ArchiveFileIcon className="h-3.5 w-3.5" />Archive</Button>
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => void del(selected)}>Trash</Button>
           <Button variant="danger" className="h-7 px-2 text-xs" onClick={() => void del(selected, true)}>Delete permanently</Button>
         </div>
@@ -190,19 +218,33 @@ export default function Files() {
               {shown.map((e) => (
                 <tr key={e.path} className={`group hover:bg-surface-2 ${sel.has(e.path) ? "bg-surface-2" : ""}`}>
                   {isAdmin && <td className="px-3 py-1.5"><input type="checkbox" checked={sel.has(e.path)} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(e.path)) n.delete(e.path); else n.add(e.path); return n; })} aria-label={`Select ${e.name}`} /></td>}
-                  <td className="py-1.5"><button type="button" onClick={() => void openEntry(e)} className={`text-left hover:underline ${e.isDir ? "font-medium" : ""}`}>{e.isDir ? "▸ " : ""}{e.name}{e.isSymlink && <span className="ml-1 text-xs text-ink-faint">→ {e.target}</span>}</button>{e.protected && <span className="ml-2 rounded-sm bg-warning-soft px-1 text-[10px] text-warning">protected</span>}</td>
+                  <td className="py-1.5">
+                    <button type="button" onClick={() => void openEntry(e)} className="flex max-w-full items-center gap-2 text-left">
+                      {(() => { const I = entryIcon(e); return <I className={`h-4 w-4 shrink-0 ${e.isDir ? "text-accent" : "text-ink-faint"}`} />; })()}
+                      <span className={`truncate hover:underline ${e.isDir ? "font-medium" : ""}`}>{e.name}</span>
+                      {e.isSymlink && <LinkIcon className="h-3.5 w-3.5 shrink-0 text-ink-faint" />}
+                    </button>
+                    {e.protected && <span className="ml-6 rounded-sm bg-warning-soft px-1 text-[10px] text-warning">protected</span>}
+                  </td>
                   <td className="py-1.5 text-right font-mono text-xs tabular-nums text-ink-muted">{e.isDir ? "" : bytes(e.size)}</td>
                   <td className="py-1.5 pl-4 font-mono text-xs text-ink-muted"><button type="button" onClick={() => isAdmin && chmod(e)} title={e.perms} className={isAdmin ? "hover:text-ink" : ""}>{e.mode}</button></td>
                   <td className="py-1.5 pl-4 text-xs text-ink-muted">{e.owner}{e.group && `:${e.group}`}</td>
                   <td className="whitespace-nowrap py-1.5 pl-4 text-xs text-ink-muted">{e.modTime ? new Date(e.modTime).toLocaleString() : ""}</td>
-                  <td className="py-1.5 pr-3 text-right whitespace-nowrap opacity-0 group-hover:opacity-100">
-                    <a href={`/api/v1/files/download?path=${encodeURIComponent(e.path)}`} className="text-xs text-ink-muted hover:text-ink">Download</a>
-                    {isAdmin && <>
-                      <button type="button" onClick={() => void rename(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Rename</button>
-                      <button type="button" onClick={() => void copyTo(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Copy</button>
-                      {/\.(zip|tar|tgz|tar\.gz)$/i.test(e.name) && <button type="button" onClick={() => void extract(e)} className="ml-2 text-xs text-ink-muted hover:text-ink">Extract</button>}
-                      <button type="button" onClick={() => void del([e.path])} className="ml-2 text-xs text-danger hover:underline">Trash</button>
-                    </>}
+                  <td // Hidden until the row is pointed at, so a long list stays readable, but
+                  // always there for a keyboard and on a touch screen, which has no hover.
+                  className="py-1.5 pr-3 text-right whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                    <span className="inline-flex items-center gap-0.5">
+                      <button type="button" onClick={() => void copyPath(e.path)} title="Copy path" aria-label={`Copy the path of ${e.name}`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><CopyIcon className="h-4 w-4" /></button>
+                      {e.isDir && isAdmin && <button type="button" onClick={() => openConsole({ dir: e.path })} title="Open a shell here" aria-label={`Open a shell in ${e.name}`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><TerminalIcon className="h-4 w-4" /></button>}
+                      {!e.isDir && <a href={`/api/v1/files/download?path=${encodeURIComponent(e.path)}`} title="Download" aria-label={`Download ${e.name}`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><DownloadIcon className="h-4 w-4" /></a>}
+                      {isAdmin && <>
+                        <button type="button" onClick={() => void rename(e)} title="Rename" aria-label={`Rename ${e.name}`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><RenameIcon className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => copyTo([e.path])} title="Copy to…" aria-label={`Copy ${e.name} somewhere`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><CopyIcon className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => moveTo([e.path])} title="Move to…" aria-label={`Move ${e.name} somewhere`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><MoveIcon className="h-4 w-4" /></button>
+                        {ARCHIVE.test(e.name) && <button type="button" onClick={() => void extract(e)} title="Extract" aria-label={`Extract ${e.name}`} className="rounded-md p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink"><ExtractIcon className="h-4 w-4" /></button>}
+                        <button type="button" onClick={() => void del([e.path])} title="Move to trash" aria-label={`Move ${e.name} to the trash`} className="rounded-md p-1.5 text-danger hover:bg-danger-soft"><TrashIcon className="h-4 w-4" /></button>
+                      </>}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -246,6 +288,17 @@ export default function Files() {
           </div>
         )}
       </div>
+
+      {picking && (
+        <FolderPicker
+          title={picking.mode === "copy" ? (picking.paths.length === 1 ? `Copy ${picking.paths[0].split(/[\\/]/).pop()}` : `Copy ${picking.paths.length} items`) : (picking.paths.length === 1 ? `Move ${picking.paths[0].split(/[\\/]/).pop()}` : `Move ${picking.paths.length} items`)}
+          action={picking.mode === "copy" ? "Copy" : "Move"}
+          start={cur}
+          moving={picking.mode === "move" ? picking.paths : undefined}
+          onPick={finishPick}
+          onCancel={() => setPicking(null)}
+        />
+      )}
     </div>
   );
 }

@@ -208,6 +208,110 @@ export const SearchIcon = (p: IconProps) => (
   </Icon>
 );
 
+/* ---- files ---- */
+
+export const FolderIcon = FilesIcon;
+
+export const FileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M13.8 2.9H7a2 2 0 0 0-2 2v14.2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.1z" />
+    <path d="M13.8 2.9V8.2h5" />
+  </Icon>
+);
+
+export const ImageFileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4.4" width="18" height="15.2" rx="2" />
+    <circle cx="8.6" cy="9.6" r="1.6" />
+    <path d="m3.4 17.4 4.8-4.6 3.4 3.2 3.6-3.8 5.4 5.2" />
+  </Icon>
+);
+
+export const ArchiveFileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M13.8 2.9H7a2 2 0 0 0-2 2v14.2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.1z" />
+    <path d="M13.8 2.9V8.2h5" />
+    <path d="M10 6h1.4M10 9h1.4M10 12h1.4M10 15h1.4" />
+  </Icon>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3.6v10.8" />
+    <path d="m7.8 10.4 4.2 4.2 4.2-4.2" />
+    <path d="M4.4 19.4h15.2" />
+  </Icon>
+);
+
+export const CopyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="8.6" y="8.6" width="11.4" height="11.4" rx="2" />
+    <path d="M15.4 5.4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.4a2 2 0 0 0 2 2" />
+  </Icon>
+);
+
+export const MoveIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3.4v17.2M3.4 12h17.2" />
+    <path d="m9 6.4 3-3 3 3M9 17.6l3 3 3-3M6.4 9l-3 3 3 3M17.6 9l3 3-3 3" />
+  </Icon>
+);
+
+export const RenameIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 20.2h16" />
+    <path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L9.6 16.4l-4 1 1-4z" />
+  </Icon>
+);
+
+export const TrashIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.8 6.4h16.4" />
+    <path d="M9 6.4V4.8a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 15 4.8v1.6" />
+    <path d="M6.2 6.4v13a2 2 0 0 0 2 2h7.6a2 2 0 0 0 2-2v-13" />
+    <path d="M10.2 10.6v6.4M13.8 10.6v6.4" />
+  </Icon>
+);
+
+export const ExtractIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 20.4V9.6" />
+    <path d="m7.8 13.8 4.2-4.2 4.2 4.2" />
+    <path d="M4.4 4.6h15.2" />
+  </Icon>
+);
+
+export const LinkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10.2 13.8a4 4 0 0 0 5.7 0l3-3a4 4 0 1 0-5.7-5.7l-1.3 1.3" />
+    <path d="M13.8 10.2a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.3-1.3" />
+  </Icon>
+);
+
+export const UploadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 20.4V9.6" />
+    <path d="m7.8 13.8 4.2-4.2 4.2 4.2" />
+    <path d="M4.4 4.6h15.2" />
+  </Icon>
+);
+
+export const NewFolderIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7.4c0-1.1.9-2 2-2h3.5c.63 0 1.22.29 1.6.79l1 1.31H19c1.1 0 2 .9 2 2v8.1c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2z" />
+    <path d="M12 11.6v5M9.5 14.1h5" />
+  </Icon>
+);
+
+export const RefreshIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" />
+    <path d="M20.4 4.2V10h-5.8" />
+  </Icon>
+);
+
+export const SearchFileIcon = SearchIcon;
+
 /* ---- catalog categories ---- */
 
 export const CodeIcon = (p: IconProps) => (
