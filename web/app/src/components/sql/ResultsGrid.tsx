@@ -96,7 +96,7 @@ export default function ResultsGrid({ columns, rows, links, onFollow, widthKey, 
                 <button
                   type="button"
                   onClick={() => setSort((s) => (s && s.col === i ? (s.dir === 1 ? { col: i, dir: -1 } : null) : { col: i, dir: 1 }))}
-                  className="flex max-w-full items-baseline gap-1.5 text-left hover:text-accent"
+                  className="-my-1.5 flex max-w-full items-baseline gap-1.5 py-1.5 text-left hover:text-accent"
                   title={`${c.name} — ${c.type}`}
                 >
                   <span className="truncate">{c.name}</span>
@@ -190,7 +190,7 @@ function CellView({ value, cls, link, onExpand }: { value: Cell; cls: Class; lin
   if (cls === "json" || cls === "array" || (value !== null && typeof value === "object")) {
     const text = JSON.stringify(value);
     return (
-      <button type="button" onClick={onExpand} className="truncate font-mono text-[11px] text-accent hover:underline" title="Open">
+      <button type="button" onClick={onExpand} className="-my-1 block w-full truncate py-1 text-left font-mono text-[11px] text-accent hover:underline" title="Open">
         {text.length > 90 ? text.slice(0, 90) + "…" : text}
       </button>
     );
@@ -198,7 +198,7 @@ function CellView({ value, cls, link, onExpand }: { value: Cell; cls: Class; lin
   if (cls === "binary") {
     const s = String(value);
     return (
-      <button type="button" onClick={onExpand} className="font-mono text-[11px] text-ink-muted hover:text-ink" title="Open">
+      <button type="button" onClick={onExpand} className="-my-1 block w-full truncate py-1 text-left font-mono text-[11px] text-ink-muted hover:text-ink" title="Open">
         {bytesLabel(s)}
       </button>
     );
@@ -212,14 +212,14 @@ function CellView({ value, cls, link, onExpand }: { value: Cell; cls: Class; lin
   );
   if (link) {
     return (
-      <button type="button" onClick={link} className="block w-full truncate text-left text-accent hover:underline" title="Open the referenced row">
+      <button type="button" onClick={link} className="-my-1 block w-full truncate py-1 text-left text-accent hover:underline" title="Open the referenced row">
         {text}
       </button>
     );
   }
   if (text.length > 120) {
     return (
-      <button type="button" onClick={onExpand} className="block w-full truncate text-left hover:text-accent" title="Open">
+      <button type="button" onClick={onExpand} className="-my-1 block w-full truncate py-1 text-left hover:text-accent" title="Open">
         {text}
       </button>
     );

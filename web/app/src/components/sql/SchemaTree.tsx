@@ -1,14 +1,19 @@
-import { useMemo, useState } from "react";
-import type { Table, Tree } from "@/lib/sql";
-import { DatabasesIcon, RefreshIcon, SearchIcon } from "@/components/icons";
+import { useMemo, useState, type ReactNode } from "react";
+import type { ColumnInfo, Table, Tree } from "@/lib/sql";
+import { DatabasesIcon, RefreshIcon, SearchIcon, TableIcon } from "@/components/icons";
 
 /**
  * The schema, as a tree.
  *
  * Everything here comes from one cached introspection pass, so expanding a
- * table is not a round trip and the search is instant. Row counts are the
+ * table is not a round trip and the filter is instant. Row counts are the
  * catalog's estimate: counting a table to draw a tree is how a schema browser
  * becomes the slowest page in a panel.
+ *
+ * Filtering searches columns as well as tables, so a table can be in the list
+ * for a reason that is not visible on its own row. When that happens it opens
+ * itself and shows the columns that matched, because a result you have to go
+ * looking for is not a result.
  */
 
 interface Props {
@@ -17,34 +22,51 @@ interface Props {
   error?: string | null;
   onRefresh: () => void;
   onOpenTable: (t: Table) => void;
-  onInsert: (text: string) => void;
   /** The table currently open, so the tree can say where you are. */
   active?: { schema: string; name: string } | null;
 }
 
-export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTable, onInsert, active }: Props) {
+interface Hit {
+  table: Table;
+  /** The table's own name matched. */
+  byName: boolean;
+  /** The columns that matched, empty when the filter is empty. */
+  columns: ColumnInfo[];
+}
+
+export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTable, active }: Props) {
   const [filter, setFilter] = useState("");
   const [openSchemas, setOpenSchemas] = useState<Record<string, boolean>>({});
   const [openTables, setOpenTables] = useState<Record<string, boolean>>({});
 
+  const q = filter.trim().toLowerCase();
+
   const schemas = useMemo(() => {
-    if (!tree) return [];
-    const q = filter.trim().toLowerCase();
-    if (!q) return tree.schemas;
+    if (!tree) return [] as { name: string; hits: Hit[] }[];
     return tree.schemas
       .map((s) => ({
-        ...s,
-        tables: s.tables.filter(
-          (t) => t.name.toLowerCase().includes(q) ||
-            (t.columns ?? []).some((c) => c.name.toLowerCase().includes(q)),
-        ),
+        name: s.name,
+        hits: s.tables
+          .map((table): Hit => {
+            if (!q) return { table, byName: false, columns: [] };
+            const byName = table.name.toLowerCase().includes(q);
+            const columns = (table.columns ?? []).filter((c) => c.name.toLowerCase().includes(q));
+            return { table, byName, columns };
+          })
+          .filter((h) => !q || h.byName || h.columns.length > 0),
       }))
-      .filter((s) => s.tables.length > 0 || s.name.toLowerCase().includes(q));
-  }, [tree, filter]);
+      .filter((s) => !q || s.hits.length > 0 || s.name.toLowerCase().includes(q));
+  }, [tree, q]);
 
   // One schema means no reason to make anyone click it open.
-  const isOpen = (name: string) =>
-    openSchemas[name] ?? (filter.trim() !== "" || (tree?.schemas.length ?? 0) <= 2);
+  const schemaOpen = (name: string) =>
+    openSchemas[name] ?? (q !== "" || (tree?.schemas.length ?? 0) <= 2);
+
+  // A table matched by one of its columns opens itself: otherwise it sits
+  // there collapsed, apparently for no reason, and the person has to click it
+  // to find out why their search found it.
+  const tableOpen = (key: string, hit: Hit) =>
+    openTables[key] ?? (q !== "" && hit.columns.length > 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -55,8 +77,20 @@ export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTabl
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter tables and columns"
-            className="h-7 w-full rounded-md border border-border bg-bg pl-7 pr-2 text-xs text-ink placeholder:text-ink-faint focus:border-accent"
+            className="h-7 w-full rounded-md border border-border bg-bg pl-7 pr-7 text-xs text-ink placeholder:text-ink-faint focus:border-accent"
           />
+          {filter && (
+            <button
+              type="button"
+              onClick={() => setFilter("")}
+              aria-label="Clear the filter"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-sm p-1 text-ink-faint hover:text-ink"
+            >
+              <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -72,63 +106,75 @@ export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTabl
         {error && <p className="px-2 py-3 text-xs text-danger">{error}</p>}
         {!error && !tree && loading && <p className="px-2 py-3 text-xs text-ink-muted">Reading the schema…</p>}
         {!error && tree && schemas.length === 0 && (
-          <p className="px-2 py-3 text-xs text-ink-muted">{filter ? "Nothing matches." : "This database has no tables yet."}</p>
+          <p className="px-2 py-3 text-xs text-ink-muted">{q ? "Nothing matches." : "This database has no tables yet."}</p>
         )}
 
         {schemas.map((s) => (
           <div key={s.name}>
             <button
               type="button"
-              onClick={() => setOpenSchemas((o) => ({ ...o, [s.name]: !isOpen(s.name) }))}
+              onClick={() => setOpenSchemas((o) => ({ ...o, [s.name]: !schemaOpen(s.name) }))}
+              aria-expanded={schemaOpen(s.name)}
               className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium hover:bg-surface-2"
             >
-              <Caret open={isOpen(s.name)} />
+              <Caret open={schemaOpen(s.name)} />
               <DatabasesIcon className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
               <span className="truncate">{s.name}</span>
-              <span className="ml-auto shrink-0 text-[10px] text-ink-faint">{s.tables.length}</span>
+              <span className="ml-auto shrink-0 text-[10px] text-ink-faint">{s.hits.length}</span>
             </button>
 
-            {isOpen(s.name) && s.tables.map((t) => {
+            {schemaOpen(s.name) && s.hits.map((hit) => {
+              const t = hit.table;
               const key = s.name + "." + t.name;
-              const on = openTables[key] ?? false;
+              const on = tableOpen(key, hit);
               const here = active?.schema === t.schema && active?.name === t.name;
+              // While filtering, the columns shown are the ones that matched.
+              const columns = q && hit.columns.length > 0 && !hit.byName ? hit.columns : (t.columns ?? []);
               return (
                 <div key={key} className="ml-3">
-                  <div className={`group flex items-center gap-1 rounded-md pr-1 ${here ? "bg-surface-2" : "hover:bg-surface-2/70"}`}>
+                  <div className={`group flex items-center rounded-md pr-1 ${here ? "bg-surface-2" : "hover:bg-surface-2/70"}`}>
                     <button
                       type="button"
                       onClick={() => setOpenTables((o) => ({ ...o, [key]: !on }))}
-                      className="shrink-0 px-1 py-1 text-ink-faint hover:text-ink"
-                      aria-label={on ? "Hide columns" : "Show columns"}
+                      aria-expanded={on}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-1 pr-1 text-left text-xs"
+                      title={t.comment || `${t.kind} ${t.schema}.${t.name}`}
                     >
                       <Caret open={on} />
+                      <span className={`truncate ${t.kind === "table" ? "" : "italic text-ink-muted"}`}>
+                        <Mark text={t.name} match={q} />
+                      </span>
+                      {t.kind !== "table" && <span className="shrink-0 text-[10px] text-ink-faint">{t.kind}</span>}
+                      {q && !hit.byName && hit.columns.length > 0 && (
+                        <span className="shrink-0 text-[10px] text-accent">
+                          {hit.columns.length} column{hit.columns.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {t.rows >= 0 && <span className="ml-auto shrink-0 pl-1.5 font-mono text-[10px] tabular-nums text-ink-faint">{compact(t.rows)}</span>}
                     </button>
                     <button
                       type="button"
                       onClick={() => onOpenTable(t)}
-                      className="flex min-w-0 flex-1 items-baseline gap-1.5 py-1 text-left text-xs"
-                      title={t.comment || `${t.kind} ${t.schema}.${t.name}`}
+                      title={`Open the rows of ${t.schema}.${t.name}`}
+                      aria-label={`Open the rows of ${t.schema}.${t.name}`}
+                      className="-my-1 shrink-0 rounded-md p-1 text-ink-faint opacity-0 hover:bg-surface-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
                     >
-                      <span className={`truncate ${t.kind === "table" ? "" : "italic text-ink-muted"}`}>{t.name}</span>
-                      {t.kind !== "table" && <span className="shrink-0 text-[10px] text-ink-faint">{t.kind}</span>}
-                      {t.rows >= 0 && <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-ink-faint">{compact(t.rows)}</span>}
+                      <TableIcon className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
                   {on && (
                     <div className="ml-5 border-l border-border pl-2">
-                      {(t.columns ?? []).map((c) => (
-                        <button
+                      {columns.map((c) => (
+                        <div
                           key={c.name}
-                          type="button"
-                          onClick={() => onInsert(c.name)}
                           title={`${c.type}${c.nullable ? "" : " NOT NULL"}${c.default ? " default " + c.default : ""}${c.comment ? " — " + c.comment : ""}`}
-                          className="flex w-full items-baseline gap-1.5 rounded-md px-1.5 py-0.5 text-left text-[11px] hover:bg-surface-2"
+                          className="flex w-full items-baseline gap-1.5 px-1.5 py-0.5 text-[11px]"
                         >
                           {c.primaryKey && <span className="shrink-0 text-[9px] text-accent" title="Primary key">PK</span>}
-                          <span className="truncate">{c.name}</span>
+                          <span className="truncate"><Mark text={c.name} match={q} /></span>
                           <span className="ml-auto shrink-0 truncate font-mono text-[10px] text-ink-faint">{c.type}</span>
-                        </button>
+                        </div>
                       ))}
                       {(t.foreignKeys ?? []).map((fk) => (
                         <div key={"fk" + fk.name} className="px-1.5 py-0.5 text-[10px] text-ink-faint">
@@ -150,6 +196,20 @@ export default function SchemaTree({ tree, loading, error, onRefresh, onOpenTabl
         )}
       </div>
     </div>
+  );
+}
+
+/** The part of a name that matched, so a long list says why each row is in it. */
+function Mark({ text, match }: { text: string; match: string }): ReactNode {
+  if (!match) return text;
+  const at = text.toLowerCase().indexOf(match);
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="rounded-[2px] bg-accent-soft text-accent">{text.slice(at, at + match.length)}</span>
+      {text.slice(at + match.length)}
+    </>
   );
 }
 

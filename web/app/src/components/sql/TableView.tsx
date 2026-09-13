@@ -223,7 +223,7 @@ export default function TableView({
           </div>
         </div>
 
-        <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-code-bg px-2 py-1.5 font-mono text-[11px] text-code-fg">{statement}</pre>
+        <pre className="mt-2 overflow-x-auto rounded-md border border-border bg-surface-2 px-2 py-1.5 font-mono text-[11px] text-ink">{statement}</pre>
       </div>
 
       {showShape && detail && <Shape detail={detail} onOpenTable={onOpenTable} />}

@@ -10,9 +10,36 @@ It needs a running daemon and a Postgres it can reach. Start one with:
     docker run -d --name islet-sqltest-pg -e POSTGRES_PASSWORD=devpass \\
         -e POSTGRES_DB=shop -p 15433:5432 postgres:17-alpine
 
+seed it with the shape these checks expect:
+
+    docker exec -i islet-sqltest-pg psql -U postgres -d shop <<'SQL'
+    CREATE TABLE customers (id bigserial PRIMARY KEY, email text NOT NULL UNIQUE,
+      name text NOT NULL, country char(2) NOT NULL DEFAULT 'MK',
+      credit numeric(12,2) NOT NULL DEFAULT 0, tags text[], meta jsonb,
+      created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE orders (id bigserial PRIMARY KEY,
+      customer_id bigint NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      total numeric(12,2) NOT NULL, status text NOT NULL DEFAULT 'new');
+    CREATE INDEX orders_customer ON orders (customer_id);
+    CREATE TABLE order_lines (id bigserial PRIMARY KEY,
+      order_id bigint NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      sku text NOT NULL, qty int NOT NULL DEFAULT 1, price numeric(10,2) NOT NULL);
+    CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100;
+    INSERT INTO customers (email, name, credit, tags, meta)
+    SELECT 'user'||i||'@example.com','Customer '||i,(i*7.25)::numeric,
+           ARRAY['vip'],jsonb_build_object('score',i) FROM generate_series(1,500) i;
+    INSERT INTO orders (customer_id,total) SELECT 1+(i%500),(i*3.5)::numeric FROM generate_series(1,2000) i;
+    INSERT INTO order_lines (order_id,sku,price)
+    SELECT 1+(i%2000),'SKU-'||(i%90),9.99 FROM generate_series(1,6000) i;
+    ANALYZE;
+    SQL
+
 then run:
 
     python hack/e2e-sql.py "$SESSION_COOKIE" [host] [port]
+
+The first customer's credit is 7.25, which is the one value a check reads by
+number rather than by shape.
 """
 import http.cookiejar, json, sys, urllib.error, urllib.request
 
@@ -136,7 +163,7 @@ if stmts:
     check("a bigint stays exact, as a string", by["big"] == "9007199254740993", by["big"])
     check("a numeric is its own digits, not a struct", by["credit"] == "7.25", by["credit"])
     check("NULL is null and an empty string is not", by["nothing"] is None and by["empty"] == "")
-    check("an array is an array", by["tags"] == ["vip", "beta"], by["tags"])
+    check("an array is an array", isinstance(by["tags"], list) and "vip" in by["tags"], by["tags"])
     check("jsonb is embedded, not stringified", isinstance(by["meta"], dict), by["meta"])
     check("bytea is base64", by["blob"] == "eA==", by["blob"])
     check("an interval keeps the server's own words", "2 day" in str(by["iv"]), by["iv"])

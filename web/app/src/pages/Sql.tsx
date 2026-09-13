@@ -243,7 +243,7 @@ export default function Sql() {
         body: (
           <div className="space-y-2">
             <p>On <span className="font-medium">{connection?.name}</span>{production ? ", which is marked production" : ""}.</p>
-            <pre className="max-h-32 overflow-auto rounded-md border border-border bg-code-bg p-2 font-mono text-[11px] text-code-fg whitespace-pre-wrap">{worst.sql}</pre>
+            <pre className="max-h-32 overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-[11px] whitespace-pre-wrap">{worst.sql}</pre>
             <ul className="list-disc pl-5 text-xs">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
           </div>
         ),
@@ -445,14 +445,18 @@ export default function Sql() {
             <Select
               value={connection.environment}
               onChange={(e) => void markConnection(e.target.value as Environment, connection.readOnly)}
-              className="w-32 text-xs"
+              className="w-36 text-xs"
               aria-label="Environment"
-              title="Marking a connection production makes every write ask first"
             >
-              <option value="development">development</option>
-              <option value="staging">staging</option>
-              <option value="production">production</option>
+              <option value="development">Development</option>
+              <option value="staging">Staging</option>
+              <option value="production">Production</option>
             </Select>
+            <span className={`text-[11px] ${production ? "text-danger" : "text-ink-muted"}`}>
+              {production
+                ? "Every write asks before it runs, and names this connection."
+                : "Only Production changes what the panel does: it makes every write ask first."}
+            </span>
           </>
         )}
 
@@ -490,7 +494,6 @@ export default function Sql() {
             error={treeState.error}
             onRefresh={() => loadTree(true)}
             onOpenTable={(t: Table) => openTable(t.schema, t.name)}
-            onInsert={(text) => intoEditor((queryTab?.doc ?? "") + text)}
             active={tab?.kind === "table" ? { schema: tab.schema, name: tab.table } : null}
           />
         </aside>

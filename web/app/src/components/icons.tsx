@@ -391,6 +391,13 @@ export const SqlIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const TableIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="4.5" width="18" height="15" rx="1.8" />
+    <path d="M3 9.4h18M3 14.5h18M9.2 9.4V19.5" />
+  </Icon>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   overview: OverviewIcon,
   containers: ContainersIcon,

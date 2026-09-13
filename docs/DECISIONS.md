@@ -398,3 +398,30 @@ is published there is a second route, and taking it beats telling somebody their
 own database is unreachable. The bridge address is still tried first and the
 fallback costs one dial, only on failure.
 
+## 2026-09-13 — A tree that behaves like a tree, and SQL that is not a terminal
+Clicking a table opened its rows and only the chevron expanded it, so the
+obvious gesture did the unobvious thing. The row toggles now; opening the rows
+is its own control on the row, which is two different actions with two
+different targets rather than one target guessing.
+
+Clicking a column appended its name to the end of the document. Not at the
+cursor — at the end, which is rarely where anyone is looking and never what
+they meant. A column is something to read; it is text now.
+
+Filtering searches columns as well as table names, so a table could be in the
+list for a reason invisible on its own row. A table matched by a column opens
+itself, shows the columns that matched and nothing else, and the matched run of
+characters is marked in both. A result you have to go looking for is not a
+result.
+
+And the generated SQL in the table viewer was drawn on the always-dark code
+surface, which is right for a terminal and for a log and wrong here: in the
+light theme it was a black slab of text in a white page, and it is a statement
+you are meant to read and take into the editor, not output. It follows the
+theme. Terminal and log surfaces keep the dark treatment they are named for.
+
+The environment control said development, staging, production and nothing about
+what any of them did, and only one of them does anything. It says so now, next
+to the control: only Production changes what the panel does, and what it
+changes is that every write asks first.
+
