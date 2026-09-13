@@ -73,7 +73,7 @@ export default function Cron() {
                 <td className="px-4 py-2.5 text-xs text-ink-muted">{j.type === "heartbeat" ? (j.lastPingAt ? `pinged ${fmt(j.lastPingAt)}` : "waiting for first ping") : j.enabled ? fmt(j.nextRun) : "paused"}</td>
                 <td className="px-4 py-2.5 text-xs">{j.lastRun ? <RunBadge r={j.lastRun} /> : <span className="text-ink-muted">never</span>}</td>
                 <td className="px-4 py-2.5 text-right text-xs whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                  {canEdit && <><button type="button" className="text-ink-muted hover:text-ink" onClick={() => void toggle(j)}>{j.enabled ? "Pause" : "Resume"}</button><button type="button" className="ml-3 text-ink-muted hover:text-ink" onClick={() => setEditing({ ...j })}>Edit</button><button type="button" className="ml-3 text-danger hover:underline" onClick={() => void remove(j)}>Delete</button></>}
+                  {canEdit && <><button type="button" className="-my-1 py-1 text-ink-muted hover:text-ink" onClick={() => void toggle(j)}>{j.enabled ? "Pause" : "Resume"}</button><button type="button" className="-my-1 ml-3 py-1 text-ink-muted hover:text-ink" onClick={() => setEditing({ ...j })}>Edit</button><button type="button" className="-my-1 ml-3 py-1 text-danger hover:underline" onClick={() => void remove(j)}>Delete</button></>}
                 </td>
               </tr>
             ))}

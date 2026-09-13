@@ -73,9 +73,22 @@ export default function CodeEditor({ name, value, onChange, onSave, className = 
     const v = new EditorView({ state, parent: host.current });
     view.current = v;
     return () => { v.destroy(); view.current = null; };
-    // The editor owns the document after mount; `name` changes remount it.
+    // The document is created once; `name` changes the language and remounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
+
+  // Text set from outside: a cron template, an older version of a script, a
+  // shebang picked from the dropdown. Without this the editor kept whatever it
+  // was created with and those controls silently did nothing.
+  //
+  // The comparison is what makes it safe to run on every render. Typing sends
+  // the document up through onChange and it arrives back here identical, so
+  // there is nothing to dispatch and the cursor is never disturbed.
+  useEffect(() => {
+    const v = view.current;
+    if (!v || v.state.doc.toString() === value) return;
+    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
+  }, [value]);
 
   return <div ref={host} className={`overflow-hidden rounded-lg border border-border ${className}`} />;
 }

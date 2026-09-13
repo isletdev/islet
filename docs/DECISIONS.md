@@ -470,3 +470,22 @@ Confirmation is now a property of the statement alone. An unfiltered DELETE
 deserves a second look wherever it runs; an UPDATE with a WHERE does not become
 dangerous because somebody labelled the connection.
 
+## 2026-09-13 — A CodeMirror wrapper has to accept text from outside
+The editor component built its document once, on mount, and ignored the `value`
+prop after that. A comment said so, as though it were a design: "the editor
+owns the document after mount".
+
+Three controls were quietly dead because of it. Choosing a cron template filled
+in the name and the schedule and left the script box empty, which is what it
+looked like from the outside: a template that does not work. Picking a shebang
+from the dropdown did nothing. Restoring an older version of a script did
+nothing. All three set state that reached the editor as a new `value` and was
+dropped on the floor.
+
+The rule, for any wrapper around an editor that owns its own document: the
+document is created once, and a `value` that differs from it is dispatched as a
+change. Comparing before dispatching is what makes that safe on every render —
+typing sends the document up and it comes back identical, so there is nothing
+to apply and the cursor is never moved. The SQL editor already did this; the
+file editor now does too.
+
