@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack, type Registry } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
@@ -6,7 +6,8 @@ import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import TermView from "@/components/TermView";
 import { openConsole } from "@/pages/Console";
 import { ExternalIcon } from "@/components/icons";
-import { bytes } from "@/lib/format";
+import { bytes, sizeToBytes } from "@/lib/format";
+import { SortHeader, useSort, type Column } from "@/lib/sortable";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
 import { useDialog, failure } from "@/lib/dialogs";
@@ -18,6 +19,10 @@ const TABS = [
   { to: "/containers/volumes", label: "Volumes" },
   { to: "/containers/networks", label: "Networks" },
 ];
+
+type ContainerSort = "name" | "image" | "stack" | "cpu" | "memory" | "ports";
+type ImageSort = "repository" | "tag" | "size" | "createdAt";
+type VolumeSort = "name" | "stack" | "size" | "mountpoint";
 
 export default function ContainersRoot() {
   const [status, setStatus] = useState<DockerStatus | null>(null);
@@ -97,7 +102,21 @@ function useList<T>(load: () => Promise<T[]>, every = 5000) {
 
 function List() {
   const ask = useDialog();
-  const { rows, err, refresh } = useList<Container>(api.containers);
+  const { rows: all, err, refresh } = useList<Container>(api.containers);
+  const columns = useMemo<Column<Container, ContainerSort>[]>(() => [
+    { key: "name", value: (c) => c.name },
+    { key: "image", value: (c) => c.image },
+    { key: "stack", value: (c) => c.stack },
+    { key: "cpu", kind: "number", value: (c) => c.cpuPct },
+    { key: "memory", kind: "number", value: (c) => c.memPct },
+    { key: "ports", value: (c) => c.ports },
+  ], []);
+  // Running containers first: a stopped one is not what you came to look at.
+  const { rows, sort, toggle } = useSort(all, columns, {
+    initial: { key: "name", dir: "asc" },
+    remember: "containers",
+    group: (c) => (c.state === "running" ? 0 : 1),
+  });
   const [busy, setBusy] = useState<string | null>(null);
   const act = async (id: string, action: string) => {
     if (action === "remove" && !(await ask.confirm({ title: "Remove this container?", body: "Anything written inside the container is lost. Named volumes are kept.", confirmLabel: "Remove", tone: "danger" }))) return;
@@ -109,9 +128,14 @@ function List() {
     <div className="overflow-x-auto rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
       <table className="w-full min-w-[900px] text-sm">
-        <thead className="text-left text-xs text-ink-muted"><tr>
-          <th className="px-4 py-2.5 font-medium">Name</th><th className="py-2.5 font-medium">Image</th><th className="py-2.5 font-medium">Stack</th>
-          <th className="py-2.5 pl-3 text-right font-medium">CPU</th><th className="py-2.5 pl-3 text-right font-medium">Memory</th><th className="py-2.5 pl-3 font-medium">Ports</th><th className="py-2.5 pr-4 text-right font-medium"></th>
+        <thead className="text-left text-xs text-ink-muted"><tr className="group">
+          <SortHeader label="Name" column="name" sort={sort} onSort={toggle} className="px-4" />
+          <SortHeader label="Image" column="image" sort={sort} onSort={toggle} />
+          <SortHeader label="Stack" column="stack" sort={sort} onSort={toggle} />
+          <SortHeader label="CPU" column="cpu" sort={sort} onSort={toggle} className="pl-3" align="right" />
+          <SortHeader label="Memory" column="memory" sort={sort} onSort={toggle} className="pl-3" align="right" />
+          <SortHeader label="Ports" column="ports" sort={sort} onSort={toggle} className="pl-3" />
+          <th className="py-2.5 pr-4 text-right font-medium"></th>
         </tr></thead>
         <tbody className="divide-y divide-border">
           {rows.map((c) => (
@@ -387,7 +411,14 @@ function Registries() {
 
 function Images() {
   const ask = useDialog();
-  const { rows, err, refresh } = useList<DockerImage>(api.images, 15000);
+  const { rows: all, err, refresh } = useList<DockerImage>(api.images, 15000);
+  const columns = useMemo<Column<DockerImage, ImageSort>[]>(() => [
+    { key: "repository", value: (i) => i.repository },
+    { key: "tag", value: (i) => i.tag },
+    { key: "size", kind: "number", value: (i) => sizeToBytes(i.size) },
+    { key: "createdAt", kind: "date", value: (i) => i.createdAt },
+  ], []);
+  const { rows, sort, toggle } = useSort(all, columns, { initial: { key: "size", dir: "desc" }, remember: "images" });
   const [ref, setRef] = useState("");
   const [out, setOut] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -406,7 +437,13 @@ function Images() {
       <Registries />
       <div className="rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2.5 font-medium">Image</th><th className="py-2.5 font-medium">Tag</th><th className="py-2.5 font-medium">Size</th><th className="py-2.5 font-medium">Created</th><th className="py-2.5 pr-4 text-right"></th></tr></thead>
+          <thead className="text-left text-xs text-ink-muted"><tr className="group">
+            <SortHeader label="Image" column="repository" sort={sort} onSort={toggle} className="px-4" />
+            <SortHeader label="Tag" column="tag" sort={sort} onSort={toggle} />
+            <SortHeader label="Size" column="size" sort={sort} onSort={toggle} />
+            <SortHeader label="Created" column="createdAt" sort={sort} onSort={toggle} />
+            <th className="py-2.5 pr-4 text-right"></th>
+          </tr></thead>
           <tbody className="divide-y divide-border">
             {rows.map((i) => (
               <tr key={i.id + i.tag}>
@@ -451,13 +488,26 @@ function Prune({ onDone }: { onDone: () => Promise<void> }) {
 
 function Volumes() {
   const ask = useDialog();
-  const { rows, err, refresh } = useList<DockerVolume>(api.volumes, 15000);
+  const { rows: all, err, refresh } = useList<DockerVolume>(api.volumes, 15000);
+  const columns = useMemo<Column<DockerVolume, VolumeSort>[]>(() => [
+    { key: "name", value: (v) => v.name },
+    { key: "stack", value: (v) => v.stack },
+    { key: "size", kind: "number", value: (v) => sizeToBytes(v.size) },
+    { key: "mountpoint", value: (v) => v.mountpoint },
+  ], []);
+  const { rows, sort, toggle } = useSort(all, columns, { initial: { key: "name", dir: "asc" }, remember: "volumes" });
   const remove = async (n: string) => { if (!(await ask.confirm({ title: `Delete the volume ${n}?`, body: "Everything stored in it is gone for good.", typeToConfirm: "DELETE", confirmLabel: "Delete volume", tone: "danger" }))) return; try { await api.volumeRemove(n); await refresh(); } catch (e) { void ask.alert({ title: "Could not delete the volume", body: failure(e), tone: "danger" }); } };
   return (
     <div className="rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
       <table className="w-full text-sm">
-        <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2.5 font-medium">Name</th><th className="py-2.5 font-medium">Stack</th><th className="py-2.5 font-medium">Size</th><th className="py-2.5 font-medium">Mountpoint</th><th className="py-2.5 pr-4 text-right"></th></tr></thead>
+        <thead className="text-left text-xs text-ink-muted"><tr className="group">
+          <SortHeader label="Name" column="name" sort={sort} onSort={toggle} className="px-4" />
+          <SortHeader label="Stack" column="stack" sort={sort} onSort={toggle} />
+          <SortHeader label="Size" column="size" sort={sort} onSort={toggle} />
+          <SortHeader label="Mountpoint" column="mountpoint" sort={sort} onSort={toggle} />
+          <th className="py-2.5 pr-4 text-right"></th>
+        </tr></thead>
         <tbody className="divide-y divide-border">
           {rows.map((v) => (
             <tr key={v.name}><td className="px-4 py-2 font-mono text-xs">{v.name}{!v.inUse && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">unused</span>}</td><td className="py-2 text-ink-muted">{v.stack}</td><td className="py-2 font-mono text-xs tabular-nums">{v.size}</td><td className="max-w-[30ch] truncate py-2 font-mono text-xs text-ink-muted">{v.mountpoint.startsWith("/") ? <Link to={`/files?path=${encodeURIComponent(v.mountpoint)}`} className="hover:text-ink hover:underline" title="Browse in Files">{v.mountpoint}</Link> : v.mountpoint}</td><td className="py-2 pr-4 text-right">{!v.inUse && <Act onClick={() => remove(v.name)} danger>Delete</Act>}</td></tr>

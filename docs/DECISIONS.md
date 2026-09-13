@@ -489,3 +489,22 @@ typing sends the document up and it comes back identical, so there is nothing
 to apply and the cursor is never moved. The SQL editor already did this; the
 file editor now does too.
 
+## 2026-09-13 — Sorting belongs to the table, not to each page
+Three pages listed rows nobody could reorder: files, containers, images. Each
+would have grown its own `useState` for a key and a direction, its own compare,
+and its own header markup, and they would have drifted.
+
+`lib/sortable` is the one implementation: `useSort` takes the rows, a column
+map, an initial choice, and an optional grouping function that runs before the
+comparison. The grouping is the part worth naming — directories stay above
+files and running containers above stopped ones no matter which column is
+sorted, because that grouping is not a sort order, it is what the list *is*.
+Comparison is `Intl.Collator` with `numeric: true`, so `img10` follows `img9`,
+and blanks sort last in both directions, because a missing value is not
+"smallest", it is missing. The choice is remembered per table in
+`localStorage`.
+
+Sizes come from Docker as `"1.09GB"` and `"10.4kB"`, which sort as text into
+nonsense. `sizeToBytes` parses them back to numbers, decimal and binary units
+alike, so the images table can default to largest-first — which is the only
+reason anyone opens it.

@@ -4,6 +4,7 @@ import { api, RequestError, type FileEntry, type TrashItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDialog } from "@/lib/dialogs";
 import { bytes } from "@/lib/format";
+import { SortHeader, useSort, type Column } from "@/lib/sortable";
 import { Alert, Button, Input } from "@/components/ui";
 import CodeEditor from "@/components/CodeEditor";
 import FolderPicker from "@/components/FolderPicker";
@@ -46,6 +47,8 @@ function crumbs(p: string) {
   return out;
 }
 
+type FileSort = "name" | "size" | "mode" | "owner" | "modTime";
+
 export default function Files() {
   const { state } = useAuth();
   const ask = useDialog();
@@ -70,7 +73,22 @@ export default function Files() {
   useEffect(() => { void load(path); }, [path, load]);
   const go = (p: string) => { setOpen(null); setPreview(null); setTrash(null); setSearch(null); setParams({ path: p }); };
 
-  const shown = useMemo(() => entries.filter((e) => (showHidden || !e.name.startsWith(".")) && (!filter || e.name.toLowerCase().includes(filter.toLowerCase()))), [entries, showHidden, filter]);
+  const visible = useMemo(() => entries.filter((e) => (showHidden || !e.name.startsWith(".")) && (!filter || e.name.toLowerCase().includes(filter.toLowerCase()))), [entries, showHidden, filter]);
+
+  // Folders stay above files whichever way a column points: a folder sorted
+  // into the middle of a file list is a file browser nobody can use.
+  const columns = useMemo<Column<FileEntry, FileSort>[]>(() => [
+    { key: "name", value: (e) => e.name },
+    { key: "size", kind: "number", value: (e) => (e.isDir ? null : e.size) },
+    { key: "mode", value: (e) => e.mode },
+    { key: "owner", value: (e) => e.owner },
+    { key: "modTime", kind: "date", value: (e) => e.modTime },
+  ], []);
+  const { rows: shown, sort, toggle } = useSort(visible, columns, {
+    initial: { key: "name", dir: "asc" },
+    remember: "files",
+    group: (e) => (e.isDir ? 0 : 1),
+  });
 
   const fail = (e: unknown) => setMsg(e instanceof RequestError ? e.message : String(e instanceof Error ? e.message : e));
   const openEntry = async (e: FileEntry) => {
@@ -211,7 +229,15 @@ export default function Files() {
         <div className="min-h-0 overflow-auto rounded-lg border border-border bg-surface">
           <table className="w-full min-w-[480px] text-sm">
             <thead className="sticky top-0 bg-surface text-left text-xs text-ink-muted">
-              <tr>{isAdmin && <th className="w-8 px-3 py-2"><input type="checkbox" checked={shown.length > 0 && sel.size === shown.length} onChange={toggleAll} aria-label="Select all" /></th>}<th className="py-2 font-medium">Name</th><th className="py-2 text-right font-medium">Size</th><th className="py-2 pl-4 font-medium">Mode</th><th className="py-2 pl-4 font-medium">Owner</th><th className="py-2 pl-4 font-medium">Modified</th><th className="py-2 pr-3"></th></tr>
+              <tr className="group">
+                {isAdmin && <th className="w-8 px-3 py-2"><input type="checkbox" checked={shown.length > 0 && sel.size === shown.length} onChange={toggleAll} aria-label="Select all" /></th>}
+                <SortHeader label="Name" column="name" sort={sort} onSort={toggle} />
+                <SortHeader label="Size" column="size" sort={sort} onSort={toggle} align="right" />
+                <SortHeader label="Mode" column="mode" sort={sort} onSort={toggle} className="pl-4" />
+                <SortHeader label="Owner" column="owner" sort={sort} onSort={toggle} className="pl-4" />
+                <SortHeader label="Modified" column="modTime" sort={sort} onSort={toggle} className="pl-4" />
+                <th className="py-2 pr-3"></th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {cur !== "/" && !/^[A-Za-z]:\\$/.test(cur) && <tr><td colSpan={7} className="px-3 py-1.5"><button type="button" onClick={() => go(parent(cur))} className="text-ink-muted hover:text-ink">..</button></td></tr>}
