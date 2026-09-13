@@ -382,6 +382,15 @@ export const ServersIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const SqlIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <ellipse cx="12" cy="5.6" rx="7.5" ry="2.8" />
+    <path d="M4.5 5.6v5.2c0 1.55 3.36 2.8 7.5 2.8s7.5-1.25 7.5-2.8V5.6" />
+    <path d="M4.5 10.8v5.2c0 1.55 3.36 2.8 7.5 2.8" />
+    <path d="M15.4 16.6h4.1M17.45 14.5v4.2" />
+  </Icon>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   overview: OverviewIcon,
   containers: ContainersIcon,
@@ -397,6 +406,7 @@ export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   backups: BackupsIcon,
   security: SecurityIcon,
   logs: LogsIcon,
+  sql: SqlIcon,
   servers: ServersIcon,
   settings: SettingsIcon,
 };

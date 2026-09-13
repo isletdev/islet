@@ -119,6 +119,40 @@ print(("PASS " if ok else "FAIL ") + f"the proxy refuses a path that climbs out 
 if not ok:
     fails.append("proxy path traversal")
 
+# 9. Arbitrary SQL is root on the data. Every route, refused for a non-admin:
+# this is the test that must not be allowed to rot as routes are added.
+sql_routes = [
+    ("GET", "/api/v1/sql/connections", None),
+    ("POST", "/api/v1/sql/connections", {}),
+    ("PUT", "/api/v1/sql/connections/x", {}),
+    ("DELETE", "/api/v1/sql/connections/x", None),
+    ("PUT", "/api/v1/sql/connections/islet:x/mark", {"readOnly": True, "environment": "production"}),
+    ("POST", "/api/v1/sql/connections/islet:x/test", {}),
+    ("GET", "/api/v1/sql/connections/islet:x/schema", None),
+    ("GET", "/api/v1/sql/connections/islet:x/search?q=a", None),
+    ("GET", "/api/v1/sql/connections/islet:x/table/public/users", None),
+    ("POST", "/api/v1/sql/connections/islet:x/query", {"sql": "SELECT 1"}),
+    ("POST", "/api/v1/sql/connections/islet:x/cancel", {"runId": "x"}),
+    ("POST", "/api/v1/sql/connections/islet:x/explain", {"sql": "SELECT 1", "analyze": False}),
+    ("POST", "/api/v1/sql/sessions", {"ref": "islet:x"}),
+    ("DELETE", "/api/v1/sql/sessions/x", None),
+    ("GET", "/api/v1/sql/history", None),
+    ("DELETE", "/api/v1/sql/history", None),
+    ("GET", "/api/v1/sql/saved", None),
+    ("POST", "/api/v1/sql/saved", {"name": "x", "sql": "SELECT 1"}),
+    ("PUT", "/api/v1/sql/saved/x", {"name": "x", "sql": "SELECT 1"}),
+    ("DELETE", "/api/v1/sql/saved/x", None),
+]
+refused = 0
+for method, path, payload in sql_routes:
+    st, _ = call(viewer, method, path, payload)
+    if st == 403:
+        refused += 1
+    else:
+        print(f"FAIL viewer reached {method} {path}  (got {st}, want 403)")
+        fails.append(f"sql {method} {path}")
+check("viewer is refused every SQL client route", refused, len(sql_routes))
+
 print()
 print("FAILURES:", fails if fails else "none")
 sys.exit(1 if fails else 0)

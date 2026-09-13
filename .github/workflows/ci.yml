@@ -39,6 +39,13 @@ jobs:
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt"; exit 1; }
           go vet ./...
           go test ./...
+      # The Go splitter and the editor's own have to give the same answer, or
+      # the editor outlines one statement and the server runs another. Both
+      # read internal/sqlclient/testdata/statements.json; this runs them over
+      # it. Node strips the types, so there is no build step and no framework.
+      - name: SQL splitters agree
+        run: node --experimental-strip-types hack/sql-split-agree.mjs
+
       - name: Docs site renders
         run: go run ./tools/docsite -out /tmp/site && test -f /tmp/site/index.html
       - name: Cross-compile

@@ -31,6 +31,7 @@ import (
 	"github.com/isletdev/islet/internal/recipes"
 	"github.com/isletdev/islet/internal/runner"
 	"github.com/isletdev/islet/internal/security"
+	"github.com/isletdev/islet/internal/sqlclient"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
@@ -84,17 +85,33 @@ type Server struct {
 	runners  *runner.Service
 	security *security.Service
 	fleet    *fleet.Service
-	backup   *backup.Service
-	github   *github.Client
-	mcp      *mcp.Server
-	ui       http.Handler
-	log      *slog.Logger
-	started  time.Time
+	sqlMgr   *sqlclient.Manager
+	sqlStore *sqlclient.Store
+	sqlCache *sqlclient.SchemaCache
+	// sqlInstances is installedDatabases in the daemon, and a fixed list in
+	// the tests. See internal/api/sqlclient.go.
+	sqlInstances func(context.Context, string) ([]sqlInstance, error)
+	backup       *backup.Service
+	github       *github.Client
+	mcp          *mcp.Server
+	ui           http.Handler
+	log          *slog.Logger
+	started      time.Time
 }
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
 	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	// The SQL client costs a map and a ticker until somebody opens a
+	// connection, which is the whole argument for it living in the daemon.
+	if s.store != nil && s.keys != nil {
+		s.sqlInstances = s.installedDatabases
+		s.sqlMgr = sqlclient.NewManager(nil, nil)
+		s.sqlStore = sqlclient.NewStore(s.store.DB, s.store.ServerID, s.keys, nil)
+		s.sqlCache = sqlclient.NewSchemaCache(nil)
+		s.sqlMgr.Start(context.Background())
+		s.StartSQLHistoryPrune(context.Background())
+	}
 	s.recipes = recipes.New(s.catalog.FS(), s.recipeHooks())
 	s.StartCatalogRefresh(context.Background())
 	s.loadCookieDomain()
@@ -168,6 +185,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}/exposure", s.requireAuth(s.handleServerExposure))
 	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.requireAuth(s.handleServerForget))
 	mux.HandleFunc("/api/v1/servers/{id}/proxy/{rest...}", s.requireAuth(s.handleServerProxy))
+	// ---- the SQL client ----
+	s.registerSQLRoutes(mux, s.requireAuth)
 	mux.HandleFunc("GET /api/v1/commands", s.requireAuth(s.handleCommands))
 
 	// Docker

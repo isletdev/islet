@@ -313,3 +313,72 @@ that was then shown to the person as if the request had failed. And several
 clickable things in dense tables were sixteen pixels tall; they have a
 fingertip's worth of height now without changing the row's.
 
+## 2026-09-13 — The SQL client is part of the server, not a container next to it
+Islet installs databases, and the only way to look inside one was Adminer: a
+second container, a second login, and a tool that has not changed since 2010.
+NocoDB was measured at 770 MB resident while idle and stores your credentials in
+its own database. `docs/SQL_CLIENT.md` is the specification that came out of
+rejecting both; this is what shipped against it.
+
+It runs in the daemon. Idle it costs a map and a ticker: no pool, no connection
+and no memory until somebody opens a connection, which is the entire argument
+against a second container and had to stay true. It reaches a database Islet
+installed on the container's own bridge address, so nothing is published to the
+internet to query it, and there is no "add connection" step for the common case
+— the panel already knows the host, the port and the password.
+
+Real drivers rather than `docker exec psql`. Text output carries no column
+types, cannot tell `NULL` from an empty string, cannot stream and gives nothing
+to hang foreign-key navigation on. `pgx` and `go-sql-driver/mysql` cost **4.06
+MB** on the binary, measured `linux/amd64` with `CGO_ENABLED=0` against the
+previous release. The specification budgeted under 5 MB; the staging area's own
+measurement said 6.88 MB, which was a synthetic program that exercised every
+`pgtype` codec rather than the daemon, and the reduced type map it recommended
+turned out not to be needed.
+
+Every representation is decided once, in `value.go`, because the obvious
+alternative loses information in silence. `NULL` is null and an empty string is
+`""`. `int8`, `numeric` and `decimal` are strings, always and per column, since
+a JavaScript number rounds past 2^53 and a column that changes shape halfway
+down a result is worse than one that is consistently a string. A date is a day,
+not a day with a midnight glued to it. `jsonb` is embedded rather than
+stringified so the grid can open it. `bytea` is base64 with a byte count.
+
+Statement boundaries are found by a lexer, not by splitting on semicolons, and
+the same lexer exists twice: once in Go, because the server decides what it will
+run, and once in TypeScript, because the editor outlines what Run is about to
+send. Two answers to that question is a tool that highlights one statement and
+runs another. `internal/sqlclient/testdata/statements.json` is a shared corpus of
+47 cases — dollar-quoted bodies, nested comments, MySQL's `--` rule, an `UPDATE`
+written inside a comment — and `hack/sql-split-agree.mjs` runs both
+implementations over it. The parse tree from `@codemirror/lang-sql` drives
+highlighting and completion, which is what a grammar is good at, and does not
+drive the ranges.
+
+Safety is in the daemon, not the interface. A read-only connection refuses a
+write in the classifier before it is sent and on a connection opened with
+`default_transaction_read_only`, so both would have to fail. An unfiltered
+`UPDATE` or `DELETE`, a `DROP`, a `TRUNCATE`, an `ALTER`, a `GRANT`, and any
+write at all on a connection marked production are refused with 409 until the
+request says it was confirmed — the panel collects that with its own dialog,
+naming the connection, and the worst of them ask you to type the connection's
+name. `EXPLAIN ANALYZE` goes through the same preflight, because explaining a
+`DELETE` with `ANALYZE` deletes the rows. Every statement reaches the audit log
+through `cmdrun.Redact` and the history table, whether it succeeded or not. The
+whole surface is admin-only: arbitrary SQL is equivalent to root on the data,
+and `hack/e2e-privileges.py` proves a viewer is refused all twenty routes.
+
+Four bugs found by pointing it at a real database rather than a fake one.
+Postgres renders `relkind` as the `"char"` type, which a driver is free to hand
+back as a number, so every view was reported as a table until the query asked
+for text. `pgx` decodes `numeric` into its own struct, which `fmt.Sprint`
+rendered as `{725 -2 false finite true}`; every `pgtype` value satisfies
+`driver.Valuer`, so asking is better than guessing. MySQL has no `program_name`,
+and an unknown DSN parameter is sent as an unquoted `SET` at connect, which made
+every MySQL connection fail on its first statement. And the worst one: a
+statement the server killed came back as a cursor with no columns whose error
+only appears once it is asked for a row, so skipping the row loop for a
+statement that returned no columns turned a cancelled query into a silent
+success — no error, no rows, nothing wrong. The cursor is always drained now,
+and there is a test with a driver that fails exactly that way.
+

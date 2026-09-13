@@ -1,0 +1,793 @@
+{
+  "note": "Shared corpus for the SQL statement splitter. The Go implementation in internal/sqlclient and the CodeMirror parse-tree walker in the web app are both tested against this file so they cannot drift. start and end are BYTE offsets into the UTF-8 encoding of doc, and doc[start:end] is exactly sql.",
+  "cases": [
+    {
+      "name": "empty",
+      "engine": "postgres",
+      "doc": "",
+      "statements": []
+    },
+    {
+      "name": "whitespace only",
+      "engine": "postgres",
+      "doc": "   \n\t\n  ",
+      "statements": []
+    },
+    {
+      "name": "comment only",
+      "engine": "postgres",
+      "doc": "-- nothing to run here\n/* nor here */\n",
+      "statements": []
+    },
+    {
+      "name": "bare semicolons",
+      "engine": "postgres",
+      "doc": ";;\n;",
+      "statements": []
+    },
+    {
+      "name": "single statement, no terminator",
+      "engine": "postgres",
+      "doc": "SELECT 1",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "two statements",
+      "engine": "postgres",
+      "doc": "SELECT 1;\nSELECT 2;",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 10,
+          "end": 18,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "trailing text after the last semicolon",
+      "engine": "postgres",
+      "doc": "SELECT 1;\nSELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 10,
+          "end": 18,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "leading and trailing gap is outside the range",
+      "engine": "postgres",
+      "doc": "\n  -- run me\n  SELECT 1 ;  \n",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 15,
+          "end": 23,
+          "line": 3,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "semicolon inside a string literal",
+      "engine": "postgres",
+      "doc": "SELECT ';' AS x",
+      "statements": [
+        {
+          "sql": "SELECT ';' AS x",
+          "start": 0,
+          "end": 15,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "semicolon inside a quoted identifier",
+      "engine": "postgres",
+      "doc": "SELECT ';' AS \"not; a; separator\";",
+      "statements": [
+        {
+          "sql": "SELECT ';' AS \"not; a; separator\"",
+          "start": 0,
+          "end": 33,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "doubled quote inside a string",
+      "engine": "postgres",
+      "doc": "SELECT 'it''s; fine';SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 'it''s; fine'",
+          "start": 0,
+          "end": 20,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 21,
+          "end": 29,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "escape string with a backslash quote",
+      "engine": "postgres",
+      "doc": "SELECT E'\\';' AS x;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT E'\\';' AS x",
+          "start": 0,
+          "end": 18,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 19,
+          "end": 27,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "semicolon inside a line comment",
+      "note": "a trailing comment sits between the last token and the terminator, so it is outside the range",
+      "engine": "postgres",
+      "doc": "SELECT 1 -- ; not a split\n;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 27,
+          "end": 35,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "semicolon inside a block comment",
+      "engine": "postgres",
+      "doc": "SELECT /* ; */ 1;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT /* ; */ 1",
+          "start": 0,
+          "end": 16,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 17,
+          "end": 25,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "nested block comment, postgres",
+      "note": "a scanner that does not nest stops at the first */ and reads 'c */ SELECT 1' as SQL",
+      "engine": "postgres",
+      "doc": "/* a /* b; */ c */ SELECT 1;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 19,
+          "end": 27,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 28,
+          "end": 36,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "dollar quoted body",
+      "engine": "postgres",
+      "doc": "CREATE FUNCTION bump() RETURNS trigger AS $$\nBEGIN\n  NEW.updated_at := now();\n  RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql;\nSELECT 1;",
+      "statements": [
+        {
+          "sql": "CREATE FUNCTION bump() RETURNS trigger AS $$\nBEGIN\n  NEW.updated_at := now();\n  RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql",
+          "start": 0,
+          "end": 116,
+          "line": 1,
+          "kind": "ddl"
+        },
+        {
+          "sql": "SELECT 1",
+          "start": 118,
+          "end": 126,
+          "line": 7,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "dollar quoted body with a tag",
+      "engine": "postgres",
+      "doc": "DO $body$ BEGIN PERFORM 1; END $body$;SELECT 2",
+      "statements": [
+        {
+          "sql": "DO $body$ BEGIN PERFORM 1; END $body$",
+          "start": 0,
+          "end": 37,
+          "line": 1,
+          "kind": "write"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 38,
+          "end": 46,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "dollar sign parameter is not a dollar quote",
+      "engine": "postgres",
+      "doc": "SELECT $1, $2;SELECT 3",
+      "statements": [
+        {
+          "sql": "SELECT $1, $2",
+          "start": 0,
+          "end": 13,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 3",
+          "start": 14,
+          "end": 22,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "unterminated string runs to the end",
+      "engine": "postgres",
+      "doc": "SELECT 'still typing",
+      "statements": [
+        {
+          "sql": "SELECT 'still typing",
+          "start": 0,
+          "end": 20,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "update without a filter",
+      "engine": "postgres",
+      "doc": "UPDATE users SET active = false",
+      "statements": [
+        {
+          "sql": "UPDATE users SET active = false",
+          "start": 0,
+          "end": 31,
+          "line": 1,
+          "kind": "write",
+          "danger": [
+            "unfiltered"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "update with a filter",
+      "engine": "postgres",
+      "doc": "UPDATE users SET active = false WHERE id = 1",
+      "statements": [
+        {
+          "sql": "UPDATE users SET active = false WHERE id = 1",
+          "start": 0,
+          "end": 44,
+          "line": 1,
+          "kind": "write"
+        }
+      ]
+    },
+    {
+      "name": "delete whose only WHERE belongs to a subquery",
+      "engine": "postgres",
+      "doc": "DELETE FROM sessions USING (SELECT id FROM users WHERE banned) b",
+      "statements": [
+        {
+          "sql": "DELETE FROM sessions USING (SELECT id FROM users WHERE banned) b",
+          "start": 0,
+          "end": 64,
+          "line": 1,
+          "kind": "write",
+          "danger": [
+            "unfiltered"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "update whose only WHERE is inside a set expression",
+      "engine": "postgres",
+      "doc": "UPDATE a SET n = (SELECT count(*) FROM b WHERE b.a_id = a.id)",
+      "statements": [
+        {
+          "sql": "UPDATE a SET n = (SELECT count(*) FROM b WHERE b.a_id = a.id)",
+          "start": 0,
+          "end": 61,
+          "line": 1,
+          "kind": "write",
+          "danger": [
+            "unfiltered"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an update inside a comment is not an update",
+      "engine": "postgres",
+      "doc": "-- UPDATE users SET active = false\nSELECT 1",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 35,
+          "end": 43,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "writing CTE makes the whole statement a write",
+      "engine": "postgres",
+      "doc": "WITH gone AS (DELETE FROM sessions RETURNING id) SELECT count(*) FROM gone",
+      "statements": [
+        {
+          "sql": "WITH gone AS (DELETE FROM sessions RETURNING id) SELECT count(*) FROM gone",
+          "start": 0,
+          "end": 74,
+          "line": 1,
+          "kind": "write",
+          "danger": [
+            "unfiltered"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reading CTE stays a read",
+      "engine": "postgres",
+      "doc": "WITH recent AS (SELECT * FROM logs) SELECT * FROM recent",
+      "statements": [
+        {
+          "sql": "WITH recent AS (SELECT * FROM logs) SELECT * FROM recent",
+          "start": 0,
+          "end": 56,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "explain is a read",
+      "engine": "postgres",
+      "doc": "EXPLAIN DELETE FROM users",
+      "statements": [
+        {
+          "sql": "EXPLAIN DELETE FROM users",
+          "start": 0,
+          "end": 25,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "explain analyze is whatever it runs",
+      "engine": "postgres",
+      "doc": "EXPLAIN (ANALYZE, BUFFERS) DELETE FROM users",
+      "statements": [
+        {
+          "sql": "EXPLAIN (ANALYZE, BUFFERS) DELETE FROM users",
+          "start": 0,
+          "end": 44,
+          "line": 1,
+          "kind": "write",
+          "danger": [
+            "unfiltered"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "drop",
+      "engine": "postgres",
+      "doc": "DROP TABLE users",
+      "statements": [
+        {
+          "sql": "DROP TABLE users",
+          "start": 0,
+          "end": 16,
+          "line": 1,
+          "kind": "ddl",
+          "danger": [
+            "drop"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "truncate",
+      "engine": "postgres",
+      "doc": "TRUNCATE users",
+      "statements": [
+        {
+          "sql": "TRUNCATE users",
+          "start": 0,
+          "end": 14,
+          "line": 1,
+          "kind": "ddl",
+          "danger": [
+            "truncate"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "alter",
+      "engine": "postgres",
+      "doc": "ALTER TABLE users ADD COLUMN x int",
+      "statements": [
+        {
+          "sql": "ALTER TABLE users ADD COLUMN x int",
+          "start": 0,
+          "end": 34,
+          "line": 1,
+          "kind": "ddl",
+          "danger": [
+            "alter"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grant",
+      "engine": "postgres",
+      "doc": "GRANT SELECT ON users TO app",
+      "statements": [
+        {
+          "sql": "GRANT SELECT ON users TO app",
+          "start": 0,
+          "end": 28,
+          "line": 1,
+          "kind": "ddl",
+          "danger": [
+            "grant"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "copy from is a write",
+      "engine": "postgres",
+      "doc": "COPY users FROM '/tmp/u.csv'",
+      "statements": [
+        {
+          "sql": "COPY users FROM '/tmp/u.csv'",
+          "start": 0,
+          "end": 28,
+          "line": 1,
+          "kind": "write"
+        }
+      ]
+    },
+    {
+      "name": "copy to is a read",
+      "engine": "postgres",
+      "doc": "COPY users TO '/tmp/u.csv'",
+      "statements": [
+        {
+          "sql": "COPY users TO '/tmp/u.csv'",
+          "start": 0,
+          "end": 26,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "transaction control",
+      "engine": "postgres",
+      "doc": "BEGIN;SELECT 1;COMMIT",
+      "statements": [
+        {
+          "sql": "BEGIN",
+          "start": 0,
+          "end": 5,
+          "line": 1,
+          "kind": "transaction"
+        },
+        {
+          "sql": "SELECT 1",
+          "start": 6,
+          "end": 14,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "COMMIT",
+          "start": 15,
+          "end": 21,
+          "line": 1,
+          "kind": "transaction"
+        }
+      ]
+    },
+    {
+      "name": "session statement",
+      "engine": "postgres",
+      "doc": "SET search_path TO app",
+      "statements": [
+        {
+          "sql": "SET search_path TO app",
+          "start": 0,
+          "end": 22,
+          "line": 1,
+          "kind": "session"
+        }
+      ]
+    },
+    {
+      "name": "a quoted identifier is never a keyword",
+      "engine": "postgres",
+      "doc": "\"drop\" ()",
+      "statements": [
+        {
+          "sql": "\"drop\" ()",
+          "start": 0,
+          "end": 9,
+          "line": 1,
+          "kind": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "named parameters",
+      "engine": "postgres",
+      "doc": "SELECT * FROM users WHERE id = :id AND org = :org AND ref = :id",
+      "statements": [
+        {
+          "sql": "SELECT * FROM users WHERE id = :id AND org = :org AND ref = :id",
+          "start": 0,
+          "end": 63,
+          "line": 1,
+          "kind": "read",
+          "params": [
+            "id",
+            "org"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a cast is not a parameter",
+      "engine": "postgres",
+      "doc": "SELECT x::int FROM t",
+      "statements": [
+        {
+          "sql": "SELECT x::int FROM t",
+          "start": 0,
+          "end": 20,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql hash comment",
+      "note": "a trailing comment sits between the last token and the terminator, so it is outside the range",
+      "engine": "mysql",
+      "doc": "SELECT 1 # ; not a split\n;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 26,
+          "end": 34,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql backtick identifier",
+      "engine": "mysql",
+      "doc": "SELECT 1 AS `a;b`;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 1 AS `a;b`",
+          "start": 0,
+          "end": 17,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 18,
+          "end": 26,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql dash dash needs a space",
+      "note": "in postgres the same text is SELECT 1 followed by a comment",
+      "engine": "mysql",
+      "doc": "SELECT 1--2",
+      "statements": [
+        {
+          "sql": "SELECT 1--2",
+          "start": 0,
+          "end": 11,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "postgres dash dash does not",
+      "engine": "postgres",
+      "doc": "SELECT 1--2\n;SELECT 3",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 0,
+          "end": 8,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 3",
+          "start": 13,
+          "end": 21,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql backslash escape",
+      "engine": "mysql",
+      "doc": "SELECT '\\';' AS x;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT '\\';' AS x",
+          "start": 0,
+          "end": 17,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 18,
+          "end": 26,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql double quotes are a string",
+      "engine": "mysql",
+      "doc": "SELECT \";\" AS x;SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT \";\" AS x",
+          "start": 0,
+          "end": 15,
+          "line": 1,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 16,
+          "end": 24,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "mysql block comments do not nest",
+      "engine": "mysql",
+      "doc": "/* a /* b */ SELECT 1",
+      "statements": [
+        {
+          "sql": "SELECT 1",
+          "start": 13,
+          "end": 21,
+          "line": 1,
+          "kind": "read"
+        }
+      ]
+    },
+    {
+      "name": "multi-byte text before a statement",
+      "note": "offsets are byte offsets into the UTF-8 document; the TypeScript side converts from UTF-16",
+      "engine": "postgres",
+      "doc": "-- naïve café ☕\nSELECT 'π';SELECT 2",
+      "statements": [
+        {
+          "sql": "SELECT 'π'",
+          "start": 20,
+          "end": 31,
+          "line": 2,
+          "kind": "read"
+        },
+        {
+          "sql": "SELECT 2",
+          "start": 32,
+          "end": 40,
+          "line": 2,
+          "kind": "read"
+        }
+      ]
+    }
+  ]
+}

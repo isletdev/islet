@@ -24,6 +24,9 @@ const Security = lazy(() => import("./pages/Security"));
 const Backups = lazy(() => import("./pages/Backups"));
 const Embed = lazy(() => import("./pages/Embed"));
 const Servers = lazy(() => import("./pages/Servers"));
+// The SQL client carries CodeMirror and its SQL grammar; it loads when
+// somebody opens it and not before.
+const Sql = lazy(() => import("./pages/Sql"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
 import { useAuth } from "./lib/auth";
@@ -57,6 +60,7 @@ export default function App() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/cron" element={<Cron />} />
         <Route path="/databases" element={<Databases />} />
+        <Route path="/sql" element={<Sql />} />
         <Route path="/uptime" element={<Uptime />} />
         <Route path="/logs" element={<Logs />} />
         <Route path="/runners" element={<Runners />} />

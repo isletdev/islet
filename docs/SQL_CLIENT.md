@@ -4,7 +4,11 @@ A build specification. The reader is an engineer or an agent implementing this
 from scratch inside the Islet repository. It states what to build, what not to
 build, the decisions already made and why, and the bar the result has to clear.
 
-Nothing here has been implemented yet.
+**Status: shipped in v0.4.0.** Phases 1 to 3 of section 11 are complete, phase 4
+is complete apart from inline editing, and `EXPLAIN` rendering and index
+suggestions arrived from phase 5. Section 13 lists what is not built. Where this
+document and `internal/sqlclient` disagree, the code is the fact and this is the
+intent; reconcile them rather than letting them drift.
 
 ---
 
@@ -491,21 +495,44 @@ Phases 1 to 3 are the product. Everything after is what makes people keep it.
 
 ---
 
-## 12. Open questions
+## 12. The open questions, answered
 
-Decide these early; each one changes the shape of the work.
+1. **MySQL parity.** Both engines ship in version one. Introspection, value
+   representation, cancellation and `EXPLAIN` all work on MySQL 8 and MariaDB;
+   `hack/e2e-sql.py` runs against Postgres and the same paths are exercised
+   against MySQL by hand. The one real difference left is that MySQL's
+   `EXPLAIN ANALYZE` is text only, which the plan view says rather than hides.
+2. **Where the page lives.** `/sql` in the sidebar, under Deploy, next to
+   Databases. It is a real feature and it opens databases Islet never installed,
+   so a tab inside Databases would have been a lie about its scope.
+3. **External connections and the firewall.** No allow-list. An outbound
+   connection from the daemon to a database somebody explicitly added is the
+   feature working, not a hole; there is no inbound surface to open and nothing
+   for the security report to say that the connection list does not already
+   say. Revisit if connections ever stop being admin-only.
+4. **Result export size.** Capped by the row cap, deliberately. Copy gives you
+   CSV, JSON, Markdown or `INSERT` statements for what is on screen. A real
+   export of a million rows is a different feature that streams to a file, and
+   it is not this one.
+5. **The grid dependency.** None. The grid is about 300 lines in
+   `components/sql/ResultsGrid.tsx`, windowed by hand over a fixed row height,
+   which is all a capped result needs. The measurement that decided it: the
+   whole page is 30 kB gzipped, and the lightest grid worth having was more
+   than that on its own.
 
-1. **MySQL parity.** Introspection, `EXPLAIN` rendering and cancellation all
-   differ. Is version one Postgres only, with MySQL arriving in phase 3? That is
-   the honest scope, and it should be stated rather than discovered.
-2. **Where the page lives.** A `/sql` entry in the sidebar under Deploy, or a
-   tab inside Databases? A sidebar entry says it is a real feature. A tab says
-   it belongs to the databases Islet installed, which is not true once external
-   connections exist.
-3. **External connections and the firewall.** Reaching a database on another
-   server means an outbound connection from the daemon. Does that need its own
-   allow-list, and does it belong in the security report?
-4. **Result export size.** Exporting is capped by the row cap today. A real
-   export of a million rows is a different feature, streaming straight to a
-   file. Say no for now, and write down that it was a choice.
-5. **The grid dependency.** Decide before phase 2, with a measurement.
+---
+
+## 13. What is not built
+
+Named so that the next person does not have to work it out from the absence.
+
+- **7.6 parameters.** The backend binds `:name` placeholders through the driver
+  and saved queries record which ones they declare. The form above the editor
+  that collects values is not built; a saved query with parameters shows them
+  and is run by editing the text.
+- **7.15 inline editing.** A cell is not editable. This is the largest piece of
+  the specification that is missing, and the one most likely to be asked for.
+- **7.18 charting**, **7.19 schema snapshots**, **7.20 scratch restores.** None
+  built. Each is a feature in its own right rather than a detail of this one.
+- **Integration tests against MySQL in CI.** `hack/e2e-sql.py` covers Postgres.
+  MySQL is verified by hand.

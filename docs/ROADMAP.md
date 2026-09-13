@@ -333,6 +333,8 @@ After this phase a user can: adopt a server that already runs things, extend the
 
 Grow the user base and the catalog for at least a release cycle before starting paid work. When the time comes, the Pro plan in `VISION.md` section 4 and the gating design in `REPOS_AND_MONETIZATION.md` are ready.
 
+A built-in SQL client shipped in v0.4.0: schema browser, editor with statement detection, results grid, table viewer with foreign-key navigation both ways, history, saved queries, transactions, production marking and `EXPLAIN`. `docs/SQL_CLIENT.md` records what is in and what is not.
+
 Managing more than one server shipped free in v0.3.0, so it is no longer the candidate for the first paid feature. What is still open above it: a hub that keeps working when the controlling server does not, moving an app between servers, and a shared view across a fleet rather than one server at a time.
 
 Ideas that stay free and can be picked up any time after launch, roughly in order of demand:

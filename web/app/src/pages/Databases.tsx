@@ -213,7 +213,7 @@ function Detail({ name, isAdmin, onChanged }: { name: string; isAdmin: boolean; 
           <Card title="Slow queries" description="From pg_stat_statements. Turn the extension on and restart the instance to collect data.">
             {slow === null ? <Button variant="secondary" className="h-8 text-xs" onClick={async () => { try { setSlow(await api.dbSlow(name)); } catch (e) { setMsg(err(e)); } }}>Load</Button>
               : slow.length === 0 ? <p className="text-sm text-ink-muted">No statistics yet.</p>
-              : <ul className="divide-y divide-border text-xs">{slow.map((q, i) => <li key={i} className="py-1.5"><div className="font-mono break-all">{q.query}</div><div className="text-ink-muted">{q.calls} calls · {q.meanMs} ms mean</div></li>)}</ul>}
+              : <ul className="divide-y divide-border text-xs">{slow.map((q, i) => <li key={i} className="py-1.5"><div className="font-mono break-all">{q.query}</div><div className="mt-0.5 flex flex-wrap items-center gap-2 text-ink-muted"><span>{q.calls} calls · {q.meanMs} ms mean</span><Link to={`/sql?ref=islet:${encodeURIComponent(name)}&sql=${encodeURIComponent(q.query)}`} className="-my-1 inline-block py-1 text-accent hover:underline">Open it in the SQL client</Link></div></li>)}</ul>}
           </Card>
         </div>
       )}
