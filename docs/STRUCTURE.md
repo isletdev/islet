@@ -1,6 +1,6 @@
 # Repository structure
 
-One Go module, one pnpm workspace, one binary. A few folders (`reconcile/`, `recipes/`, `runners/`, `plugins/`, `web/packages/ui/`, `e2e/`) are still empty placeholders; `runner/` (singular) holds the CI runner code, and `mcp/`, `uptime/`, `watch/`, `update/`, `tlsutil/`, `cmdrun/`, `version/` and `web/` exist beyond the list below.
+One Go module, one pnpm workspace, one binary. A few folders (`reconcile/`, `recipes/`, `runners/`, `plugins/`, `pkg/client/`, `web/packages/ui/`, `e2e/`) are still empty placeholders; `runner/` (singular) holds the CI runner code, and `mcp/`, `uptime/`, `watch/`, `update/`, `tlsutil/`, `cmdrun/`, `version/` and `web/` exist beyond the list below.
 
 ```
 islet/
@@ -34,7 +34,7 @@ islet/
 │  └─ client/            Go client for the daemon API, used by the CLI
 │
 ├─ web/                  pnpm workspace
-│  ├─ app/               The panel: React, Vite, TypeScript, Tailwind, shadcn/ui, TanStack Query and Router
+│  ├─ app/               The panel: React 19, Vite, TypeScript, Tailwind v4, react-router-dom, own components
 │  └─ packages/ui/       Shared components and design tokens, reusable by a future Hub frontend
 │
 ├─ catalog/              In-repo for now, moves to its own MIT repo in phase 6
@@ -59,6 +59,6 @@ islet/
 - Every feature is a record in `store` plus a reconciler, never a one-off shell command. This is what makes export, import and drift detection possible later.
 - Every command the daemon executes goes through one runner that logs to the audit table, so the command transparency drawer works for free.
 - `internal/api` is the only place that knows about HTTP. Business logic lives in the feature packages and is tested without a server.
-- `pkg/api` types are generated into TypeScript for `web/app`, so the UI and daemon never drift.
+- `pkg/api` types are mirrored by hand in `web/app/src/lib/api.ts`; both sides change together. Codegen from the OpenAPI spec was the intention and has not been built.
 - No feature folder imports another feature folder directly. They communicate through `store`, `reconcile` and `notify` events.
 - Every table that describes something running on a machine carries a `server_id` column from the first migration, always the local server for now. Queries filter on it from day one so scale-out never needs a schema rewrite.
