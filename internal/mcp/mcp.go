@@ -24,6 +24,15 @@ type Tool struct {
 	Method string                                                                       `json:"-"`
 	Path   string                                                                       `json:"-"`
 	Call   func(ctx context.Context, actor string, args map[string]any) (string, error) `json:"-"`
+	// Resolve reports the method and path a call will actually reach, for a
+	// tool whose target comes from its arguments rather than being fixed.
+	//
+	// Both gates below — the token's scopes and the caller's role — are checks
+	// on a specific route. A tool that can reach more than one route has to be
+	// checked against the one it was asked for, or a token scoped to read would
+	// pass a check against a path it is not going to use. A tool without this
+	// is checked against Method and Path, as before.
+	Resolve func(args map[string]any) (method, path string, err error) `json:"-"`
 }
 
 // Server holds the tool set.
@@ -129,14 +138,22 @@ func (s *Server) one(ctx context.Context, actor, scopes, role string, r request)
 			if t.Name != p.Name {
 				continue
 			}
-			if !s.allow(scopes, t.Method, t.Path) {
-				return okResp(r.ID, toolResult("this token's scopes do not cover "+t.Name+" (needs "+t.Scope+")", true))
+			method, path := t.Method, t.Path
+			if t.Resolve != nil {
+				m, pth, err := t.Resolve(p.Arguments)
+				if err != nil {
+					return okResp(r.ID, toolResult(err.Error(), true))
+				}
+				method, path = m, pth
+			}
+			if !s.allow(scopes, method, path) {
+				return okResp(r.ID, toolResult("this token's scopes do not cover "+method+" "+path+" (needs "+t.Scope+")", true))
 			}
 			// A tool that changes the server needs the role the equivalent
 			// HTTP route needs. Checking the scope alone let a viewer with a
 			// wide token of their own run a cron job, which runs as root.
-			if t.Method != "GET" && role == "viewer" {
-				return okResp(r.ID, toolResult("viewers cannot "+t.Name, true))
+			if method != "GET" && role == "viewer" {
+				return okResp(r.ID, toolResult("viewers cannot "+method+" "+path, true))
 			}
 			cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()

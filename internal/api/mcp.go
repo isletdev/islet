@@ -3,10 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
@@ -220,6 +223,99 @@ func (s *Server) mcpTools() []mcp.Tool {
 			Call: func(ctx context.Context, actor string, args map[string]any) (string, error) {
 				return mcp.JSON(s.security.Report(ctx)), nil
 			}},
+
+		// The escape hatch.
+		//
+		// The named tools above cover the flows worth describing properly, and
+		// there are 261 routes. Writing a tool for each would be thousands of
+		// lines that drift from the API the moment anyone adds an endpoint, and
+		// a tool list that long is worse for the agent reading it, not better.
+		// This reaches the rest.
+		//
+		// It is not a way around anything. Resolve hands the method and path it
+		// was asked for to the same two gates every other tool passes — the
+		// token's scopes and the caller's role — and the call then goes through
+		// the real router, so each handler's own auth, role check and audit
+		// entry happen exactly as they do for a request off the network.
+		{Name: "islet_request",
+			Description: "Call any Islet REST endpoint that this token's scopes allow. Use the named tools first; this is for everything they do not cover. Paths look like /api/v1/domains. The OpenAPI description is in docs/openapi.yaml in the repository.",
+			InputSchema: mcp.Schema([]string{"path"}, map[string]any{
+				"path":   mcp.P("string", "Path beginning /api/v1/, including any query string"),
+				"method": mcp.P("string", "GET, POST, PUT, PATCH or DELETE. Default GET"),
+				"body":   mcp.P("object", "JSON body for POST, PUT and PATCH"),
+			}),
+			Scope: "whatever the route needs", Method: "GET", Path: "/api/v1/",
+			Resolve: func(args map[string]any) (string, string, error) {
+				method := strings.ToUpper(strings.TrimSpace(mcp.Str(args, "method")))
+				if method == "" {
+					method = http.MethodGet
+				}
+				switch method {
+				case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				default:
+					return "", "", fmt.Errorf("no target: %q is not a method this tool will send", method)
+				}
+				path := strings.TrimSpace(mcp.Str(args, "path"))
+				if path == "" {
+					return "", "", errors.New("no target: path is required, and looks like /api/v1/domains")
+				}
+				// Only this daemon's own API, and only by a path that cannot
+				// climb out of it. The scope check that follows reads the path,
+				// so anything that could make the checked path differ from the
+				// called one has to be refused here.
+				if !strings.HasPrefix(path, "/api/v1/") || strings.Contains(path, "..") {
+					return "", "", fmt.Errorf("no target: %q is not an Islet API path", path)
+				}
+				// The gate matches on the path alone; the query goes to the
+				// handler but must not be part of what is checked.
+				if i := strings.IndexByte(path, '?'); i >= 0 {
+					return method, path[:i], nil
+				}
+				return method, path, nil
+			},
+			Call: func(ctx context.Context, actor string, args map[string]any) (string, error) {
+				method := strings.ToUpper(strings.TrimSpace(mcp.Str(args, "method")))
+				if method == "" {
+					method = http.MethodGet
+				}
+				path := strings.TrimSpace(mcp.Str(args, "path"))
+				var body io.Reader
+				if raw, ok := args["body"]; ok && raw != nil {
+					b, err := json.Marshal(raw)
+					if err != nil {
+						return "", fmt.Errorf("body is not JSON: %w", err)
+					}
+					body = bytes.NewReader(b)
+				}
+				req, err := http.NewRequestWithContext(ctx, method, path, body)
+				if err != nil {
+					return "", err
+				}
+				if body != nil {
+					req.Header.Set("Content-Type", "application/json")
+				}
+				rec := &bufferWriter{}
+				s.routes.ServeHTTP(rec, req)
+				out := strings.TrimSpace(rec.buf.String())
+				// The handler writes its own audit row under the account the
+				// token belongs to, which is right — the agent acts as that
+				// person. But then nothing says an agent did it. This row is
+				// what separates "the admin added a cron job" from "something
+				// the admin pointed at the server added a cron job".
+				//
+				// It covers whatever the route answered, a 4xx from the handler
+				// included. A call the scope gate refused never reaches here, so
+				// a token probing for what it cannot do leaves no trace —
+				// auditing that needs a hook in internal/mcp, which has no
+				// store, and is worth doing on its own.
+				_ = s.store.Audit(ctx, actor, "mcp.request", method+" "+path, strconv.Itoa(rec.code()))
+				if rec.code() >= 400 {
+					// Returned as an error so the agent sees it failed rather
+					// than reading a refusal as the answer.
+					return "", fmt.Errorf("%s %s: %d %s", method, path, rec.code(), out)
+				}
+				return out, nil
+			}},
 	}
 	return tools
 }
@@ -243,6 +339,7 @@ func itoa(n int) string { return strconv.Itoa(n) }
 type bufferWriter struct {
 	buf    bytes.Buffer
 	header http.Header
+	status int
 }
 
 func (b *bufferWriter) Header() http.Header {
@@ -252,6 +349,21 @@ func (b *bufferWriter) Header() http.Header {
 	return b.header
 }
 func (b *bufferWriter) Write(p []byte) (int, error) { return b.buf.Write(p) }
-func (b *bufferWriter) WriteHeader(int)             {}
+
+// WriteHeader used to discard the status, which was harmless while every tool
+// called one handler it already understood. A tool that can reach any route has
+// to be able to tell a 200 from a 403, so the code is kept.
+func (b *bufferWriter) WriteHeader(code int) {
+	if b.status == 0 {
+		b.status = code
+	}
+}
+
+func (b *bufferWriter) code() int {
+	if b.status == 0 {
+		return http.StatusOK
+	}
+	return b.status
+}
 
 var _ = auth.ScopeAllows

@@ -97,9 +97,14 @@ type Server struct {
 	backup       *backup.Service
 	github       *github.Client
 	mcp          *mcp.Server
-	ui           http.Handler
-	log          *slog.Logger
-	started      time.Time
+	// routes is the bare router, kept so the generic MCP tool can reach any
+	// endpoint through the same per-route middleware a request does — the
+	// auth, role and audit that each handler is already wrapped in — rather
+	// than round-tripping over the network to itself.
+	routes  *http.ServeMux
+	ui      http.Handler
+	log     *slog.Logger
+	started time.Time
 }
 
 // New builds the HTTP handler for the daemon.
@@ -432,6 +437,7 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", s.ui)
+	s.routes = mux
 	return s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
 }
 

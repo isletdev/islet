@@ -1450,3 +1450,52 @@ daemon: the first start left a stale socket, the recovery path cleared the unit
 and the dead socket and started a server that landed in
 `islet-tmux-082ab4ec.service`, its own control group, which is what all of this
 was for.
+
+## 2026-09-14 — Full MCP coverage: curated tools and one way through to the rest
+The aim is an agent that can be told "clone this repository and bring it up at
+this domain" and do it. The parts were mostly there already — a workspace runs
+Claude Code under the maintainer's own subscription with a per-workspace
+`--mcp-config` and a scoped token — and what was missing was reach: sixteen
+hand-written tools against 261 routes. The agent could read the server and
+deploy an app, and could not create a domain.
+
+Writing a tool per route was rejected in both directions. Thousands of lines
+that drift from the API the day anyone adds an endpoint, and a tool list that
+long is worse for the model reading it rather than better. Generating them from
+`docs/openapi.yaml` was rejected for now because the spec covers 96 of 261
+paths, so it is a prerequisite rather than a plan. What ships is the curated
+tools plus `islet_request`, which reaches anything the token allows.
+
+The whole question with an escape hatch is whether it is one. It is not:
+
+- `mcp.Tool` gained `Resolve`, which reports the method and path a call will
+  actually make. Both existing gates — the token's scopes and the caller's role
+  — are checks on a specific route, and a tool that can reach many had been
+  checked against one it was not going to use. They now run on the resolved
+  route. A tool without `Resolve` is checked as before.
+- The path must begin `/api/v1/` and contain no `..`, because the gate reads the
+  path and anything that could make the checked path differ from the called one
+  has to be refused before the check.
+- The call goes through the daemon's own router, so each handler's auth, role
+  check and audit happen exactly as for a request off the network.
+
+Verified against a live daemon with two real tokens. A read token may GET
+`/api/v1/domains` and is refused POST on the same path; `/etc/passwd` and
+`/api/v1/../../etc/passwd` are refused as targets; `/api/v1/terminal/ws` is
+refused because it needs the `shell` scope, which is the rule that stops a read
+token from becoming a shell. A `*` token created a cron job end to end.
+
+One thing the audit log could not say: the handler records the account the token
+belongs to, which is correct — the agent acts as that person — but nothing then
+marked it as an agent. `islet_request` writes its own row as `mcp:<user>` with
+the route and the status beside the handler's. A call the scope gate refused
+never reaches the tool, so probing still leaves no trace; that needs a hook in
+`internal/mcp`, which has no store, and is left for its own change.
+
+**What this does not yet solve, and it is the next piece.** `ScopeAllows` denies
+by default and, for most areas, grants reads only: domains, proxy, security,
+backups, files, settings, catalog, uptime, recipes and runners all end at
+`return read && has("read")`. Writing to them is possible only with `*`. So an
+agent asked to create a domain needs a token that can do everything, including
+minting more tokens. The scope vocabulary has to grow write scopes per area
+before an agent can be given real power without being given all of it.
