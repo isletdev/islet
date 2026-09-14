@@ -197,6 +197,10 @@ func (s *Service) launch(ctx context.Context, w *Workspace) string {
 }
 
 func (s *Service) tmux(ctx context.Context, actor string, args ...string) (string, error) {
+	// The server has to exist before any client command runs, or that command
+	// starts one here, inside isletd, which is the thing being avoided. See
+	// ensureServer: this is a socket dial when the server is already up.
+	s.ensureServer(ctx, actor)
 	// -S before the subcommand selects the server; capture-pane's own -S is a
 	// different flag and comes after, which is why this one goes in front.
 	res, err := s.run.Run(ctx, actor, "tmux", append([]string{"-S", s.sock}, args...)...)

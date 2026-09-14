@@ -1225,3 +1225,47 @@ written afterwards. The old order fails that test.
 
 What reverses it: nothing, unless ufw stops resetting after.rules, and the
 DockerOK check at the end would catch that too.
+
+## 2026-09-14 — The tmux server belongs to systemd, not to isletd
+Every restart of the daemon was still costing the sessions it manages, and the
+answers so far had all been about how to make isletd's own unit less destructive:
+`KillMode=process` so a restart did not signal them, `PrivateTmp=no` so the
+restart did not take their `/tmp` with it, and a banner in the panel for the
+case where it had happened anyway. Each of those is real, and none of them
+addresses the reason the question keeps coming up.
+
+tmux starts a server on demand, as a child of whoever runs the first client
+command. Every command here goes through `Service.tmux`, which runs inside
+isletd — so the server was isletd's child, in isletd's control group and
+isletd's mount namespace, and the daemon's unit settings therefore decided its
+fate. A multiplexer whose entire purpose is to outlive the things attached to it
+was being started in the one place guaranteed to be restarted underneath it.
+
+`ensureServer` asks systemd to start it instead, through `systemd-run`, in a
+transient unit of its own. The server becomes a sibling of isletd rather than a
+child: restarting, updating or stopping the daemon cannot reach it, it holds the
+host's `/tmp`, and nothing about the socket path or the sessions changes.
+`tmux -S /var/lib/islet/tmux.sock attach` from an SSH shell still works, which
+was always the point of naming the socket.
+
+Two details are load-bearing and were both found by measuring rather than
+reasoning. `Type=forking` does not work: tmux's client forks the server and
+exits, there is no pid file, systemd cannot identify a main process, and it
+marks the unit dead — `--collect` then removes it and the server is left in
+whatever control group it started from, which in the first attempt was
+`isletd.service`, the exact cgroup the change exists to leave. `Type=oneshot`
+with `RemainAfterExit=yes` holds the unit instead. And a tmux server with no
+sessions exits immediately, so `start-server` on its own dies before any session
+can be made on it; `set -g exit-empty off` in the same command list keeps it
+waiting.
+
+The probe is a socket dial, not a tmux command, because every tmux client
+command starts a server when none is running — probing with tmux would create
+the thing it was asking about, in the wrong place, which is the bug.
+
+This does not migrate an existing server: a running process cannot be moved into
+a new unit, so a server started the old way stays where it is until it is next
+killed or the machine reboots. It keeps working there — `KillMode=process` and
+`PrivateTmp=no` remain in the unit for exactly that population — but it is worth
+knowing that one `tmux -S <sock> kill-server` is what moves an already-running
+install onto the new arrangement, and that it is the last one needed.
