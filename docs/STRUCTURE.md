@@ -6,10 +6,12 @@ One Go module, one pnpm workspace, one binary. A few folders (`reconcile/`, `rec
 islet/
 ├─ cmd/
 │  ├─ isletd/            Daemon entrypoint: wires store, API, reconciler, collectors, embedded UI
-│  └─ islet/             CLI entrypoint: same binary via symlink, talks to isletd over the Unix socket or HTTPS
+│  └─ islet/             CLI entrypoint for development; the release ships isletd, which dispatches
+│                        into internal/cli when invoked through the islet symlink
 │
 ├─ internal/             Private packages, not importable from outside this module
 │  ├─ api/               HTTP routes, OpenAPI spec, middleware (auth, roles, audit, rate limit), SSE and WebSocket
+│  ├─ cli/               The islet command line: login, apps, deploy, logs, cron, db, backup, update
 │  ├─ auth/              Users, roles, Argon2id, sessions, TOTP and passkeys, API tokens
 │  ├─ store/             SQLite (WAL) access, migrations, desired-state tables, metrics ring buffer
 │  ├─ reconcile/         Desired-state engine: diff records in store against the system, apply, report drift

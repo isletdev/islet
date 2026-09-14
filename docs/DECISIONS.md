@@ -1021,3 +1021,37 @@ children in the row; they are one group now, so they sit together at the right.
 And the edit form, which opens under the table, scrolls into view — a form
 below the fold is the same "nothing happened" that the workspace terminal and
 the catalog installer both had.
+
+## 2026-09-14 — The CLI was documented, built and never shipped
+`islet` did not exist on any installed server. The README has a CLI section,
+Phase 4 ticks a line for it, the recipes use it, and `STRUCTURE.md` calls it
+"the same binary via symlink" — but `.goreleaser.yaml` declared one build,
+`./cmd/isletd`, so the 797 lines in `cmd/islet` were never compiled into a
+release. The installer then ran `ln -sf isletd islet`, and `isletd` had no
+`argv[0]` dispatch, so the name resolved to the daemon. `islet update` started
+a second daemon and died on `bind: address already in use`. Nothing failed
+loudly enough to notice, because the symlink was created exactly as intended
+and every asset the release job checks was present.
+
+The obvious fix is a second binary: add an `islet` build and archive, and have
+the installer place it. That is the one that breaks. `update.Apply` takes
+`os.Executable()`, resolves it with `EvalSymlinks`, and overwrites what it
+finds with the archive member named `isletd`. Today the symlink makes that
+correct — updating through either name replaces the one real binary. With a
+separate `islet` on disk, `islet update` would have written the daemon over the
+command line and left no way to notice until the next `islet` call printed
+daemon flags. Shipping two binaries means teaching the updater which member
+belongs at which path, changing the asset list the release checks, and
+changing the installer.
+
+So the symlink became true instead: the CLI moved to `internal/cli`, `cmd/islet`
+is a four-line wrapper kept so it can still be built alone during development,
+and `isletd` dispatches into `cli.Run` when `filepath.Base(os.Args[0])` is
+`islet`. One artifact, five assets, installer untouched, self-update unchanged.
+
+The cost is that `argv[0]` is now load-bearing — renaming the symlink silently
+turns the CLI back into a daemon — so `InvokedAsCLI` is a named function with a
+table test rather than an inline comparison, and `cli.Run` returns an exit code
+instead of calling `os.Exit`, so the daemon can dispatch into it and the test
+can assert on it. What reverses this is the second binary: add the build and
+archive, and give `update.Apply` the member name for the path it is replacing.

@@ -24,6 +24,7 @@ import (
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/backup"
 	"github.com/isletdev/islet/internal/catalog"
+	"github.com/isletdev/islet/internal/cli"
 	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/cron"
 	"github.com/isletdev/islet/internal/db"
@@ -47,6 +48,13 @@ import (
 )
 
 func main() {
+	// The installer symlinks islet to this binary, so one released artifact
+	// answers to both names. Invoked as islet it is the command line, which is
+	// what the README, the recipes and every docs example assume. Without this
+	// the symlink silently starts a second daemon.
+	if cli.InvokedAsCLI(os.Args[0]) {
+		os.Exit(cli.Run(os.Args))
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "isletd:", err)
 		os.Exit(1)
