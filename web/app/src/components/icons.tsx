@@ -309,6 +309,18 @@ export const PlusIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const PlayIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+  </Icon>
+);
+
+export const StopIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+  </Icon>
+);
+
 export const RefreshIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" />

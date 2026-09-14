@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -61,18 +62,34 @@ type Workspace struct {
 
 // Service owns the workspaces table and the tmux sessions behind it.
 type Service struct {
-	st  *store.Store
-	run *cmdrun.Runner
-	bus *notify.Bus
-	log *slog.Logger
-	dir string // <dataDir>/workspaces
+	st   *store.Store
+	run  *cmdrun.Runner
+	bus  *notify.Bus
+	log  *slog.Logger
+	dir  string // <dataDir>/workspaces
+	sock string // <dataDir>/tmux.sock — the server every session lives on
 }
 
 // New builds the service. dataDir is the daemon's data directory; per-workspace
 // files (an MCP config, for now) live under <dataDir>/workspaces/<id>.
 func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, log *slog.Logger) *Service {
-	return &Service{st: st, run: run, bus: bus, log: log, dir: filepath.Join(dataDir, "workspaces")}
+	return &Service{
+		st: st, run: run, bus: bus, log: log,
+		dir:  filepath.Join(dataDir, "workspaces"),
+		sock: filepath.Join(dataDir, "tmux.sock"),
+	}
 }
+
+// Socket is the tmux server every workspace lives on.
+//
+// Named explicitly rather than left to tmux's default of /tmp/tmux-<uid>/. The
+// systemd unit sets PrivateTmp=yes, so the daemon's /tmp is a namespace of its
+// own and a fresh one on every restart: sessions created on the default socket
+// are unreachable the moment isletd restarts, and were never reachable from an
+// SSH shell at all — which quietly broke the one escape hatch this feature
+// promised. With a path under the data directory, `tmux -S <path> attach` works
+// from any shell on the box.
+func (s *Service) Socket() string { return s.sock }
 
 // Dir is where this workspace's own files live.
 func (s *Service) Dir(id string) string { return filepath.Join(s.dir, id) }
@@ -109,6 +126,9 @@ func (s *Service) InstallTmux(ctx context.Context, actor string) (rc interface {
 // perfectly good install, and the fix is to use the path we found rather than
 // to hope.
 func (s *Service) ClaudePath(ctx context.Context) string {
+	if s.run == nil {
+		return "" // no runner: a unit test, not a server
+	}
 	if out, err := s.run.Run(ctx, "system", "sh", "-c", "command -v claude 2>/dev/null"); err == nil {
 		if p := strings.TrimSpace(out.Stdout); p != "" {
 			return p
@@ -156,7 +176,7 @@ func (s *Service) launch(ctx context.Context, w *Workspace) string {
 	}
 	if w.Preset == "claude" {
 		head, rest, _ := strings.Cut(cmd, " ")
-		if filepath.Base(head) == "claude" && !filepath.IsAbs(head) {
+		if path.Base(head) == "claude" && !strings.HasPrefix(head, "/") {
 			if p := s.ClaudePath(ctx); p != "" && p != head {
 				cmd = p
 				if rest != "" {
@@ -177,7 +197,9 @@ func (s *Service) launch(ctx context.Context, w *Workspace) string {
 }
 
 func (s *Service) tmux(ctx context.Context, actor string, args ...string) (string, error) {
-	res, err := s.run.Run(ctx, actor, "tmux", args...)
+	// -S before the subcommand selects the server; capture-pane's own -S is a
+	// different flag and comes after, which is why this one goes in front.
+	res, err := s.run.Run(ctx, actor, "tmux", append([]string{"-S", s.sock}, args...)...)
 	return strings.TrimSpace(res.Stdout), err
 }
 
@@ -200,8 +222,22 @@ func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error 
 	if !s.HasTmux(ctx) {
 		return ErrNoTmux
 	}
-	_, err := s.tmux(ctx, actor, "new-session", "-d", "-s", SessionName(w.ID), "-c", w.Directory)
-	return err
+	if err := os.MkdirAll(filepath.Dir(s.sock), 0o700); err != nil {
+		return err
+	}
+	// -n names the first window, so every workspace has a plain shell of
+	// its own beside whatever agents it runs. Borrowing an agent's window to
+	// check `git status` means interrupting the agent to do it.
+	if _, err := s.tmux(ctx, actor, "new-session", "-d", "-s", SessionName(w.ID), "-n", ShellWindow, "-c", w.Directory); err != nil {
+		return err
+	}
+	// tmux's status bar names the session and its windows along the bottom of
+	// every pane. Inside the panel that is a second, worse copy of the workspace
+	// and agent names already on screen, and it eats a row of the terminal. It
+	// stays off for Islet's sessions; attaching over SSH is unaffected, since a
+	// person there can turn it back on for their own client.
+	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(w.ID), "status", "off")
+	return nil
 }
 
 // AttachArgv is the command that joins a session from a PTY.
@@ -209,8 +245,8 @@ func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error 
 // -d detaches every other client first. tmux sizes a session to its smallest
 // attached client, so a tab left open on a phone would otherwise squeeze a
 // desktop session down to its width. The most recent viewer wins.
-func AttachArgv(id string) []string {
-	return []string{"tmux", "attach-session", "-d", "-t", SessionName(id)}
+func (s *Service) AttachArgv(id string) []string {
+	return []string{"tmux", "-S", s.sock, "attach-session", "-d", "-t", SessionName(id)}
 }
 
 // Start types the workspace's command into the session.
@@ -290,7 +326,10 @@ func (s *Service) Attach(ctx context.Context, actor, id string) (*Workspace, []s
 		return nil, nil, err
 	}
 	s.Touch(ctx, id)
-	return w, AttachArgv(id), nil
+	// The workspace's own terminal is its shell window. Landing on whichever
+	// window happened to be current means opening a workspace can drop you into
+	// an agent's conversation and type into it.
+	return w, s.AttachAgentArgv(id, ShellWindow), nil
 }
 
 // ---- boot ----------------------------------------------------------------
@@ -298,10 +337,18 @@ func (s *Service) Attach(ctx context.Context, actor, id string) (*Workspace, []s
 // Reconcile puts back the sessions a reboot took away.
 //
 // tmux does not survive a restart of the machine, so after one every workspace
-// is gone. They are recreated at a shell prompt in the right directory, and
-// their commands are deliberately not re-run: an agent restarting by itself,
-// mid-task, with nobody watching, is not a thing to do on somebody's behalf.
+// is gone. Each is recreated at a shell prompt in the right directory, and then
+// every agent marked to resume is started again, back in the conversation it
+// was in rather than an empty one.
+//
+// v0.9.0 deliberately did not re-run anything here, on the reasoning that an
+// agent resuming mid-task with nobody watching is not a thing to do on
+// somebody's behalf. That reasoning survives as the per-agent switch: it is now
+// asked for once, per agent, instead of decided for everyone. An agent that was
+// never started is still not started — resuming applies to work that was
+// already going when the machine went down.
 func (s *Service) Reconcile(ctx context.Context) {
+	s.EnsureRestartSafe(ctx)
 	if !s.HasTmux(ctx) {
 		return
 	}
@@ -309,7 +356,7 @@ func (s *Service) Reconcile(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	var back []string
+	var back, resumed []string
 	for i := range list {
 		w := list[i]
 		if w.Running {
@@ -323,15 +370,99 @@ func (s *Service) Reconcile(ctx context.Context) {
 			continue
 		}
 		back = append(back, w.Name)
+		resumed = append(resumed, s.resumeAgents(ctx, &w)...)
 	}
 	if len(back) > 0 && s.bus != nil {
+		msg := strings.Join(back, ", ") + " came back at a shell prompt."
+		if len(resumed) > 0 {
+			msg += " Resumed, in the conversations they were already in: " + strings.Join(resumed, ", ") + "."
+		} else {
+			msg += " No agent was set to resume, so nothing was re-run."
+		}
 		s.bus.Emit(ctx, notify.Event{
 			Category: "system", Severity: "info",
 			Title:   "Workspaces are back after a restart",
-			Message: strings.Join(back, ", ") + " were recreated at a shell prompt. Nothing was re-run; open one and start it when you are ready.",
+			Message: msg,
 			Link:    "/workspaces",
 		})
 	}
+}
+
+// resumeAgents restarts the agents of one workspace that asked to be resumed,
+// and names them so the notification can say what is running again.
+//
+// Only agents that had been started before: resuming is about picking work back
+// up, and an agent that has never run has no conversation to return to.
+func (s *Service) resumeAgents(ctx context.Context, w *Workspace) []string {
+	agents, err := s.Agents(ctx, w.ID)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for i := range agents {
+		a := agents[i]
+		if !a.Resume || a.LastStarted == "" || a.Running {
+			continue
+		}
+		if err := s.StartAgent(ctx, "system", w.ID, a.ID); err != nil {
+			s.log.Warn("agent could not be resumed", "workspace", w.Name, "agent", a.Name, "err", err)
+			continue
+		}
+		names = append(names, w.Name+"/"+a.Name)
+	}
+	return names
+}
+
+// dropIn is what makes a restart survivable, and it is deliberately the
+// smallest possible statement of it.
+const dropIn = `# Written by isletd. A workspace keeps an agent alive under tmux so that
+# restarting the daemon, which is what an update does, cannot end it. The
+# default KillMode sends SIGTERM to every process in this unit's control group,
+# and tmux is in it because isletd started it.
+[Service]
+KillMode=process
+`
+
+// EnsureRestartSafe repairs the unit on a server that was installed before this
+// was understood.
+//
+// The packaged unit now carries KillMode=process, but an update replaces the
+// binary and never the unit. Without this, every machine installed earlier
+// would go on killing its own workspaces on the next update - the fault fixed
+// here, still present after the fix shipped, on exactly the servers that have
+// been running longest. The drop-in is written once and is a no-op afterwards.
+//
+// A reload does not restart anything; it takes effect at the next stop, which
+// is the one that would otherwise have done the damage.
+func (s *Service) EnsureRestartSafe(ctx context.Context) {
+	unit := false
+	for _, p := range []string{"/etc/systemd/system/isletd.service", "/lib/systemd/system/isletd.service", "/usr/lib/systemd/system/isletd.service"} {
+		if fileExists(p) {
+			unit = true
+			break
+		}
+	}
+	if !unit {
+		return // a container or a development machine: nothing to repair
+	}
+	const dir = "/etc/systemd/system/isletd.service.d"
+	path := filepath.Join(dir, "10-workspaces.conf")
+	if b, err := os.ReadFile(path); err == nil && string(b) == dropIn {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		s.log.Warn("workspaces: could not write the systemd drop-in", "err", err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(dropIn), 0o644); err != nil {
+		s.log.Warn("workspaces: could not write the systemd drop-in", "err", err)
+		return
+	}
+	if _, err := s.run.Run(ctx, "system", "systemctl", "daemon-reload"); err != nil {
+		s.log.Warn("workspaces: systemd did not reload; the drop-in applies after the next reload", "err", err)
+		return
+	}
+	s.log.Info("workspaces: restarting isletd will no longer end the sessions it started")
 }
 
 // ---- storage -------------------------------------------------------------
@@ -374,9 +505,9 @@ func (w *Workspace) Validate() error {
 	if strings.ContainsAny(w.Command, "\n\r") {
 		return errors.New("the command must be a single line")
 	}
-	if w.Preset == "shell" {
-		w.MCPEnabled = false // nothing is being launched for it to configure
-	}
+	// MCP belongs to the workspace, not to its preset. That rule was written
+	// when a workspace was one command and a shell had nothing to configure;
+	// now the agents are what run, and they are configured per workspace.
 	if w.Preset != "claude" {
 		w.SkipPermissions = false // the flag belongs to one program
 	}

@@ -1055,3 +1055,63 @@ table test rather than an inline comparison, and `cli.Run` returns an exit code
 instead of calling `os.Exit`, so the daemon can dispatch into it and the test
 can assert on it. What reverses this is the second binary: add the build and
 archive, and give `update.Apply` the member name for the path it is replacing.
+
+## 2026-09-14 — systemd killed the thing the feature existed to protect
+`islet update` ended an agent mid-task. Workspaces exist so that cannot happen,
+and the e2e suite asserted exactly this — a workspace outliving the daemon — and
+passed.
+
+It passed because it ran isletd as a bare process in a container and killed it
+with `pkill`. The deployed shape is a systemd unit, and `islet update` ends at
+`systemctl restart isletd`. With no `KillMode` set, the default is
+`control-group`: SIGTERM to every process in the unit's cgroup. tmux was in it,
+because isletd started it. Daemonizing does not help — systemd kills by cgroup,
+not by process tree — which is why "tmux detaches, so it survives" felt true and
+was not.
+
+`KillMode=process` is the fix, and the packaged unit carries it. That alone would
+have fixed nothing on any machine already installed: an update replaces the
+binary and never the unit, so every server running longest would have gone on
+killing its own workspaces after the fix shipped. The daemon writes a drop-in and
+reloads systemd when it finds a unit without it.
+
+Underneath was a second fault with the same shape. tmux's default socket lives
+under `/tmp`, and the unit sets `PrivateTmp=yes` — a private namespace, and a new
+one on every restart. Sessions created there are unreachable by the next isletd,
+and were never reachable from an SSH shell, so the documented escape hatch
+(`ssh in && tmux attach`) had never once worked. The socket is now an explicit
+path in the data directory.
+
+Both were invisible to every test because every test ran the daemon the way a
+developer runs it. The `ContentLength` bug was the same lesson in June: what is
+deployed and what is tested have to be the same shape, or the test is describing
+a program nobody runs.
+
+## 2026-09-14 — an agent is a window, and owns its conversation
+A workspace was one directory and one command, which made the obvious thing
+impossible: one agent writing code while another runs the tests against it, in
+the same checkout. tmux already models this — a session holds windows — so an
+agent is a window and the workspace stays the session. Survival is unchanged,
+because it was never a property of the window.
+
+Resuming is where the design had to be exact. `claude --continue` reopens the
+most recent conversation *for a directory*, and agents in one workspace share a
+directory: two of them resuming would both land in whichever was touched last,
+and the other would be silently lost. Claude Code takes `--session-id <uuid>` on
+a first run and `--resume <uuid>` after, so each agent is pinned to a
+conversation it owns. The uuid is generated when the agent is created and stored
+with it; `last_started_at` decides which of the two flags is used, which makes it
+a fact about the conversation rather than a statistic.
+
+Resuming on boot is a per-agent switch rather than a policy. v0.9.0 refused to
+re-run anything after a reboot, because an agent resuming mid-task with nobody
+watching is not a thing to start on somebody's behalf. That is still true, and it
+is still the question being answered — it is just asked once, per agent, instead
+of answered for everyone. An agent that has never been started is never started
+by a reboot: resuming is about picking work back up, and there is nothing to pick
+up.
+
+One smaller call: tmux's status bar is switched off for Islet's sessions. Inside
+the panel it is a second, worse copy of the workspace and agent names already on
+screen, and it costs a row of the terminal. Anyone attaching over SSH can turn it
+back on for their own client.

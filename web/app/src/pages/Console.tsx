@@ -17,6 +17,9 @@ export default function Console() {
   const container = params.get("container") ?? "";
   const dir = params.get("dir") ?? "";
   const workspace = params.get("workspace") ?? "";
+  // A workspace holds several agents, so the pop-out has to say which window it
+  // wants; without it, every agent's pop-out would land on the shared shell.
+  const agent = params.get("agent") ?? "";
   const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => { void api.health().then(setHealth).catch(() => {}); }, []);
@@ -36,7 +39,9 @@ export default function Console() {
       <div className="min-h-0 flex-1 p-2">
         <TermView
           path={
-            workspace
+            workspace && agent
+              ? `/api/v1/workspaces/${encodeURIComponent(workspace)}/agents/${encodeURIComponent(agent)}/attach`
+              : workspace
               ? `/api/v1/workspaces/${encodeURIComponent(workspace)}/attach`
               : container
                 ? `/api/v1/docker/containers/${encodeURIComponent(container)}/exec`
@@ -53,16 +58,19 @@ export default function Console() {
 }
 
 /** Open the console in its own window, sized like a terminal emulator. */
-export function openConsole(opts: { container?: string; dir?: string; workspace?: string } = {}) {
-  const { container, dir, workspace } = opts;
+export function openConsole(opts: { container?: string; dir?: string; workspace?: string; agent?: string } = {}) {
+  const { container, dir, workspace, agent } = opts;
   const q = new URLSearchParams();
   if (container) q.set("container", container);
   if (dir) q.set("dir", dir);
   if (workspace) q.set("workspace", workspace);
+  if (agent) q.set("agent", agent);
   const url = q.toString() ? `/console?${q}` : "/console";
   const w = Math.min(1100, Math.round(window.screen.availWidth * 0.8));
   const h = Math.min(720, Math.round(window.screen.availHeight * 0.8));
   const left = Math.round((window.screen.availWidth - w) / 2);
   const top = Math.round((window.screen.availHeight - h) / 2);
-  window.open(url, "islet-console-" + (workspace || container || dir || "host"), `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+  // One window per agent, so opening a second does not replace the first —
+  // watching two agents side by side is the reason they exist.
+  window.open(url, "islet-console-" + ([workspace, agent].filter(Boolean).join("-") || container || dir || "host"), `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
 }

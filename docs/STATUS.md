@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `95bd5a2`, tagged `v0.9.4`, 2026-09-14. 95 commits, 35 tags, CI green on `main`.
+**Head:** tagged `v0.10.0`, 2026-09-14. CI green on `main`.
 
 ## What this file is
 
@@ -47,6 +47,8 @@ recent history, because it is the half that was found rather than designed.
 | v0.9.2 | `44ac097` | Claude Code detected, installed from the panel, and launched by absolute path (the installer puts it in `~/.local/bin`, which a tmux shell often lacks). Copy and paste, and a terminal-shaped right-click menu, on every terminal in the panel |
 | v0.9.3 | `4999a3c` | Users follow the selected server, so a fleet member's own accounts can be managed. And the login page says why a panel at one registrable domain can never authenticate a site at another, instead of silently landing on the dashboard |
 | v0.9.4 | `95bd5a2` | Ctrl+V stopped pasting twice (xterm already pastes); the domains table reworked; a checkbox for `--dangerously-skip-permissions` |
+| v0.9.5 | `cc33b70` | The `islet` CLI never existed on an installed server: goreleaser builds only `isletd`, and the installer symlinked `islet` to it with no argv[0] dispatch, so `islet update` started a second daemon and died on "address already in use". The symlink is true now |
+| v0.10.0 | — | Several agents per workspace, each a tmux window with a conversation of its own, resumed by session id rather than by `--continue`. And the reason `islet update` had been killing the sessions workspaces exist to protect: systemd's default KillMode takes the whole control group, and the tmux socket was inside the daemon's private `/tmp` |
 
 Three of these — v0.7.2, v0.8.0 and v0.8.1 — were each the second or third attempt
 at one reported symptom. `DECISIONS.md` records what the earlier attempts assumed
@@ -88,7 +90,7 @@ All five are blocked on something outside the code. Verified on the date above:
 `e2e.yml` runs `hack/e2e-vps.sh`, which runs `hack/e2e-smoke.sh` on a fresh
 server. Three other suites are run by hand only, and nothing invokes them:
 
-- `hack/e2e-workspaces.sh` — the tmux survival test, including that a workspace outlives `pkill isletd`
+- `hack/e2e-workspaces.sh` — several agents in one workspace, each with its own conversation; survival across the daemon being killed; and resume-on-reboot asserted on the actual flags, through a stub `claude` that records its argv
 - `hack/e2e-privileges.py` — proves a viewer and a read-scoped token are refused on every privileged route
 - `hack/e2e-sql.py` — the SQL client against a real Postgres
 

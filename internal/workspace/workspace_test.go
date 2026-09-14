@@ -18,8 +18,13 @@ func TestSessionName(t *testing.T) {
 	if got := SessionName("a1b2c3"); got != "islet-ws-a1b2c3" {
 		t.Errorf("SessionName = %q", got)
 	}
-	argv := AttachArgv("a1b2c3")
-	want := []string{"tmux", "attach-session", "-d", "-t", "islet-ws-a1b2c3"}
+	// The socket is named on every call, including this one. tmux's default
+	// lives under /tmp, the unit sets PrivateTmp=yes, and a session created on
+	// a private /tmp is unreachable from an SSH shell and from the daemon
+	// itself after a restart.
+	svc := &Service{sock: "/var/lib/islet/tmux.sock"}
+	argv := svc.AttachArgv("a1b2c3")
+	want := []string{"tmux", "-S", "/var/lib/islet/tmux.sock", "attach-session", "-d", "-t", "islet-ws-a1b2c3"}
 	if len(argv) != len(want) {
 		t.Fatalf("argv = %v", argv)
 	}
@@ -30,7 +35,7 @@ func TestSessionName(t *testing.T) {
 	}
 	// -d is load-bearing: tmux sizes a session to its smallest attached
 	// client, so a forgotten tab would otherwise squeeze every other viewer.
-	if argv[2] != "-d" {
+	if argv[4] != "-d" {
 		t.Error("attach must detach other clients")
 	}
 }
@@ -56,14 +61,18 @@ func TestValidate(t *testing.T) {
 				}
 				return ""
 			}},
-		{"a shell has no command and no Islet access",
+		// Islet access belongs to the workspace, not to its preset. It used to be
+		// cleared here on the reasoning that a shell launches nothing that could
+		// use it; the agents inside a workspace are what launch now, and a
+		// workspace whose own preset is a shell is the ordinary way to hold them.
+		{"a shell has no command, but may still reach Islet",
 			Workspace{Name: "build", Directory: dir, Preset: "shell", Command: "whatever", MCPEnabled: true}, true,
 			func(w Workspace) string {
 				if w.Command != "" {
 					return "a shell kept a command: " + w.Command
 				}
-				if w.MCPEnabled {
-					return "a shell was given Islet access, but nothing is launched to use it"
+				if !w.MCPEnabled {
+					return "Islet access was taken away from a workspace that asked for it"
 				}
 				return ""
 			}},

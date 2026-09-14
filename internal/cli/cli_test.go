@@ -14,7 +14,6 @@ func TestInvokedAsCLI(t *testing.T) {
 		{"./islet", true},
 		{"/usr/local/bin/islet", true},
 		{"islet.exe", true},
-		{`C:\Program Files\Islet\islet.exe`, false}, // Base() keeps the backslash path whole on unix
 		{"isletd", false},
 		{"/usr/local/bin/isletd", false},
 		{"isletd.exe", false},

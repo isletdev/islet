@@ -188,6 +188,17 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/stop", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceStop))))
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/history", s.requireAuth(scopeAdminOnly(s.handleWorkspaceHistory)))
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/mcp", s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP)))
+	// Agents: several per workspace, each its own tmux window and, for Claude
+	// Code, its own conversation.
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgents)))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/agents", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgents))))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents/{agentId}", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgent)))
+	mux.HandleFunc("PUT /api/v1/workspaces/{id}/agents/{agentId}", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgent))))
+	mux.HandleFunc("DELETE /api/v1/workspaces/{id}/agents/{agentId}", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgent)))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/agents/{agentId}/start", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgentStart))))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/agents/{agentId}/stop", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgentStop))))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents/{agentId}/history", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgentHistory)))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents/{agentId}/attach", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAgentAttach)))
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/mcp", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP))))
 	mux.HandleFunc("POST /api/v1/workspaces/tmux", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceTmux))))
 	mux.HandleFunc("POST /api/v1/workspaces/claude", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceClaude))))

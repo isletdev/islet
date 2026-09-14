@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -269,4 +270,150 @@ func (s *Server) handleWorkspaceMCP(w http.ResponseWriter, r *http.Request) {
 		"tools":   len(s.mcpTools()),
 		"scopes":  strings.Split("read,logs,containers,cron,notify", ","),
 	})
+}
+
+// ---- agents ---------------------------------------------------------------
+//
+// A workspace holds several of them, each a tmux window. The handlers are thin
+// for the same reason the workspace ones are: the service owns the tmux and the
+// audit, and servePTY owns everything that makes a terminal work.
+
+func (s *Server) handleWorkspaceAgents(w http.ResponseWriter, r *http.Request) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	if r.Method == http.MethodPost {
+		var in workspace.Agent
+		if err := decode(r, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			return
+		}
+		in.ID = ""
+		a, err := s.workspaces.SaveAgent(r.Context(), userFrom(r.Context()).Username, id, &in)
+		if err != nil {
+			s.workspaceErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, a)
+		return
+	}
+	list, err := s.workspaces.Agents(r.Context(), id)
+	if err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	id, agentID := r.PathValue("id"), r.PathValue("agentId")
+	user := userFrom(r.Context()).Username
+	switch r.Method {
+	case http.MethodPut:
+		var in workspace.Agent
+		if err := decode(r, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			return
+		}
+		in.ID = agentID
+		a, err := s.workspaces.SaveAgent(r.Context(), user, id, &in)
+		if err != nil {
+			s.workspaceErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, a)
+	case http.MethodDelete:
+		if err := s.workspaces.DeleteAgent(r.Context(), user, id, agentID); err != nil {
+			s.workspaceErr(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		a, err := s.workspaces.GetAgent(r.Context(), id, agentID)
+		if err != nil {
+			s.workspaceErr(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, a)
+	}
+}
+
+func (s *Server) handleWorkspaceAgentStart(w http.ResponseWriter, r *http.Request) {
+	s.agentAction(w, r, s.workspaces.StartAgent)
+}
+
+func (s *Server) handleWorkspaceAgentStop(w http.ResponseWriter, r *http.Request) {
+	s.agentAction(w, r, s.workspaces.StopAgent)
+}
+
+// agentAction runs one of the two verbs and answers with the agent's new state,
+// so the page never has to ask a second time to find out what happened.
+func (s *Server) agentAction(w http.ResponseWriter, r *http.Request, do func(context.Context, string, string, string) error) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	id, agentID := r.PathValue("id"), r.PathValue("agentId")
+	if err := do(r.Context(), userFrom(r.Context()).Username, id, agentID); err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	list, err := s.workspaces.Agents(r.Context(), id)
+	if err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	for i := range list {
+		if list[i].ID == agentID {
+			writeJSON(w, http.StatusOK, list[i])
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{})
+}
+
+func (s *Server) handleWorkspaceAgentHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	lines, _ := strconv.Atoi(r.URL.Query().Get("lines"))
+	out, err := s.workspaces.AgentHistory(r.Context(), userFrom(r.Context()).Username,
+		r.PathValue("id"), r.PathValue("agentId"), lines)
+	if err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"text": out})
+}
+
+// handleWorkspaceAgentAttach joins the agent's own window.
+//
+// The route ends in /attach so it needs the shell scope, like every other
+// terminal in the panel — a read-only token must not reach a running agent.
+func (s *Server) handleWorkspaceAgentAttach(w http.ResponseWriter, r *http.Request) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	u := userFrom(r.Context())
+	id, agentID := r.PathValue("id"), r.PathValue("agentId")
+	ws, err := s.workspaces.Get(r.Context(), id)
+	if err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	a, err := s.workspaces.GetAgent(r.Context(), id, agentID)
+	if err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	if err := s.workspaces.EnsureAgentWindow(r.Context(), u.Username, id, agentID); err != nil {
+		s.workspaceErr(w, err)
+		return
+	}
+	s.workspaces.Touch(r.Context(), id)
+	s.servePTY(w, r, terminal.Options{Command: s.workspaces.AttachAgentArgv(id, a.Name), Dir: ws.Directory},
+		"workspace", ws.Name+"/"+a.Name)
 }

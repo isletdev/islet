@@ -11,6 +11,12 @@ Environment=ISLET_DATA_DIR=/var/lib/islet
 Environment=ISLET_LISTEN=0.0.0.0:9443
 Restart=always
 RestartSec=2
+# Only the daemon is killed on stop or restart, never the rest of its control
+# group. Workspaces put an agent under tmux precisely so `islet update` cannot
+# end it, and the default (KillMode=control-group) SIGTERMs every process in
+# the unit's cgroup — tmux included, since isletd started it. Daemonizing does
+# not help: systemd kills by cgroup, not by process tree.
+KillMode=process
 LimitNOFILE=65536
 # isletd manages the host, so it runs as root and drops privileges per
 # operation. These keep the blast radius small without breaking that.

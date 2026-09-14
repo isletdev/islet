@@ -1,7 +1,9 @@
 # Workspaces
 
-A workspace is a directory, a command, and a session that keeps running when you
-close the tab.
+A workspace is a directory and a session that keeps running when you close the
+tab. Inside it are agents: one tmux window each, one conversation each, as many
+as the work needs — a worker and a tester against the same checkout is the
+ordinary case, not a trick.
 
 It exists for one shape of work: running an agent — Claude Code, or anything
 else — on the server it is changing, rather than on a laptop that has to stay
@@ -10,29 +12,57 @@ on where it was.
 
 ## What keeps it alive
 
-tmux. The command runs as a child of tmux rather than of the Islet daemon, so it
+tmux. An agent runs as a child of tmux rather than of the Islet daemon, so it
 survives:
 
 - closing the browser, or navigating to another page
 - a dropped connection, a sleeping laptop, a changed network
 - `islet update`, which restarts the daemon underneath it
 
-It does not survive a reboot, because nothing that lives only in memory does.
-After a reboot Islet recreates each workspace's session, in the right directory,
-**at a shell prompt** — and deliberately does not re-run the command. An agent
-resuming by itself, mid-task, with nobody watching, is not something to start on
-your behalf. Open the workspace and press Run.
+The third one was not true before v0.10.0, and the way it failed is worth
+keeping. `islet update` ends at `systemctl restart isletd`, and a systemd unit
+with no `KillMode` set kills **every process in its control group**, not just the
+daemon — tmux included, because isletd started it. Daemonizing is no defence:
+systemd kills by cgroup, not by process tree. The unit now sets
+`KillMode=process`, and a daemon that finds an older unit on disk repairs it with
+a drop-in, because an update replaces the binary and never the unit.
+
+The tmux server also has a socket of its own at `<data dir>/tmux.sock` rather
+than tmux's default under `/tmp`. The unit sets `PrivateTmp=yes`, so the daemon's
+`/tmp` is a namespace of its own and a fresh one on every restart: sessions on
+the default socket were unreachable after a restart, and were never reachable
+from an SSH shell at all.
+
+A reboot is different — nothing that lives only in memory survives one. Islet
+recreates each workspace's session in the right directory and then starts the
+agents that were **set to resume and had been started before**, back in the
+conversations they were in. An agent that has never run is not started, and an
+agent with resume switched off comes back to a prompt. v0.9.0 re-ran nothing at
+all, on the reasoning that an agent resuming mid-task with nobody watching is not
+something to do on your behalf; that reasoning survives as the switch, asked once
+per agent instead of decided for everyone.
 
 Because it is ordinary tmux, Islet is not the only way back in:
 
 ```
 ssh you@server
-tmux ls
-tmux attach -t islet-ws-<id>
+tmux -S /var/lib/islet/tmux.sock ls
+tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-<id>
 ```
 
 That matters. A panel that is the only route to your own work is a panel you
 cannot afford to have go down.
+
+## Resuming the same conversation
+
+Each Claude Code agent owns a conversation, identified by a UUID stored with the
+agent. The first start passes `--session-id <uuid>`, which names it; every start
+afterwards passes `--resume <uuid>`, which reopens that exact one.
+
+`--continue` is deliberately not used. It means "the most recent conversation in
+this directory", and agents in one workspace share a directory — so two agents
+resuming would both land in whichever was touched last, and the other would be
+lost with nothing anywhere reporting it.
 
 ## Presets
 
@@ -118,6 +148,7 @@ over plain HTTP the browser refuses and the terminal says so.
 
 ## Limits in this version
 
-One window per workspace: no split panes. No session recording or playback, and
-no sharing a session with another person. Agents run on the host, not in a
-container.
+No split panes inside an agent's window. No session recording or playback, and no
+sharing a session with another person. Agents run on the host, not in a
+container. An agent's conversation is resumed by id, so moving a workspace to a
+different directory leaves those conversations behind.

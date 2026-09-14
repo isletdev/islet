@@ -117,6 +117,20 @@ export interface Workspace {
   running: boolean; started?: string; error?: string;
 }
 export interface WorkspaceMCP { enabled: boolean; path: string; tools: number; scopes: string[] }
+/**
+ * One program running inside a workspace: a tmux window of its own, and for
+ * Claude Code a conversation it keeps returning to. `running` means the command
+ * is actually going; `present` only means the window exists, which it also does
+ * when the agent has exited and left a prompt behind.
+ */
+export interface Agent {
+  id: string; workspaceId: string; name: string;
+  preset: "claude" | "shell" | "custom";
+  command: string; resume: boolean; skipPermissions: boolean;
+  sessionUuid?: string;
+  createdAt: string; updatedAt: string; lastStartedAt: string;
+  present: boolean; running: boolean; doing?: string;
+}
 
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; proxiedBy?: string; suggestion: string }
 
@@ -469,6 +483,13 @@ export const api = {
   workspaceHistory: (id: string) => request<{ text: string }>(`/api/v1/workspaces/${id}/history`),
   workspaceMcp: (id: string) => request<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
   workspaceMcpRenew: (id: string) => post<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
+  agents: (ws: string) => request<Agent[]>(`/api/v1/workspaces/${ws}/agents`),
+  agentSave: (ws: string, a: Partial<Agent>) => a.id
+    ? post<Agent>(`/api/v1/workspaces/${ws}/agents/${a.id}`, a, "PUT")
+    : post<Agent>(`/api/v1/workspaces/${ws}/agents`, a),
+  agentDelete: (ws: string, id: string) => post<void>(`/api/v1/workspaces/${ws}/agents/${id}`, undefined, "DELETE"),
+  agentStart: (ws: string, id: string) => post<Agent>(`/api/v1/workspaces/${ws}/agents/${id}/start`),
+  agentStop: (ws: string, id: string) => post<Agent>(`/api/v1/workspaces/${ws}/agents/${id}/stop`),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),
