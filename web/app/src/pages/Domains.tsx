@@ -72,6 +72,26 @@ function Locations({ value, containers, onChange }: { value: DomainLocation[]; c
   );
 }
 
+/**
+ * Why protecting this host will not work, or "" when it will.
+ *
+ * Forward auth asks the panel whether the visitor is signed in, and the visitor
+ * proves that with the session cookie the browser sent to the protected host.
+ * A cookie can only be scoped to a parent of the panel's own name, so a host
+ * outside that parent never receives one and the login redirects forever. It
+ * is worth saying at the moment the box is ticked rather than discovering it
+ * from an infinite loop.
+ */
+function protectWarning(host: string, cookieDom: string): string {
+  const h = host.trim().toLowerCase().replace(/^\*\./, "");
+  if (!h) return "";
+  if (!cookieDom) {
+    return `This needs a session cookie domain, and none is set. Without one the panel's cookie is only sent to ${location.hostname}, so ${h} can never tell that a visitor is signed in and the login will loop. Set one under Settings, Sessions.`;
+  }
+  if (h === cookieDom || h.endsWith("." + cookieDom)) return "";
+  return `${h} is not under ${cookieDom}, which is what the session cookie is scoped to, so a browser will never send it there and the login will loop. An Islet login can only protect names under ${cookieDom} — for ${h} you would need a panel on a name under ${h} instead.`;
+}
+
 export default function Domains() {
   const ask = useDialog();
   const { state } = useAuth();
@@ -91,6 +111,8 @@ export default function Domains() {
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
   // The form is hidden once there is nothing to decide; this opens it again.
   const [settings, setSettings] = useState(false);
+  const [cookieDom, setCookieDom] = useState("");
+  useEffect(() => { void api.cookieDomain().then((r) => setCookieDom(r.cookieDomain)).catch(() => {}); }, []);
   // What the last apply did, kept outside the form so closing it does not take
   // the only confirmation with it.
   const [note, setNote] = useState<string | null>(null);
@@ -341,6 +363,11 @@ export default function Domains() {
               </label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />Enabled</label>
             </div>
+            {editing.protect && protectWarning(editing.host, cookieDom) && (
+              <div className="md:col-span-2">
+                <Alert tone="warning">{protectWarning(editing.host, cookieDom)}</Alert>
+              </div>
+            )}
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
           </form>
         </Card>

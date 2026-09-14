@@ -239,15 +239,20 @@ export function onServerChange(fn: (id: string) => void): () => void {
 /** Rewrite an API path for the server in view. Exported for streams and links. */
 export function apiPath(path: string): string {
   if (currentServer === "local" || !path.startsWith("/api/v1/")) return path;
-  // Routes that belong to the panel itself are never forwarded: who you are,
-  // who else can sign in, and which servers exist are all answered here. A
-  // managed server has one account on it, the controller's, and editing that
-  // is not what anyone means by "users".
+  // Who you are stays here: your session, your password and your second factor
+  // are about this panel and follow you across every server you look at. So
+  // does the list of servers itself.
   //
-  // Everything else does follow the selection, including updates: opening
+  // Users do not. A managed server keeps its own accounts, and those are the
+  // ones that matter the moment it serves a panel on its own domain or
+  // protects a site with an Islet login — both ask that server who you are,
+  // not this one. Without this you can add a machine to the fleet, give it a
+  // domain, and then be locked out of the panel you just published.
+  //
+  // Everything else follows the selection too, including updates: opening
   // Settings while a managed server is in view and updating it there is the
   // point, not an accident.
-  const local = ["/api/v1/auth/", "/api/v1/servers", "/api/v1/setup", "/api/v1/users"];
+  const local = ["/api/v1/auth/", "/api/v1/servers", "/api/v1/setup"];
   if (local.some((p) => path.startsWith(p))) return path;
   const [head, query] = path.slice("/api/v1/".length).split("?");
   return `/api/v1/servers/${currentServer}/proxy/${head}` + (query ? `?${query}` : "");

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
+import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
@@ -269,6 +269,17 @@ function Tokens() {
 }
 
 function Users({ meId }: { meId: string }) {
+  // Which machine's accounts are on screen. Editing the wrong server's users
+  // should not be possible by forgetting which one is selected, so it is said
+  // rather than implied.
+  const [where, setWhere] = useState("");
+  useEffect(() => {
+    const id = getServer();
+    if (id === "local") { setWhere(""); return; }
+    api.servers()
+      .then((r) => { const s = r.servers.find((x) => x.id === id); setWhere(s ? s.name || s.host : "another server"); })
+      .catch(() => setWhere("another server"));
+  }, []);
   const ask = useDialog();
   const [list, setList] = useState<User[]>([]);
   const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [role, setRole] = useState("deployer");
@@ -281,7 +292,13 @@ function Users({ meId }: { meId: string }) {
   const resetPw = async (u: User) => { const pw = await ask.prompt({ title: `Set a new password for ${u.username}`, body: "At least 12 characters. Every session of theirs is signed out.", label: "New password", confirmLabel: "Set password", tone: "danger" }); if (!pw) return; try { await api.userUpdate(u.id, { role: "", password: pw }); setMsg(`Password for ${u.username} changed.`); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   const remove = async (u: User) => { if (!(await ask.confirm({ title: `Delete the user ${u.username}?`, body: "Every session and API token of theirs stops working immediately.", typeToConfirm: u.username, confirmLabel: "Delete user", tone: "danger" }))) return; try { await api.userDelete(u.id); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
-    <Card title="Users" description="Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read. A projects list narrows a deployer or viewer to some apps and what belongs to them.">
+    <Card
+      title={where ? `Users on ${where}` : "Users"}
+      description={
+        (where ? `These accounts live on ${where}, and they are the ones that sign in to its own panel and to anything it protects. ` : "") +
+        "Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read. A projects list narrows a deployer or viewer to some apps and what belongs to them."
+      }
+    >
       <ul className="divide-y divide-border">
         {list.map((u) => (
           <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">

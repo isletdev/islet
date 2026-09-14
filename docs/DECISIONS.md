@@ -944,3 +944,43 @@ Islet looks for the binary in PATH and then in the places installers use, and
 runs whatever it found by absolute path. Pressing Run before it is installed now
 says what is missing and how to install it, instead of leaving a shell to say
 "command not found" about a name the panel chose.
+
+## 2026-09-14 — A managed server keeps its own accounts
+`apiPath` forwarded almost everything to the selected server and deliberately
+kept `/api/v1/users` local, on the reasoning that "a managed server has one
+account on it, the controller's, and editing that is not what anyone means by
+users".
+
+That holds only while a member is headless. It stops holding the moment the
+member serves a panel on its own domain, or protects a site with an Islet
+login — both ask *that* server who you are, and neither can be answered by an
+account on the controller. Somebody adding a second machine, routing a domain
+to its panel and then finding themselves locked out of it is not an edge case;
+it is the ordinary next step.
+
+Users follow the selection now. What stays local is what is genuinely about
+this panel and follows you everywhere: your session, your password, your second
+factor, and the list of servers. The Users card names the machine whose
+accounts are on screen, because editing the wrong server's users should not be
+possible by forgetting which one is selected.
+
+## 2026-09-14 — Two names that cannot share a cookie cannot share a login
+Protecting a domain with an Islet login sent somebody to sign in and then
+dropped them on the dashboard instead of the site they asked for.
+
+The redirect was not the bug. Forward auth asks the panel whether the visitor
+is signed in, and the visitor proves it with the session cookie their browser
+sent to the protected host. A cookie can only be scoped to a parent of the
+panel's own name, so a panel at one registrable domain can never authenticate a
+site at another — there is no cookie that reaches both. The login page knew
+this and handled it by doing nothing, which reads as "the login failed" when
+the login in fact worked.
+
+Two changes, neither of which makes the impossible possible. The login page
+says why it cannot send you on, naming the two domains. And the Domains form
+says it at the moment the box is ticked, rather than leaving it to be
+discovered from a redirect loop in production — including the case where no
+cookie domain is set at all, where nothing but the panel's own host is covered.
+
+What does work is a panel on a name under the domain being protected, which is
+worth saying in the same breath as the refusal.
