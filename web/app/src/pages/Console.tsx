@@ -28,7 +28,7 @@ export default function Console() {
   useEffect(() => { document.title = `${where} · Islet console`; }, [where]);
 
   return (
-    <div className="flex h-screen flex-col bg-bg">
+    <div className="flex h-dvh flex-col bg-bg">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-[13px]">
         <Mark className="h-4 w-4 shrink-0" />
         <span className="truncate font-medium">{where}</span>

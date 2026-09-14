@@ -393,7 +393,7 @@ export default function Sql() {
   }
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] min-h-0 flex-col md:-m-6">
+    <div className="-m-4 flex h-[calc(100dvh-3.5rem)] min-h-0 flex-col md:-m-6">
       {/* ---- the bar that says where you are ---- */}
       <header className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2">
         <button

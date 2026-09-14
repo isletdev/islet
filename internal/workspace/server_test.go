@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -87,5 +88,33 @@ func TestEnsureServerIsSerialised(t *testing.T) {
 
 	if !s.serverUp() {
 		t.Fatal("the listener is still there; serverUp should hold")
+	}
+}
+
+// A development daemon beside the installed one is how this project is worked
+// on, and the two have different data directories and therefore different
+// sockets. A fixed unit name would let the second be refused by systemd and
+// fall back to starting its tmux server inside itself.
+func TestUnitNameFollowsTheSocket(t *testing.T) {
+	installed := &Service{sock: "/var/lib/islet/tmux.sock"}
+	dev := &Service{sock: "/tmp/islet-dev/data/tmux.sock"}
+
+	if installed.unitName() == dev.unitName() {
+		t.Fatalf("two sockets share a unit name: %s", installed.unitName())
+	}
+	if got := installed.unitName(); got != installed.unitName() {
+		t.Fatal("the name must be stable for one socket")
+	}
+	for _, s := range []*Service{installed, dev} {
+		n := s.unitName()
+		if !strings.HasPrefix(n, "islet-tmux-") {
+			t.Errorf("unit name %q should be recognisable as Islet's", n)
+		}
+		// systemd unit names allow these, and nothing here should need escaping.
+		for _, r := range n {
+			if !(r == '-' || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
+				t.Errorf("unit name %q contains %q, which systemd would need escaped", n, r)
+			}
+		}
 	}
 }

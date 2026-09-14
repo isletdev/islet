@@ -99,7 +99,7 @@ export default function Shell() {
   const closeNav = () => setNavOpen(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-bg">
+    <div className="flex h-dvh overflow-hidden bg-bg">
       {navOpen && (
         <button
           type="button"

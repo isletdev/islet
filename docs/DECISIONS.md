@@ -1408,3 +1408,45 @@ advice a phone can take. So the page stops trying to take the clipboard and
 offers somewhere to put it instead — a one-line box whose contents are sent to
 the terminal. The one paste every platform permits is the one the person
 performs themselves.
+
+## 2026-09-14 — A phone's viewport is not 100vh, and the terminal had 30% of one
+Reported from a phone: the terminal is cut off at the bottom, and the connection
+label does not sit well. Both were confirmed by driving the panel in a
+mobile-emulated browser against a development daemon, which is the first time
+any of this has been looked at rather than reasoned about.
+
+**The cut.** `h-screen` is `100vh`, and on a phone `100vh` is the *large*
+viewport — the height the page would have if the browser's toolbars were hidden.
+They are not hidden, so a `100vh` layout is taller than the screen and its bottom
+sits under the chrome. `dvh` is the one that tracks what is actually visible.
+Four places used the old unit: the app shell, the pop-out console, the SQL page
+and the workspace terminal.
+
+**The space.** The measurement was worse than the report. On a 390×844 screen the
+Terminal page spent 255px before the terminal began, and Workspaces 443px — more
+than half the screen on the page whose whole purpose is the terminal, which then
+ran 59px past the bottom. Most of it was a sentence describing the page, which is
+worth reading once and costs 80px on every visit afterwards; it now appears from
+`sm` up. The heading and its button share a row on a phone.
+
+Workspaces also drew two borders around one terminal — a wrapper with
+`rounded-lg border` around a `TermView` that draws its own — so the status row
+and the black box read as separate things in a card. The wrapper is gone.
+
+**The label.** "Connected" sat alone at one end of an otherwise empty row, which
+reads as a stray word rather than the state of a connection. It has a dot now,
+and the copy and paste buttons added earlier share the row with it.
+
+Terminal page: the terminal starts 88px higher and is 90px taller. Workspaces:
+87px higher, and inside the viewport instead of 59px past it. Desktop is
+unchanged, which was checked rather than assumed.
+
+The same session found that the transient unit name from the previous entry was
+a constant, so a development daemon beside the installed one — the arrangement
+the whole exercise depended on — would have been refused by systemd and fallen
+back to starting its tmux server inside itself. The name now carries a digest of
+the socket path. That fix is also what finally exercised `ensureServer` on a real
+daemon: the first start left a stale socket, the recovery path cleared the unit
+and the dead socket and started a server that landed in
+`islet-tmux-082ab4ec.service`, its own control group, which is what all of this
+was for.

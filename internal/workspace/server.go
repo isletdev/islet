@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net"
 	"os"
@@ -11,8 +13,19 @@ import (
 	"time"
 )
 
-// unit is the transient systemd unit the tmux server runs in.
-const unit = "islet-tmux"
+// unitName is the transient systemd unit the tmux server runs in.
+//
+// It carries a digest of the socket path rather than being a constant, because
+// a development daemon beside the installed one is the normal way to work on
+// this project — the data directory differs, so the socket does, so the servers
+// are genuinely separate. With one fixed name the second daemon is refused
+// ("Unit islet-tmux.service already exists"), falls back, and starts its server
+// inside itself: the exact placement this file exists to avoid, reintroduced by
+// the presence of another copy of Islet on the same host.
+func (s *Service) unitName() string {
+	sum := sha256.Sum256([]byte(s.sock))
+	return "islet-tmux-" + hex.EncodeToString(sum[:4])
+}
 
 // serverUp reports whether a tmux server is listening on the socket.
 //
@@ -85,6 +98,7 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	// A unit left over from a server that has since died keeps its name, and
 	// systemd-run refuses to reuse it. Clearing it is safe precisely because no
 	// server is answering: anything it still owned would have kept the socket.
+	unit := s.unitName()
 	_, _ = s.run.Run(ctx, actor, "systemctl", "stop", unit+".service")
 	_, _ = s.run.Run(ctx, actor, "systemctl", "reset-failed", unit+".service")
 

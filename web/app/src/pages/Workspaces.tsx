@@ -316,11 +316,11 @@ export default function Workspaces() {
     : "";
 
   return (
-    <div className="mx-auto max-w-[110rem] space-y-4">
+    <div className="mx-auto max-w-[110rem] space-y-3 sm:space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Workspaces</h1>
-          <p className="mt-1 text-ink-muted">
+          <p className="mt-1 hidden text-ink-muted sm:block">
             Agents that keep working when you close the tab. Several to a workspace, each in its own conversation.
           </p>
         </div>
@@ -491,9 +491,7 @@ export default function Workspaces() {
               )}
 
               {/* ---- the terminal is the page ---- */}
-              <div className="overflow-hidden rounded-lg border border-border">
-                <TermView key={termPath} path={termPath} reattaches className="h-[60vh] min-h-[22rem]" />
-              </div>
+              <TermView key={termPath} path={termPath} reattaches className="h-[60dvh] min-h-[20rem]" />
 
               <p className="text-xs text-ink-muted">
                 Reachable without Islet as well: <code>tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-{ws.id}</code>
