@@ -3,7 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { Button } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { apiPath } from "@/lib/api";
 
 export type TermStatus = "connecting" | "open" | "closed" | "error";
@@ -44,6 +44,9 @@ export default function TermView({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [hasSel, setHasSel] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // The manual paste box, for browsers that refuse to read the clipboard.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
 
   // The terminal itself, created once and kept across reconnects.
   useEffect(() => {
@@ -123,6 +126,48 @@ export default function TermView({
     };
   }, []);
 
+  // Scrolling with a finger.
+  //
+  // xterm's viewport scrolls to a wheel, and a phone has no wheel. The screen
+  // layer is drawn over the viewport, so a drag lands on an element that does
+  // not scroll and nothing moves: on a touch device the output above the fold
+  // was simply unreachable, which on a long agent session is most of it.
+  //
+  // The drag is turned into whole lines and handed to scrollLines. preventDefault
+  // is called only once a line has actually moved, so a tap still focuses the
+  // terminal and brings the keyboard up, and a drag that the terminal cannot use
+  // — already at the bottom of the scrollback — still scrolls the page.
+  useEffect(() => {
+    const el = host.current;
+    const t = term.current;
+    if (!el || !t) return;
+    let lastY = 0;
+    let carry = 0;
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      lastY = e.touches[0].clientY;
+      carry = 0;
+    };
+    const move = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      carry += lastY - y;
+      lastY = y;
+      const rowHeight = el.clientHeight / Math.max(1, t.rows);
+      const lines = Math.trunc(carry / rowHeight);
+      if (lines === 0) return;
+      carry -= lines * rowHeight;
+      t.scrollLines(lines);
+      e.preventDefault();
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+    };
+  }, []);
+
   // The socket, replaced on every reconnect.
   useEffect(() => {
     const t = term.current;
@@ -176,20 +221,30 @@ export default function TermView({
     }
   }, []);
 
+  const send = useCallback((text: string) => {
+    const ws = sock.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !text) return;
+    ws.send(new TextEncoder().encode(text));
+    // Clicking a control took focus off the terminal, and a terminal you have
+    // just pasted into is one you are about to type into.
+    term.current?.focus();
+  }, []);
+
   const paste = useCallback(async () => {
     const ws = sock.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     try {
-      const text = await navigator.clipboard.readText();
-      if (text) ws.send(new TextEncoder().encode(text));
-      // Clicking the menu took focus off the terminal, and a terminal you have
-      // just pasted into is one you are about to type into.
-      term.current?.focus();
+      send(await navigator.clipboard.readText());
     } catch {
-      setNote("The browser would not let the page read the clipboard. Use Ctrl+Shift+V, or allow clipboard access for this site.");
-      setTimeout(() => setNote(null), 6000);
+      // Reading the clipboard is refused far more often than writing it: Safari
+      // and Firefox do not offer readText to a page at all, and no browser does
+      // over plain http. Telling someone to press Ctrl+Shift+V is no help on a
+      // phone, which has no Ctrl. So the page stops trying to take the
+      // clipboard and offers somewhere to put it instead — the one paste every
+      // platform allows is the one the person performs themselves.
+      setPasteOpen(true);
     }
-  }, []);
+  }, [send]);
 
   // Closing the menu always hands the keyboard back. Paste does its own
   // focusing after the clipboard read resolves, so it is not closed here.
@@ -199,8 +254,14 @@ export default function TermView({
 
   return (
     <div className={`flex min-h-0 flex-col ${className}`}>
-      <div className="mb-2 flex items-center justify-end gap-3 text-xs text-ink-muted">
-        <span>{status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}</span>
+      {/* Copy and paste are buttons as well as a context menu. A phone has no
+          right-click and no Ctrl, so the menu these used to live in exclusively
+          could not be opened at all, which left no way to paste on the device
+          where typing a long command is hardest. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+        <span className="mr-auto">{status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}</span>
+        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>Copy</Button>
+        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={status !== "open"} onClick={() => void paste()}>Paste</Button>
         {(status === "closed" || status === "error") && (
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>Reconnect</Button>
         )}
@@ -229,6 +290,23 @@ export default function TermView({
             <MenuItem onClick={() => { term.current?.clear(); close(); }}>Clear</MenuItem>
           </div>
         </>
+      )}
+      {pasteOpen && (
+        <form
+          className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+          onSubmit={(e) => { e.preventDefault(); send(pasteText); setPasteText(""); setPasteOpen(false); }}
+        >
+          <Input
+            autoFocus
+            value={pasteText}
+            onChange={(e) => setPasteText(e.target.value)}
+            placeholder="Paste here, then Send"
+            className="font-mono"
+            aria-label="Text to send to the terminal"
+          />
+          <Button type="submit" className="h-9 text-xs">Send</Button>
+          <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => { setPasteOpen(false); setPasteText(""); term.current?.focus(); }}>Cancel</Button>
+        </form>
       )}
       {note && <p className="mt-2 text-xs text-warning">{note}</p>}
     </div>

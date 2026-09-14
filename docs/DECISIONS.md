@@ -1346,3 +1346,40 @@ half asserting that `docker run -p 8080:80`, `docker compose -p shop` and
 What reverses it: a per-command table of which short flag carries a secret, if a
 call site ever genuinely cannot use a long option. That is more machinery than the
 problem currently needs.
+
+## 2026-09-14 — The terminal could not be scrolled or pasted into on a phone
+Two separate faults with one cause: every way of reaching those two actions was
+one a phone does not have.
+
+**Scrolling.** xterm's viewport scrolls to a wheel, and the screen layer is drawn
+over it, so a finger dragging inside the terminal lands on an element that does
+not scroll. Nothing moved. On a long agent session that is most of the output —
+the panel offered a window onto work it then made unreadable.
+
+The drag is now turned into whole lines and handed to `scrollLines`. The
+conversion uses `clientHeight / rows`, which is exact rather than approximate
+because `FitAddon` chose `rows` for that same height: whatever the font, the two
+agree by construction. `preventDefault` is called only once a line has actually
+moved, so a tap still focuses the terminal and raises the keyboard, and a drag
+the terminal cannot use still scrolls the page.
+
+Measured rather than assumed, in a mobile-emulated browser driven over CDP with
+real touch events: a 350px drag moved 48 lines where 48 were expected, and the
+opposite drag returned the viewport exactly. An earlier run of the same harness
+appeared to under-scroll by half, which turned out to be synthetic touch events
+being dropped between the driver and the page — worth recording, because the
+first measurement said the fix was wrong when it was the measurement that was.
+
+**Paste.** Copy and paste existed only in a context menu opened by right-click.
+A phone has no right-click and no Ctrl, so on the device where typing a long
+command is hardest there was no way to paste at all. They are buttons now, next
+to the connection status, which also helps anyone who never thought to try
+right-clicking a terminal.
+
+`navigator.clipboard.readText` is refused far more often than `writeText`:
+Safari and Firefox do not offer it to a page, and no browser does over plain
+http. The previous handling told the user to press Ctrl+Shift+V, which is not
+advice a phone can take. So the page stops trying to take the clipboard and
+offers somewhere to put it instead — a one-line box whose contents are sent to
+the terminal. The one paste every platform permits is the one the person
+performs themselves.
