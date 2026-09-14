@@ -704,3 +704,37 @@ One more, found while testing the fix: Apply closed the settings panel on
 success, and the settings panel was where the result message was rendered, so
 a successful apply was indistinguishable from a dead button. The confirmation
 now lives outside the form it reports on.
+
+## 2026-09-14 — Never ask how long a request body is before reading it
+The proxy install handler read its body only `if r.ContentLength > 0`.
+
+ContentLength is **-1** when the length is unknown, and unknown is what a
+chunked request looks like. A request that reaches the panel through a reverse
+proxy is routinely re-encoded that way — including through Islet's own Traefik,
+as soon as somebody routes the panel to a domain, which is the first thing a
+new user does.
+
+So for exactly the users who had finished setting Islet up, the body was never
+decoded. Every field arrived at its zero value: the Let's Encrypt email, the
+DNS provider, its credentials. `Install` was then called with an empty email,
+started Traefik with no certificate resolver at all, and the request answered
+200. Every site on the server was served Traefik's own self-signed
+certificate, and the panel showed a running proxy with an empty certificate
+list and an email box that still held what the person had typed — because the
+value had never left the browser.
+
+This one defect produced every symptom of two separate bug reports, and the
+two fixes shipped before it — repairing acme.json permissions, refusing an
+install with no email — were both treating its downstream effects. The second
+one turned a silent failure into a loud and baffling one: *you have an email
+there, and the panel insists you do not*.
+
+The rule is the one in the heading. A handler reads the body and decides from
+what it finds; `io.EOF` means there was none, which is a different answer from
+a malformed one and the only case worth special-casing. Length is transport
+framing and says nothing about whether content exists.
+
+Worth noting how long this hid. Every test, every scripted check and every
+local browser session talked to the daemon directly, where Go's client sets
+Content-Length on a byte body, so the path was always taken. The condition was
+only false in the deployed configuration none of them reproduced.

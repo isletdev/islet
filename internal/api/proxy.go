@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,11 +38,18 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 		DNSProvider *string           `json:"dnsProvider"`
 		DNSEnv      map[string]string `json:"dnsEnv"`
 	}
-	if r.ContentLength > 0 {
-		if err := decode(r, &req); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
-			return
-		}
+	// Decode whatever body there is, without asking how long it is first.
+	//
+	// ContentLength is -1 when the length is unknown, which is what a chunked
+	// request looks like — and a request that reached the panel through a
+	// reverse proxy, including Islet's own Traefik once the panel has a
+	// domain, is routinely re-encoded that way. Gating on "> 0" therefore
+	// skipped the body entirely for exactly those users: the email, the DNS
+	// provider and its credentials all arrived empty, the proxy was rebuilt
+	// with no certificate resolver, and the call still answered 200.
+	if err := decode(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
 	}
 	if req.DNSProvider != nil {
 		if err := s.proxy.SetDNS(r.Context(), strings.TrimSpace(*req.DNSProvider), req.DNSEnv); err != nil {
