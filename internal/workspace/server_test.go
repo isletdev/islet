@@ -1,9 +1,11 @@
 package workspace
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -55,4 +57,35 @@ func TestServerUpAndStale(t *testing.T) {
 			t.Error("a socket file with no listener is stale and must be removed")
 		}
 	})
+}
+
+// Every panel action reaches tmux and several can be in flight at once. Before
+// ensureServer took a lock, concurrent calls each raced to create a server on
+// the same socket: tmux 3.2a segfaulted, and the half-started transient unit
+// kept its own name so every later attempt fell back to starting the server
+// inside isletd. This runs the concurrency; -race covers the rest.
+func TestEnsureServerIsSerialised(t *testing.T) {
+	dir := t.TempDir()
+	// A live listener means serverUp is true, so ensureServer takes its fast
+	// path and never shells out — the point here is the concurrent access.
+	s := &Service{sock: filepath.Join(dir, "tmux.sock")}
+	l, err := net.Listen("unix", s.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.ensureServer(context.Background(), "test")
+		}()
+	}
+	wg.Wait()
+
+	if !s.serverUp() {
+		t.Fatal("the listener is still there; serverUp should hold")
+	}
 }

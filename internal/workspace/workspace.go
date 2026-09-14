@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isletdev/islet/internal/cmdrun"
@@ -68,6 +69,12 @@ type Service struct {
 	log  *slog.Logger
 	dir  string // <dataDir>/workspaces
 	sock string // <dataDir>/tmux.sock — the server every session lives on
+
+	// serverMu serialises starting the tmux server. Every panel action reaches
+	// tmux, several can be in flight at once, and two processes racing to create
+	// a server on one socket is not a theoretical problem: it segfaulted tmux
+	// 3.2a on this machine and left a half-started unit holding the name.
+	serverMu sync.Mutex
 }
 
 // New builds the service. dataDir is the daemon's data directory; per-workspace

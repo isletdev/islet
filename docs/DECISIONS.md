@@ -1269,3 +1269,39 @@ killed or the machine reboots. It keeps working there — `KillMode=process` and
 `PrivateTmp=no` remain in the unit for exactly that population — but it is worth
 knowing that one `tmux -S <sock> kill-server` is what moves an already-running
 install onto the new arrangement, and that it is the last one needed.
+
+## 2026-09-14 — Starting the tmux server needs a lock, and tmux segfaults without one
+The previous entry moved the tmux server out of isletd's control group and into
+a transient systemd unit. Released as v0.11.3 it did not work, and the way it
+failed is worth writing down.
+
+`ensureServer` had no serialisation. Every panel action reaches tmux, several
+are in flight at once, and each one that found no server ran `systemd-run`. The
+journal shows four inside 121 milliseconds, and then:
+
+    kernel: tmux: server[2763209]: segfault at 0 ... in tmux[558ebf254000+97000]
+
+Two tmux processes racing to create a server on one socket crashed tmux 3.2a.
+The transient unit was left `active (exited)` with `Tasks: 0` — holding its own
+name while owning nothing — so every later attempt failed with "Unit
+islet-tmux.service already exists", fell through to the inline path, and started
+the server inside isletd after all. The mechanism was right and unreachable: the
+first call broke it and the error handling then hid that permanently.
+
+Three things follow. `ensureServer` takes a mutex, with the socket dial repeated
+inside it so the goroutine that waited does not start a second server. A unit
+whose name is taken while nothing answers on the socket is stopped and reset
+before retrying, because the only thing that could have kept the name is a
+server that would have kept the socket too. And the unit gets `HOME` explicitly:
+isletd's own unit sets none, and a tmux server with no home directory is not a
+configuration anyone tests.
+
+Verified by firing six concurrent starts at one socket: one server, no
+segfault, `islet-tmux.service` as its control group, the host's mount namespace,
+and sessions created on it normally. The same shape produced the crash above.
+
+The general lesson is the one this file keeps recording. The fix was reasoned
+about correctly and shipped without being run under the conditions it would meet
+— concurrency, on a machine with real traffic. `-race` and a stress loop are
+cheap; a release that silently falls back to the behaviour it was replacing is
+not, because nothing reports it.

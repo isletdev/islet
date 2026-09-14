@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -58,7 +59,17 @@ func (s *Service) stale() bool {
 // restart underneath it.
 func (s *Service) ensureServer(ctx context.Context, actor string) {
 	if s.serverUp() {
-		return
+		return // the common case, and it costs one socket dial
+	}
+	// Only one attempt at a time. Without this every concurrent panel action
+	// races to create a server on the same socket; on this machine that
+	// segfaulted tmux and left the transient unit holding its own name, after
+	// which every later attempt failed with "already exists" and fell back to
+	// starting the server inside isletd — the placement being avoided.
+	s.serverMu.Lock()
+	defer s.serverMu.Unlock()
+	if s.serverUp() {
+		return // someone else won the race and started it
 	}
 	if s.stale() {
 		_ = os.Remove(s.sock)
@@ -70,19 +81,27 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	if _, err := exec.LookPath("systemd-run"); err != nil {
 		return // not a systemd host: let tmux start the server itself
 	}
+
+	// A unit left over from a server that has since died keeps its name, and
+	// systemd-run refuses to reuse it. Clearing it is safe precisely because no
+	// server is answering: anything it still owned would have kept the socket.
+	_, _ = s.run.Run(ctx, actor, "systemctl", "stop", unit+".service")
+	_, _ = s.run.Run(ctx, actor, "systemctl", "reset-failed", unit+".service")
+
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/root" // the daemon's unit sets none, and tmux wants one
+	}
 	// Type=oneshot with RemainAfterExit is what holds this: tmux's client forks
 	// the server and exits, and there is no pid file, so Type=forking leaves
-	// systemd unable to find a main process — it marks the unit dead, --collect
-	// removes it, and the server is left in whatever cgroup it happened to be
-	// in. Measured, not assumed: with forking the server came back up inside
-	// isletd.service, which is the cgroup this whole change exists to leave.
+	// systemd unable to find a main process — it marks the unit dead,
+	// --collect removes it, and the server is left in whatever cgroup it
+	// started from. Measured, not assumed: with forking the server came back up
+	// inside isletd.service, the cgroup this exists to leave.
 	//
 	// `exit-empty off` is the other half. A tmux server with no sessions exits
-	// at once, so starting one and creating the sessions afterwards would race
-	// against its own shutdown. With it off the server waits, and a workspace
-	// session is created on it like any other.
-	//
-	// --collect frees the unit name once it does go away.
+	// at once, so starting one and creating sessions afterwards races its own
+	// shutdown. It is a server option, so it is set with -s.
 	out, err := s.run.Run(ctx, actor, "systemd-run",
 		"--collect",
 		"--unit="+unit,
@@ -90,13 +109,13 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 		"--property=Type=oneshot",
 		"--property=RemainAfterExit=yes",
 		"--property=KillMode=process",
-		tmuxPath, "-S", s.sock, "start-server", ";", "set", "-g", "exit-empty", "off")
+		"--setenv=HOME="+home,
+		tmuxPath, "-S", s.sock, "start-server", ";", "set", "-s", "exit-empty", "off")
 	if err != nil {
-		s.log.Warn("workspaces: could not start the tmux server under systemd; falling back to an in-process one",
-			"err", err, "output", out.Stdout+out.Stderr)
+		s.log.Warn("workspaces: could not start the tmux server under systemd; the next command will start one here instead",
+			"err", err, "output", strings.TrimSpace(out.Stdout+out.Stderr))
 		return
 	}
-	// systemd-run returns as soon as the job is queued.
 	for i := 0; i < 40; i++ {
 		if s.serverUp() {
 			s.log.Info("workspaces: tmux server started in its own systemd unit", "unit", unit, "socket", s.sock)
@@ -104,5 +123,5 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	s.log.Warn("workspaces: tmux server did not come up on the socket", "socket", s.sock)
+	s.log.Warn("workspaces: the tmux server did not come up on the socket", "socket", s.sock, "unit", unit)
 }
