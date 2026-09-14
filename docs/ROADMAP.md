@@ -4,6 +4,8 @@
 
 How to read this: each phase has a one-line goal, a list of what the user can do afterwards, the features as checkboxes, what is deliberately left out, and a definition of done. Tick boxes as you go.
 
+This file is the plan. For where the work actually stands — including the eleven releases after the plan ran out, and what is left before 1.0.0 — see [STATUS.md](STATUS.md).
+
 ---
 
 ## Phase 0 — Foundation `v0.1`
@@ -12,8 +14,8 @@ How to read this: each phase has a one-line goal, a list of what the user can do
 After this phase a user can: run one command, open a URL, log in with 2FA, and see live CPU, memory, disk and network for their box.
 
 **Installer and daemon**
-- [ ] `curl -fsSL https://get.islet.dev | sh` for Ubuntu 22.04+ and Debian 12+ on x86_64 and arm64
-- [ ] Single static Go binary `isletd`, systemd unit, `islet` system user, state in `/var/lib/islet`
+- [x] `curl -fsSL https://get.islet.dev | sh` for Ubuntu 22.04+ and Debian 12+ on x86_64 and arm64
+- [x] Single static Go binary `isletd`, systemd unit, `islet` system user, state in `/var/lib/islet`
 - [x] First migration: a `servers` table with the local server's row, and a `server_id` column on every machine-bound table (schema convention only, see `DECISIONS.md`)
 - [x] Installs Docker Engine if missing; the daemon verifies it at startup and reports the version
 - [x] Self-signed HTTPS on first boot (Let's Encrypt for the panel's own domain arrives with the proxy in v0.3)

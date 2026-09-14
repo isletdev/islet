@@ -74,6 +74,7 @@ The REST API is described in [docs/openapi.yaml](docs/openapi.yaml). An MCP serv
 
 | File | What it is |
 |---|---|
+| [docs/STATUS.md](docs/STATUS.md) | Where the work stands today, and what to pick up next |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The phased plan with checkboxes; what is done and what is left |
 | [docs/VISION.md](docs/VISION.md) | Full product vision and feature inventory |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Log of decisions that shape the code |
