@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -41,6 +41,9 @@ export default function TermView({
   const [status, setStatus] = useState<TermStatus>("connecting");
   const [gen, setGen] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [hasSel, setHasSel] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   // The terminal itself, created once and kept across reconnects.
   useEffect(() => {
@@ -66,6 +69,40 @@ export default function TermView({
     term.current = t;
     fit.current = f;
 
+    // Copy and paste in a terminal.
+    //
+    // Ctrl+C cannot simply be copy: in a terminal it is interrupt, and taking
+    // that away would leave no way to stop a running command — which matters
+    // most in exactly the sessions worth leaving open. So it copies only when
+    // there is a selection to copy, and is passed through untouched otherwise.
+    // That is what Windows Terminal does, and what people already expect.
+    //
+    // Ctrl+V has no meaning to a shell, so it is always paste. macOS uses Cmd
+    // for both, where there is no conflict at all. Ctrl+Shift+C/V work too, for
+    // anyone with the habit.
+    t.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+      const mod = mac ? e.metaKey : e.ctrlKey;
+      if (!mod) return true;
+      const key = e.key.toLowerCase();
+      if (key === "c") {
+        if (!t.hasSelection()) return true; // nothing to copy: let SIGINT through
+        void copy(t.getSelection());
+        // Clear it, so the next Ctrl+C interrupts rather than copying the same
+        // text again. Otherwise a stray selection quietly disables interrupt.
+        t.clearSelection();
+        return false;
+      }
+      if (key === "v") {
+        void paste();
+        return false;
+      }
+      return true;
+    });
+
+    const onSel = t.onSelectionChange(() => setHasSel(t.hasSelection()));
+
     const enc = new TextEncoder();
     const onData = t.onData((d) => {
       const ws = sock.current;
@@ -79,6 +116,7 @@ export default function TermView({
     ro.observe(el);
     return () => {
       ro.disconnect();
+      onSel.dispose();
       onData.dispose();
       onResize.dispose();
       t.dispose();
@@ -128,6 +166,30 @@ export default function TermView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, gen, reattaches]);
 
+  const copy = useCallback(async (text: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Refused, usually because the panel is on plain http, where the
+      // clipboard API is not available. Say which, rather than nothing.
+      setNote("The browser would not let the page write to the clipboard. Use Ctrl+Shift+C, or serve the panel over HTTPS.");
+      setTimeout(() => setNote(null), 6000);
+    }
+  }, []);
+
+  const paste = useCallback(async () => {
+    const ws = sock.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) ws.send(new TextEncoder().encode(text));
+    } catch {
+      setNote("The browser would not let the page read the clipboard. Use Ctrl+Shift+V, or allow clipboard access for this site.");
+      setTimeout(() => setNote(null), 6000);
+    }
+  }, []);
+
   const reconnect = useCallback(() => { setAttempt(0); setGen((g) => g + 1); }, []);
 
   return (
@@ -138,7 +200,46 @@ export default function TermView({
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>Reconnect</Button>
         )}
       </div>
-      <div ref={host} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2" />
+      <div
+        ref={host}
+        className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2"
+        // The browser's own menu here offers Back, Reload, View source and
+        // Inspect — nothing that applies to a terminal, and nothing the two
+        // things people actually want. This is those two things.
+        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
+      />
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div
+            role="menu"
+            className="fixed z-50 min-w-40 rounded-md border border-border bg-surface py-1 text-sm shadow-float"
+            style={{ left: Math.min(menu.x, window.innerWidth - 180), top: Math.min(menu.y, window.innerHeight - 160) }}
+          >
+            <MenuItem disabled={!hasSel} onClick={() => { void copy(term.current?.getSelection() ?? ""); setMenu(null); }}>
+              Copy
+            </MenuItem>
+            <MenuItem onClick={() => { void paste(); setMenu(null); }}>Paste</MenuItem>
+            <MenuItem onClick={() => { term.current?.selectAll(); setHasSel(true); setMenu(null); }}>Select all</MenuItem>
+            <MenuItem onClick={() => { term.current?.clear(); setMenu(null); }}>Clear</MenuItem>
+          </div>
+        </>
+      )}
+      {note && <p className="mt-2 text-xs text-warning">{note}</p>}
     </div>
+  );
+}
+
+function MenuItem({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className="block w-full px-3 py-1.5 text-left hover:bg-surface-2 disabled:cursor-default disabled:text-ink-faint disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
   );
 }

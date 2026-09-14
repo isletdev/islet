@@ -47,9 +47,12 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 			return
 		}
+		claude := s.workspaces.ClaudePath(r.Context())
 		writeJSON(w, http.StatusOK, map[string]any{
 			"workspaces": list,
 			"tmux":       s.workspaces.HasTmux(r.Context()),
+			"claude":     claude != "",
+			"claudePath": claude,
 		})
 		return
 	}
@@ -203,6 +206,19 @@ func (s *Server) handleWorkspaceTmux(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc, wait, err := s.workspaces.InstallTmux(r.Context(), userFrom(r.Context()).Username)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "install", Message: err.Error()})
+		return
+	}
+	streamLines(w, r, rc, wait)
+}
+
+// handleWorkspaceClaude installs Claude Code, streaming the installer.
+func (s *Server) handleWorkspaceClaude(w http.ResponseWriter, r *http.Request) {
+	if !s.workspaceAdmin(w, r) {
+		return
+	}
+	rc, wait, err := s.workspaces.InstallClaude(r.Context(), userFrom(r.Context()).Username)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, api.Error{Error: "install", Message: err.Error()})
 		return

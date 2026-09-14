@@ -82,9 +82,39 @@ feature, and it is worth saying plainly rather than burying.
   the risk — it is an audited, revocable path for things the agent would
   otherwise do as root.
 
+## Signing in to Claude Code
+
+Press **Run claude** and sign in when it asks. Claude prints a link; open it on
+any device, approve, and paste the code back. A subscription signs in exactly as
+it does on a laptop, and stays signed in afterwards.
+
+`claude setup-token` is the other route if you would rather hold a long-lived
+token than a browser session.
+
 ## Requirements
 
-tmux. The page offers to install it if it is missing (`apt-get`, `dnf` or `apk`).
+tmux, and Claude Code for that preset. The page offers to install either if it
+is missing — tmux through the system package manager, Claude Code through
+Anthropic's installer with npm as a fallback.
+
+Claude Code installs to `~/.local/bin`, which a non-login shell started by tmux
+often does not have on its PATH. Islet records where it found the binary and
+runs it by that path, so "command not found" cannot happen because of it.
+
+## Copy and paste in the terminal
+
+`Ctrl+C` copies **when there is a selection**, and interrupts when there is not
+— taking interrupt away would leave no way to stop a running command, which
+matters most in the sessions worth leaving open. The selection is cleared after
+a copy, so the next `Ctrl+C` interrupts again. `Ctrl+V` pastes. On macOS `Cmd+C`
+and `Cmd+V` do both, where nothing conflicts. `Ctrl+Shift+C` and `Ctrl+Shift+V`
+work too.
+
+Right-click gives Copy, Paste, Select all and Clear rather than the browser's
+own menu, which offers Back and View Source and nothing a terminal can use.
+
+Reading and writing the clipboard needs a secure context, so on a panel served
+over plain HTTP the browser refuses and the terminal says so.
 
 ## Limits in this version
 

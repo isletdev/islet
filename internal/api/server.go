@@ -190,6 +190,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/mcp", s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP)))
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/mcp", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP))))
 	mux.HandleFunc("POST /api/v1/workspaces/tmux", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceTmux))))
+	mux.HandleFunc("POST /api/v1/workspaces/claude", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceClaude))))
 	// The attach socket is a shell, and is gated like one.
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/attach", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAttach)))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleAudit))

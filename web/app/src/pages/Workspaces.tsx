@@ -51,6 +51,7 @@ export default function Workspaces() {
 
   const [list, setList] = useState<Workspace[]>([]);
   const [tmux, setTmux] = useState(true);
+  const [claude, setClaude] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Workspace | null>(null);
   const [open, setOpen] = useState<Workspace | null>(null);
@@ -70,6 +71,7 @@ export default function Workspaces() {
       const r = await api.workspaces();
       setList(r.workspaces);
       setTmux(r.tmux);
+      setClaude(r.claude);
       setErr(null);
       setOpen((o) => (o ? r.workspaces.find((w) => w.id === o.id) ?? null : null));
     } catch (e) {
@@ -123,13 +125,13 @@ export default function Workspaces() {
     setOpen((o) => (o?.id === w.id ? null : o));
   };
 
-  const installTmux = async () => {
+  const install = async (what: "tmux" | "claude") => {
     setInstalling([]);
     try {
-      await postStream("/api/v1/workspaces/tmux", (l) => setInstalling((o) => [...(o ?? []).slice(-200), l]));
+      await postStream(`/api/v1/workspaces/${what}`, (l) => setInstalling((o) => [...(o ?? []).slice(-200), l]));
       await load();
     } catch (e) {
-      void ask.alert({ title: "Could not install tmux", body: failure(e), tone: "danger" });
+      void ask.alert({ title: `Could not install ${what}`, body: failure(e), tone: "danger" });
     } finally { setInstalling(null); }
   };
 
@@ -154,9 +156,33 @@ export default function Workspaces() {
             a closed browser, a dropped connection and an Islet update. You can also reach the same session over SSH
             with <span className="font-mono">tmux attach</span>.
           </p>
-          <Button className="mt-3 h-8 text-xs" disabled={installing !== null} onClick={() => void installTmux()}>
+          <Button className="mt-3 h-8 text-xs" disabled={installing !== null} onClick={() => void install("tmux")}>
             {installing !== null ? "Installing…" : "Install tmux"}
           </Button>
+          {installing !== null && (
+            <pre className="mt-3 max-h-56 overflow-auto rounded-lg border border-border bg-code-bg p-3 font-mono text-xs text-code-fg">
+              {installing.join("\n") || "…"}
+            </pre>
+          )}
+        </Card>
+      )}
+
+      {tmux && !claude && list.some((w) => w.preset === "claude") && (
+        <Card
+          title="Claude Code is not installed on this server"
+          description="A workspace with the Claude Code preset has nothing to run until it is."
+        >
+          <p className="text-sm text-ink-muted">
+            This installs it with Anthropic's own installer, falling back to npm. It lands in{" "}
+            <span className="font-mono">~/.local/bin</span>, which a fresh shell may not have on its PATH — Islet runs it
+            by its full path, so that does not matter here.
+          </p>
+          <Button className="mt-3 h-8 text-xs" disabled={installing !== null} onClick={() => void install("claude")}>
+            {installing !== null ? "Installing…" : "Install Claude Code"}
+          </Button>
+          <p className="mt-3 text-xs text-ink-muted">
+            Or run it yourself: <span className="font-mono">curl -fsSL https://claude.ai/install.sh | bash</span>
+          </p>
           {installing !== null && (
             <pre className="mt-3 max-h-56 overflow-auto rounded-lg border border-border bg-code-bg p-3 font-mono text-xs text-code-fg">
               {installing.join("\n") || "…"}
@@ -234,6 +260,14 @@ export default function Workspaces() {
           {/* reattaches: the session lives in tmux, so a dropped connection
               costs nothing and reconnecting is safe to do automatically. */}
           <TermView path={`/api/v1/workspaces/${open.id}/attach`} reattaches className="h-[60vh]" />
+          {open.preset === "claude" && !open.lastAttachedAt && (
+            <p className="mt-2 rounded-md border border-border bg-surface-2 p-2 text-xs text-ink-muted">
+              First time here: type <span className="font-mono">{open.command || "claude"}</span> or press
+              <span className="font-mono"> Run</span>, and sign in when it asks. It prints a link — open it on any
+              device, approve, and paste the code back. Your subscription signs in the same way it does on a laptop,
+              and it stays signed in afterwards.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-ink-muted">
             <span>Detach by closing this — the session keeps running.</span>
             <button type="button" onClick={() => setOpen(null)} className="-my-1 py-1 hover:text-ink">Close</button>

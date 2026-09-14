@@ -908,3 +908,39 @@ Automatic reconnection is offered only to endpoints that reattach to something
 already running. A plain shell must not reconnect on its own: the process is
 already dead, and quietly opening a second one would leave somebody typing into
 a fresh shell believing it was the old one.
+
+## 2026-09-14 — Ctrl+C cannot just be copy
+Reported as copy and paste not working in the terminal. The obvious fix is
+wrong: in a terminal Ctrl+C is interrupt, and a panel that takes that away
+leaves no way to stop a running command — which matters most in exactly the
+sessions people leave open for hours.
+
+So it depends on whether there is anything to copy. With a selection, Ctrl+C
+copies and then clears the selection, so the next press interrupts again; a
+stray selection quietly disabling interrupt would be the same bug in a smaller
+place. With no selection it is passed straight through. Ctrl+V is always paste,
+because no shell wants it. macOS uses Cmd for both, where nothing conflicts at
+all. This is what Windows Terminal does, and the reason it does it.
+
+Right-click was showing the browser's menu — Back, Reload, View Source, Inspect
+— which is four things a terminal cannot use and none of the two it can. It is
+Copy, Paste, Select all and Clear now.
+
+The clipboard API needs a secure context, so on a panel served over plain HTTP
+the browser refuses. That says so in words rather than doing nothing, because a
+paste that silently fails reads as a broken terminal.
+
+## 2026-09-14 — Finding a binary is not the same as it being on PATH
+The Claude Code preset ran `claude` and got "command not found" on a server
+where Claude Code was simply not installed — and would have kept failing after
+installing it, for a different reason.
+
+Anthropic's installer puts the binary in `~/.local/bin`. A non-login shell, such
+as the one tmux starts, frequently does not have that on its PATH. So the
+natural sequence — install it, press Run, watch it fail again — would have
+looked like the same bug twice with no way to tell them apart.
+
+Islet looks for the binary in PATH and then in the places installers use, and
+runs whatever it found by absolute path. Pressing Run before it is installed now
+says what is missing and how to install it, instead of leaving a shell to say
+"command not found" about a name the panel chose.

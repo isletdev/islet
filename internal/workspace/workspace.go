@@ -97,6 +97,78 @@ func (s *Service) InstallTmux(ctx context.Context, actor string) (rc interface {
 		"apt-get update && apt-get install -y tmux || dnf install -y tmux || apk add --no-cache tmux")
 }
 
+// ClaudePath is where Claude Code is on this machine, or "" when it is not.
+//
+// PATH alone is not enough to answer this. The official installer puts the
+// binary in ~/.local/bin, which a non-login shell started by tmux may not have
+// on its PATH — so "claude: command not found" is the normal outcome of a
+// perfectly good install, and the fix is to use the path we found rather than
+// to hope.
+func (s *Service) ClaudePath(ctx context.Context) string {
+	if out, err := s.run.Run(ctx, "system", "sh", "-c", "command -v claude 2>/dev/null"); err == nil {
+		if p := strings.TrimSpace(out.Stdout); p != "" {
+			return p
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/root"
+	}
+	for _, p := range []string{
+		filepath.Join(home, ".local", "bin", "claude"),
+		"/usr/local/bin/claude",
+		"/usr/bin/claude",
+	} {
+		if fileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// InstallClaude runs the official installer, streaming what it says.
+//
+// The npm package is the fallback rather than the first choice: the native
+// installer is what Anthropic ships, and it does not need a Node runtime on a
+// server that may not have one.
+func (s *Service) InstallClaude(ctx context.Context, actor string) (rc interface {
+	Read([]byte) (int, error)
+	Close() error
+}, wait func() error, err error) {
+	return s.run.Stream(ctx, actor, "sh", "-c",
+		"curl -fsSL https://claude.ai/install.sh | bash "+
+			"|| npm install -g @anthropic-ai/claude-code")
+}
+
+// launch is the command line a workspace actually runs.
+//
+// The stored command is what the person typed and is left alone in the list and
+// in the editor; this is the resolved version, with an absolute path when the
+// binary is not on PATH and the MCP configuration when there is one.
+func (s *Service) launch(ctx context.Context, w *Workspace) string {
+	cmd := strings.TrimSpace(w.Command)
+	if cmd == "" {
+		return ""
+	}
+	if w.Preset == "claude" {
+		head, rest, _ := strings.Cut(cmd, " ")
+		if filepath.Base(head) == "claude" && !filepath.IsAbs(head) {
+			if p := s.ClaudePath(ctx); p != "" && p != head {
+				cmd = p
+				if rest != "" {
+					cmd += " " + rest
+				}
+			}
+		}
+		if w.MCPEnabled {
+			if p := s.mcpPath(w.ID); fileExists(p) {
+				cmd += " --mcp-config " + p
+			}
+		}
+	}
+	return cmd
+}
+
 func (s *Service) tmux(ctx context.Context, actor string, args ...string) (string, error) {
 	res, err := s.run.Run(ctx, actor, "tmux", args...)
 	return strings.TrimSpace(res.Stdout), err
@@ -151,12 +223,10 @@ func (s *Service) Start(ctx context.Context, actor, id string) error {
 	if err := s.ensure(ctx, actor, w); err != nil {
 		return err
 	}
-	cmd := w.Command
-	if w.Preset == "claude" && w.MCPEnabled {
-		if p := s.mcpPath(w.ID); fileExists(p) {
-			cmd = cmd + " --mcp-config " + p
-		}
+	if w.Preset == "claude" && s.ClaudePath(ctx) == "" {
+		return errors.New("Claude Code is not installed on this server. Install it from the Workspaces page, or run the installer yourself: curl -fsSL https://claude.ai/install.sh | bash")
 	}
+	cmd := s.launch(ctx, w)
 	if _, err := s.tmux(ctx, actor, "send-keys", "-t", SessionName(w.ID), cmd, "Enter"); err != nil {
 		return err
 	}
