@@ -270,7 +270,7 @@ func (s *Service) sql(ctx context.Context, actor string, inst *Instance, databas
 		}
 		return s.exec(ctx, actor, inst, query, "psql", "-U", inst.RootUser, "-d", database, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", "-f", "-")
 	case "mysql":
-		args := []string{"mysql", "-uroot", "-p" + inst.RootPass, "-N", "-B"}
+		args := []string{"mysql", "--user=root", "--password=" + inst.RootPass, "-N", "-B"}
 		if database != "" {
 			args = append(args, database)
 		}
@@ -319,7 +319,7 @@ func (s *Service) Databases(ctx context.Context, actor string, inst *Instance) (
 			out = append(out, Database{Name: r[0], Size: r[1] + " MB", Connections: n})
 		}
 	case "redis":
-		res, err := s.exec(ctx, actor, inst, "", "redis-cli", "-a", inst.RootPass, "--no-auth-warning", "INFO", "keyspace")
+		res, err := s.exec(ctx, actor, inst, "", "redis-cli", "--pass", inst.RootPass, "--no-auth-warning", "INFO", "keyspace")
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +332,7 @@ func (s *Service) Databases(ctx context.Context, actor string, inst *Instance) (
 			}
 		}
 	case "mongo":
-		res, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--eval", `db.adminCommand("listDatabases").databases.forEach(d => print(d.name + "\t" + d.sizeOnDisk))`)
+		res, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--eval", `db.adminCommand("listDatabases").databases.forEach(d => print(d.name + "\t" + d.sizeOnDisk))`)
 		if err != nil {
 			return nil, err
 		}
@@ -375,7 +375,7 @@ func (s *Service) CreateDatabase(ctx context.Context, actor string, inst *Instan
 		}
 	case "mongo":
 		js := fmt.Sprintf(`db.getSiblingDB(%q).createUser({user: %q, pwd: %q, roles: [{role: "readWrite", db: %q}, {role: "dbAdmin", db: %q}]})`, name, user, password, name, name)
-		if _, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--eval", js); err != nil {
+		if _, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--eval", js); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("mongodb://%s@%s:%d/%s", url.UserPassword(user, password), inst.Container, inst.Port, name), nil
@@ -401,7 +401,7 @@ func (s *Service) DropDatabase(ctx context.Context, actor string, inst *Instance
 		_, err := s.sql(ctx, actor, inst, "", fmt.Sprintf("DROP DATABASE `%s`;\nDROP USER IF EXISTS '%s'@'%%';\n", name, name))
 		return err
 	case "mongo":
-		_, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--eval", fmt.Sprintf(`db.getSiblingDB(%q).dropDatabase()`, name))
+		_, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--eval", fmt.Sprintf(`db.getSiblingDB(%q).dropDatabase()`, name))
 		return err
 	}
 	return errors.New("this engine has no separate databases")
@@ -439,7 +439,7 @@ func (s *Service) Stats(ctx context.Context, actor string, inst *Instance) (*Sta
 			st.DataSize = r[0][4] + " MB"
 		}
 	case "redis":
-		res, err := s.exec(ctx, actor, inst, "", "redis-cli", "-a", inst.RootPass, "--no-auth-warning", "INFO")
+		res, err := s.exec(ctx, actor, inst, "", "redis-cli", "--pass", inst.RootPass, "--no-auth-warning", "INFO")
 		if err != nil {
 			return nil, err
 		}
@@ -457,7 +457,7 @@ func (s *Service) Stats(ctx context.Context, actor string, inst *Instance) (*Sta
 		st.DataSize = kv["used_memory_human"]
 		st.Extra = []string{"hit rate: " + hitRate(kv["keyspace_hits"], kv["keyspace_misses"]), "evicted keys: " + kv["evicted_keys"], "persistence: " + map[string]string{"1": "AOF on", "0": "AOF off"}[kv["aof_enabled"]]}
 	case "mongo":
-		res, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--eval", `const s = db.serverStatus(); print(s.version + "\t" + s.connections.current + "\t" + s.connections.available + "\t" + s.uptime)`)
+		res, err := s.exec(ctx, actor, inst, "", "mongosh", "--quiet", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--eval", `const s = db.serverStatus(); print(s.version + "\t" + s.connections.current + "\t" + s.connections.available + "\t" + s.uptime)`)
 		if err != nil {
 			return nil, err
 		}
@@ -610,9 +610,9 @@ func dumpArgv(inst *Instance, database string) ([]string, string, error) {
 	case "postgres":
 		return []string{"pg_dump", "-U", inst.RootUser, "--no-owner", "--clean", "--if-exists", database}, ".sql.gz", nil
 	case "mysql":
-		return []string{"mysqldump", "-uroot", "-p" + inst.RootPass, "--single-transaction", "--routines", "--triggers", database}, ".sql.gz", nil
+		return []string{"mysqldump", "--user=root", "--password=" + inst.RootPass, "--single-transaction", "--routines", "--triggers", database}, ".sql.gz", nil
 	case "mongo":
-		return []string{"mongodump", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--db", database, "--archive"}, ".archive.gz", nil
+		return []string{"mongodump", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--db", database, "--archive"}, ".archive.gz", nil
 	case "redis":
 		return []string{"sh", "-c", `redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --rdb /tmp/islet-dump.rdb >/dev/null 2>&1 && cat /tmp/islet-dump.rdb && rm -f /tmp/islet-dump.rdb`}, ".rdb.gz", nil
 	}
@@ -695,9 +695,9 @@ func (s *Service) Restore(ctx context.Context, actor string, inst *Instance, fil
 		if _, err := s.sql(ctx, actor, inst, "", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", database)); err != nil {
 			return err
 		}
-		argv = []string{"mysql", "-uroot", "-p" + inst.RootPass, database}
+		argv = []string{"mysql", "--user=root", "--password=" + inst.RootPass, database}
 	case "mongo":
-		argv = []string{"mongorestore", "-u", inst.RootUser, "-p", inst.RootPass, "--authenticationDatabase", "admin", "--archive", "--drop", "--nsFrom", database + ".*", "--nsTo", database + ".*"}
+		argv = []string{"mongorestore", "--username", inst.RootUser, "--password", inst.RootPass, "--authenticationDatabase", "admin", "--archive", "--drop", "--nsFrom", database + ".*", "--nsTo", database + ".*"}
 	case "redis":
 		return errors.New("restore a Redis dump by stopping the instance and replacing dump.rdb in its data volume; Islet keeps the file under " + p)
 	}

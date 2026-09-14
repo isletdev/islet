@@ -146,6 +146,19 @@ var secretName = regexp.MustCompile(`(?i)(PASSWORD|PASSWD|_PWD|SECRET|TOKEN|APIK
 // Credentials inside a connection string, such as a restic REST or S3 URL.
 var secretInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^:/@\s]+):[^@\s]+@`)
 
+// secretFlag matches a long option whose name says the argument after it is a
+// secret, so that `--token abc` loses the abc. The whole name has to be one of
+// these words, optionally prefixed: --gitlab-token counts, --authentication
+// Database does not, and neither does --passthrough.
+//
+// Long options only. A short one cannot be read without knowing the command:
+// -p is a password to mysql, a published port to `docker run`, a project to
+// `docker compose` and a property to timedatectl, and the commands here arrive
+// wrapped in `docker exec`, so the program being run is not even the first
+// word. Redacting every -p would hide far more than it protects, which is why
+// the call sites that had one now pass the long form instead.
+var secretFlag = regexp.MustCompile(`^--(?i:[a-z0-9]+-)*(?i:pass|passwd|password|pwd|secret|token|apikey|api-key|accesskey|access-key|privatekey|private-key|credential|credentials|auth)$`)
+
 const redacted = "<redacted>"
 
 // Redact removes a secret value from one argument, keeping the name so the
@@ -162,8 +175,16 @@ func Redact(arg string) string {
 // so there is one place to get this right.
 func Display(name string, args ...string) string {
 	parts := []string{name}
+	// A secret given as its own argument is only recognisable from the flag in
+	// front of it, so the decision carries one step.
+	hideNext := false
 	for _, a := range args {
-		a = Redact(a)
+		if hideNext {
+			a, hideNext = redacted, false
+		} else {
+			hideNext = secretFlag.MatchString(a)
+			a = Redact(a)
+		}
 		if a == "" || strings.ContainsAny(a, " \t\n\"'$`") {
 			parts = append(parts, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
 		} else {

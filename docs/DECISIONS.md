@@ -1305,3 +1305,44 @@ about correctly and shipped without being run under the conditions it would meet
 — concurrency, on a machine with real traffic. `-race` and a stress loop are
 cheap; a release that silently falls back to the behaviour it was replacing is
 not, because nothing reports it.
+
+## 2026-09-14 — A secret argument is only recognisable from the flag in front of it
+`cmdrun.Redact` removed a value in two shapes: `NAME=value` where the name looked
+secret, and credentials inside a `scheme://user:pass@` URL. Everything the daemon
+runs goes through `Display`, which calls it, and the result is written to the
+audit table and shown in the transparency drawer. The comment above it says what
+is at stake — "Without this the drawer hands out the password protecting the
+backups" — and it was right about the stakes and wrong about the coverage.
+
+Neither shape covers a flag and its value. `mysql --user=root -phunter2` is one
+argument with no `=`; `mongodump -u root -p hunter2` is two arguments, neither of
+which means anything alone; `gitlab-runner register --token glrt-…` likewise, and
+`redis-cli -a hunter2` too, which was a fourth call site nobody had noticed. Every
+MySQL, MariaDB, Mongo and Redis root password and every GitLab runner token went
+into the audit table in clear.
+
+The obvious repair is to redact whatever follows a flag that looks like a
+password. That cannot be done for short flags. `-p` is a password to mysql, a
+published port to `docker run`, a project to `docker compose`, a property to
+`timedatectl` and print-to-stdout to `tmux capture-pane` — and these commands
+arrive wrapped in `docker exec`, so the program being run is not even the first
+word of the line. There is nothing to key on. Redacting every `-p` would blank
+`8080:80` and the name of a Compose project, which is precisely the information
+the drawer exists to show, and it would do it silently.
+
+So the rule only reads long options whose whole name is a secret word, and the
+call sites that used short ones now pass the long form: `--password=` attached for
+mysql, which requires it because its `--password` takes an optional argument;
+`--username`/`--password` as separate arguments for the Mongo tools; `--pass` for
+redis-cli. Saying it plainly in the command is what makes it redactable, and it
+reads better in the drawer besides.
+
+`internal/cmdrun` had no test file at all, which is how a regex this load-bearing
+went unverified through 43 releases. It has one now, built from the argv the call
+sites actually construct rather than from invented examples, and with a second
+half asserting that `docker run -p 8080:80`, `docker compose -p shop` and
+`timedatectl show -p Timezone` still appear in full.
+
+What reverses it: a per-command table of which short flag carries a secret, if a
+call site ever genuinely cannot use a long option. That is more machinery than the
+problem currently needs.
