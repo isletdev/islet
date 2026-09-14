@@ -1370,6 +1370,31 @@ appeared to under-scroll by half, which turned out to be synthetic touch events
 being dropped between the driver and the page — worth recording, because the
 first measurement said the fix was wrong when it was the measurement that was.
 
+A second report followed: scrolling worked in a shell and still did nothing
+inside the agent. It was the same fault one layer down. Any full-screen program
+— an agent, vim, less — runs on the *alternate screen*, which has no scrollback
+at all, so `scrollLines` had nothing to move there and silently did nothing. The
+first fix had been tested against shell output, which is the case that was never
+really in doubt.
+
+A wheel is not one action, and only xterm knows which it is: through the
+scrollback in the normal buffer; a mouse-report escape when the program has
+asked for mouse events, which the program then scrolls on itself; cursor up and
+down when it is on the alternate screen without them. So the drag is handed to
+xterm as a wheel event at the finger's position, and it decides — except in the
+normal buffer, where it must not be, because xterm lets the browser scroll its
+viewport natively and an event constructed in script carries no default action.
+Dispatching one there moves nothing, which is how the first version of this
+regressed the case that already worked. The branch is on `buffer.active.type`.
+
+The live pane settled what the agent actually wants, and tmux could simply be
+asked: `mouse_any_flag=1`, `mouse_sgr_flag=1`, `alternate_on=1`. It reports
+mouse events, so it receives `ESC[<64;col;rowM` and scrolls itself; the cursor
+keys are only for programs that asked for nothing, where they are the right
+answer anyway. The position is set on the event for the same reason — a report
+carries the cell it happened over, and without it every one reads as 1;1, which
+would scroll the wrong pane in a program that has more than one.
+
 **Paste.** Copy and paste existed only in a context menu opened by right-click.
 A phone has no right-click and no Ctrl, so on the device where typing a long
 command is hardest there was no way to paste at all. They are buttons now, next

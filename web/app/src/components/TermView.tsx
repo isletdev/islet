@@ -133,10 +133,27 @@ export default function TermView({
   // not scroll and nothing moves: on a touch device the output above the fold
   // was simply unreachable, which on a long agent session is most of it.
   //
-  // The drag is turned into whole lines and handed to scrollLines. preventDefault
-  // is called only once a line has actually moved, so a tap still focuses the
-  // terminal and brings the keyboard up, and a drag that the terminal cannot use
-  // — already at the bottom of the scrollback — still scrolls the page.
+  // The drag is turned into whole lines, and each line is dispatched as a wheel
+  // event rather than passed to scrollLines. That is the difference between
+  // scrolling a shell and scrolling the program running in it. xterm does three
+  // different things with a wheel, and only it knows which applies:
+  //
+  //   normal buffer          moves through the scrollback
+  //   alternate screen,      sends the mouse-report escape the program asked
+  //     mouse reporting on   for, and the program scrolls itself
+  //   alternate screen,      sends cursor up or down
+  //     mouse reporting off
+  //
+  // Any full-screen program — an agent, vim, less — is on the alternate screen,
+  // which has no scrollback at all, so scrollLines had nothing to move and did
+  // nothing. That is why this worked in a shell and not inside Claude. One
+  // event per line because the alternate-screen branch emits a single keypress
+  // per wheel event whatever its magnitude.
+  //
+  // The event is dispatched at the finger, like a real wheel, so it reaches the
+  // same listener by the same path. preventDefault is called only once a line
+  // has moved, so a tap still focuses the terminal and raises the keyboard, and
+  // a drag the terminal cannot use still scrolls the page.
   useEffect(() => {
     const el = host.current;
     const t = term.current;
@@ -157,7 +174,31 @@ export default function TermView({
       const lines = Math.trunc(carry / rowHeight);
       if (lines === 0) return;
       carry -= lines * rowHeight;
-      t.scrollLines(lines);
+      if (t.buffer.active.type === "normal") {
+        // There is a scrollback, so move through it directly. A synthetic wheel
+        // event cannot be used here: xterm lets the browser scroll its viewport
+        // natively, and an event made in script carries no default action, so
+        // dispatching one moves nothing at all.
+        t.scrollLines(lines);
+      } else {
+        // The alternate screen has no scrollback to move, which is why calling
+        // scrollLines here did nothing and the output inside a full-screen
+        // program stayed unreachable. xterm's own wheel handler is what knows
+        // whether the program asked for mouse reports or wants cursor keys, so
+        // the movement is given to it as a wheel, at the finger, exactly where
+        // a real one would land.
+        const x = e.touches[0].clientX;
+        const target = document.elementFromPoint(x, y) ?? el;
+        const step = lines < 0 ? -rowHeight : rowHeight;
+        // The position goes on the event because a mouse report carries the
+        // cell it happened over, and a program with more than one pane scrolls
+        // the one under the pointer. Without it every report reads as 1;1.
+        // Capped: a flick can cover a lot of rows, and a program fed several
+        // hundred scroll events at once behaves worse than one that scrolls less.
+        for (let i = 0; i < Math.min(Math.abs(lines), 30); i++) {
+          target.dispatchEvent(new WheelEvent("wheel", { deltaY: step, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        }
+      }
       e.preventDefault();
     };
     el.addEventListener("touchstart", start, { passive: true });
