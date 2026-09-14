@@ -589,8 +589,15 @@ type Domain struct {
 	Maintenance bool   `json:"maintenance"`
 	Protect     bool   `json:"protect"` // require a panel session (forward auth)
 	Enabled     bool   `json:"enabled"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
+	// PassHost sends the visitor's hostname to the app rather than the
+	// upstream's own, which is what nginx and Nginx Proxy Manager do and what
+	// anything checking Host or Origin — every WebSocket library among them —
+	// expects to see.
+	PassHost bool `json:"passHost"`
+	// BlockExploits refuses the requests that only ever come from a scanner.
+	BlockExploits bool   `json:"blockExploits"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 	// Locations are extra paths on this host that go somewhere else. The
 	// domain's own target stays the root; a location is an exception to it.
 	Locations []Location `json:"locations"`
@@ -709,6 +716,13 @@ func (d *Domain) Validate() error {
 	if d.RateLimit < 0 {
 		return errors.New("rateLimit must be >= 0")
 	}
+	// A URL target used to be the one case that rewrote the Host, and nothing
+	// said so. Anything that reads its own hostname — a WebSocket origin
+	// check, an absolute redirect, a cookie domain — saw the upstream's name
+	// instead of the one the visitor typed.
+	if d.TargetType == "panel" {
+		d.PassHost = true
+	}
 	for _, c := range splitList(d.IPAllowlist) {
 		if !regexp.MustCompile(`^[0-9a-fA-F:.]+(/\d{1,3})?$`).MatchString(c) {
 			return fmt.Errorf("bad CIDR %q", c)
@@ -749,15 +763,16 @@ func splitList(s string) []string {
 	return out
 }
 
-const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, created_at, updated_at`
+const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, pass_host, block_exploits, created_at, updated_at`
 
 func scan(sc interface{ Scan(...any) error }) (*Domain, error) {
 	var d Domain
-	var www, maint, prot, en int
-	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &prot, &en, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	var www, maint, prot, en, pass, block int
+	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &prot, &en, &pass, &block, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return nil, err
 	}
 	d.RedirectWWW, d.Maintenance, d.Protect, d.Enabled = www == 1, maint == 1, prot == 1, en == 1
+	d.PassHost, d.BlockExploits = pass == 1, block == 1
 	return &d, nil
 }
 
@@ -893,9 +908,9 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 	}
 	if d.ID == "" {
 		d.ID = newID()
-		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled))
+		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, pass_host, block_exploits)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), b(d.PassHost), b(d.BlockExploits))
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("that host is already routed")
@@ -903,9 +918,9 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 			return nil, err
 		}
 	} else {
-		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, enabled=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, enabled=?, pass_host=?, block_exploits=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id = ? AND server_id = ?`,
-			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), d.ID, m.st.ServerID)
+			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), b(d.PassHost), b(d.BlockExploits), d.ID, m.st.ServerID)
 		if err != nil {
 			return nil, err
 		}
@@ -982,6 +997,35 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return os.Rename(p+".tmp", p)
 }
 
+// exploitRule matches requests that only ever come from somebody looking for a
+// way in, as a Traefik rule expression.
+//
+// What it covers: the paths a scanner asks for within seconds of a new host
+// appearing in a certificate transparency log. Secrets committed by accident
+// (.env, .git, .aws, .ssh), source control and editor leftovers, backups left
+// in the web root, two PHP packages with famous remote-execution holes, and
+// the two HTTP methods whose only purpose is to echo a request back.
+//
+// What it does not cover, and will not pretend to: query strings. Nginx Proxy
+// Manager's equivalent greps the whole query for SQL and XSS fragments, and
+// Traefik's rule language can only match a named parameter, so the same thing
+// cannot be written here. It is also the half that ages worst — it blocks the
+// payloads somebody wrote down years ago while breaking search boxes and
+// message bodies that legitimately contain the word "select". An application
+// that parameterises its queries is not helped by it, and one that does not is
+// not saved by it.
+//
+// /.well-known/ stays reachable on purpose: ACME answers its challenge there,
+// and blocking it would stop certificates from being issued.
+var exploitRule = strings.Join([]string{
+	"PathRegexp(`^/\\.(env|git|svn|hg|aws|ssh|docker|idea|vscode|DS_Store)(/|$)`)",
+	"PathRegexp(`(?i)^/(vendor/phpunit|_ignition/execute-solution|server-status|server-info)(/|$)`)",
+	"PathRegexp(`(?i)\\.(sql|bak|old|orig|save|swp|swo|rej)$`)",
+	"PathRegexp(`(?i)(/etc/passwd|/proc/self/environ)`)",
+	"Method(`TRACE`)",
+	"Method(`TRACK`)",
+}, " || ")
+
 // tlsFor gives the TLS block every router on a host shares, and says when the
 // host is on plain HTTP instead.
 //
@@ -1010,16 +1054,16 @@ func tlsFor(d Domain, wildcard bool) (map[string]any, bool) {
 // backendService builds the load balancer for one target, whichever of the
 // three kinds it is. Shared so a location cannot reach a backend in a way the
 // root could not.
-func backendService(kind, target string, port int, panelURL string) map[string]any {
+func backendService(kind, target string, port int, panelURL string, passHost bool) map[string]any {
 	switch kind {
 	case "container":
 		return map[string]any{"loadBalancer": map[string]any{
-			"servers": []map[string]string{{"url": fmt.Sprintf("http://%s:%d", target, port)}}, "passHostHeader": true}}
+			"servers": []map[string]string{{"url": fmt.Sprintf("http://%s:%d", target, port)}}, "passHostHeader": passHost}}
 	case "panel":
 		return map[string]any{"loadBalancer": map[string]any{
 			"servers": []map[string]string{{"url": panelURL}}, "serversTransport": "islet-insecure", "passHostHeader": true}}
 	default: // url
-		svc := map[string]any{"servers": []map[string]string{{"url": target}}, "passHostHeader": false}
+		svc := map[string]any{"servers": []map[string]string{{"url": target}}, "passHostHeader": passHost}
 		if strings.HasPrefix(target, "https://") {
 			svc["serversTransport"] = "islet-insecure"
 		}
@@ -1150,7 +1194,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 				lrouter["service"] = "islet-panel"
 			} else {
 				lrouter["service"] = ln
-				services[ln] = backendService(l.TargetType, l.Target, l.Port, panelURL)
+				services[ln] = backendService(l.TargetType, l.Target, l.Port, panelURL, d.PassHost)
 			}
 			routers[ln] = lrouter
 		}
@@ -1180,7 +1224,30 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			routers[name+"-www"] = wwwRouter
 		}
 
-		services[name] = backendService(d.TargetType, d.Target, d.Port, panelURL)
+		services[name] = backendService(d.TargetType, d.Target, d.Port, panelURL, d.PassHost)
+
+		// Requests that only ever come from somebody looking for a way in.
+		// A router of its own rather than a middleware, because Traefik has no
+		// middleware that refuses a request and the rule language is the only
+		// place this can be expressed at all.
+		if d.BlockExploits {
+			bn := name + "-block"
+			brule := hostRule + " && (" + exploitRule + ")"
+			middlewares[bn] = map[string]any{"replacePath": map[string]any{"path": "/_islet/blocked"}}
+			broute := map[string]any{
+				"rule": brule, "entryPoints": []string{"websecure"},
+				"middlewares": []string{bn}, "service": "islet-panel",
+				// Above every location on this host, so a blocked path cannot
+				// be reached through one of them either.
+				"priority": priority + 200,
+			}
+			if onHTTP {
+				broute["entryPoints"] = []string{"web"}
+			} else {
+				broute["tls"] = tlsBlock
+			}
+			routers[bn] = broute
+		}
 	}
 	// The daemon itself, reachable from the container through the host gateway.
 	services["islet-panel"] = map[string]any{"loadBalancer": map[string]any{"servers": []map[string]string{{"url": panelURL}}, "serversTransport": "islet-insecure", "passHostHeader": true}}

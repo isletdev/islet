@@ -19,6 +19,17 @@ func (s *Server) handleMaintenancePage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(proxy.MaintenancePage))
 }
 
+// handleBlockedPage answers the requests the exploit filter caught.
+//
+// Plain text and short: nothing that reaches this is a browser somebody is
+// looking at, and a 403 that explains itself to a scanner only tells it which
+// filter it hit.
+func (s *Server) handleBlockedPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte("Forbidden\n"))
+}
+
 func (s *Server) handleProxyStatus(w http.ResponseWriter, r *http.Request) {
 	// Diagnose reads Traefik's log, so it is not part of Status, which is
 	// called from inside the install path itself.
@@ -152,7 +163,14 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 			// A container upstream becomes a container target, so Islet
 			// attaches it to the proxy network itself instead of relying on
 			// the two proxies sharing one.
-			dom := proxy.Domain{Host: h, TLS: "letsencrypt", Enabled: true}
+			dom := proxy.Domain{
+				Host: h, TLS: "letsencrypt", Enabled: true,
+				// Carried across rather than reset to a default: these are
+				// decisions the person already made, in the configuration
+				// being replaced.
+				PassHost:      site.PassHost,
+				BlockExploits: site.BlockExploits,
+			}
 			p.Skipped = site.Skipped
 
 			// Locations first: one of them may have to stand in as the root.
@@ -203,6 +221,22 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 				}
 				if n := len(dom.Locations); n > 0 {
 					p.Note += fmt.Sprintf(". %d custom location(s) come across with it", n)
+				}
+				var carried []string
+				if site.BlockExploits {
+					carried = append(carried, "blocking common exploits")
+				}
+				if !site.PassHost {
+					carried = append(carried, "sending the upstream's own hostname")
+				}
+				if site.WebSockets {
+					// Not a setting on this side: Traefik proxies a WebSocket
+					// whatever anyone ticks. Saying so beats leaving somebody
+					// to wonder which of their options survived.
+					carried = append(carried, "WebSockets, which need no setting here")
+				}
+				if len(carried) > 0 {
+					p.Note += ". Kept: " + strings.Join(carried, ", ")
 				}
 			case site.RawUp != "":
 				p.Note = "the upstream is " + site.RawUp + " and the variables behind it are not in this text; paste the whole file, including the lines that define them"

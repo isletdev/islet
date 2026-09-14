@@ -44,6 +44,18 @@ type Site struct {
 	// the root. Every product here allows that and Islet does not, so the
 	// import has to decide what the root becomes and say that it did.
 	NoRoot bool `json:"noRoot,omitempty"`
+	// PassHost is false only when the configuration deliberately sent the app a
+	// hostname other than the visitor's. Both nginx and Nginx Proxy Manager
+	// pass the visitor's by default, so the absence of a Host line means yes.
+	PassHost bool `json:"passHost"`
+	// BlockExploits mirrors Nginx Proxy Manager's checkbox of the same name,
+	// which is readable in the host file it generates.
+	BlockExploits bool `json:"blockExploits"`
+	// WebSockets records that the source configuration had the upgrade headers
+	// set. Traefik always proxies a WebSocket, so this changes nothing — it is
+	// carried so the import can say so rather than leave somebody wondering
+	// which of their settings survived.
+	WebSockets bool `json:"webSockets,omitempty"`
 	// Skipped names the location blocks that were understood well enough to
 	// see they forward somewhere, but not well enough to translate: regular
 	// expressions, named locations, exact matches. Reporting them is the
@@ -249,7 +261,8 @@ func ParseCaddy(text, file string) []Site {
 		}
 		i = j - 1
 
-		site := Site{File: file}
+		// Caddy forwards the visitor's Host unless told otherwise.
+		site := Site{File: file, PassHost: true}
 		for _, addr := range strings.Split(head, ",") {
 			h := hostOfCaddyAddress(addr)
 			if h != "" {
@@ -357,7 +370,10 @@ func ParseApache(text, file string) []Site {
 	var out []Site
 	for _, m := range apacheVHost.FindAllStringSubmatch(text, -1) {
 		body := stripApacheComments(m[1])
-		site := Site{File: file, TLS: apacheSSL.MatchString(body)}
+		// Apache's ProxyPreserveHost defaults to Off, but every guide that puts
+		// an app behind it turns it on, and an import that silently changed the
+		// hostname would break the same things it breaks everywhere else.
+		site := Site{File: file, TLS: apacheSSL.MatchString(body), PassHost: true}
 		for _, n := range apacheName.FindAllStringSubmatch(body, -1) {
 			for _, h := range strings.Fields(unquote(n[1])) {
 				h = strings.ToLower(h)

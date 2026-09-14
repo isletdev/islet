@@ -12,6 +12,9 @@ import (
 var (
 	serverBlockRe = regexp.MustCompile(`(?s)server\s*\{`)
 	directiveRe   = regexp.MustCompile(`(?:^|[\s{;])(server_name|proxy_pass|root|listen|include)\s+([^;{}]+);`)
+	// `proxy_set_header Host <value>;` — the one directive that decides which
+	// hostname the app behind the proxy is told about.
+	hostHeaderRe = regexp.MustCompile(`(?i)(?:^|[\s{;])proxy_set_header\s+Host\s+([^;{}]+);`)
 	// Nginx Proxy Manager writes `set $server "app";` and then
 	// `proxy_pass $forward_scheme://$server:$port;`, so the variables have to
 	// be resolved before the upstream means anything.
@@ -210,6 +213,20 @@ func ParseNginx(text, file string) []NginxSite {
 			}
 			outer = outer[:kw] + outer[end:]
 		}
+
+		// Both products send the visitor's hostname unless told otherwise, so
+		// the default is yes and only an explicit Host naming something else
+		// turns it off.
+		site.PassHost = true
+		if hm := hostHeaderRe.FindStringSubmatch(block); hm != nil {
+			v := strings.TrimSpace(unquote(hm[1]))
+			site.PassHost = v == "$host" || v == "$http_host" || v == "$host:$server_port"
+		}
+		// Nginx Proxy Manager includes these rather than writing them out, so
+		// its checkboxes are readable in the file it generates.
+		site.BlockExploits = strings.Contains(block, "block-exploits.conf")
+		site.WebSockets = strings.Contains(block, "$http_upgrade") ||
+			strings.Contains(block, "$http_connection")
 
 		vars := map[string]string{}
 		for _, m := range setRe.FindAllStringSubmatch(outer, -1) {

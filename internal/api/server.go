@@ -125,6 +125,7 @@ func New(d Deps) http.Handler {
 	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
+	mux.HandleFunc("/_islet/blocked", s.handleBlockedPage)
 	mux.HandleFunc("/_islet/auth", s.handleForwardAuth)
 	mux.HandleFunc("GET /api/v1/auth/cookie-domain", s.requireAuth(s.handleCookieDomain))
 	mux.HandleFunc("POST /api/v1/auth/cookie-domain", requireJSON(s.requireAuth(s.handleCookieDomain)))

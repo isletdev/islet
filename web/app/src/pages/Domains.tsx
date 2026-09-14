@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { useDialog } from "@/lib/dialogs";
 
-const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, locations: [], createdAt: "", updatedAt: "" };
+const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, passHost: true, blockExploits: false, locations: [], createdAt: "", updatedAt: "" };
 
 /**
  * Extra paths on one host, each forwarded somewhere of its own.
@@ -331,6 +331,14 @@ export default function Domains() {
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.redirectWww} onChange={(e) => setEditing({ ...editing, redirectWww: e.target.checked })} />Redirect www to this host</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.maintenance} onChange={(e) => setEditing({ ...editing, maintenance: e.target.checked })} />Maintenance page</label>
               <label className="flex items-center gap-1.5" title="Visitors must be signed in to the Islet panel. Set the session cookie domain in Settings first."><input type="checkbox" checked={!!editing.protect} onChange={(e) => setEditing({ ...editing, protect: e.target.checked })} />Protect with Islet login</label>
+              <label className="flex items-center gap-1.5" title="Scanners look for .env, .git and similar within seconds of a new name appearing. This refuses them.">
+                <input type="checkbox" checked={editing.blockExploits ?? false} onChange={(e) => setEditing({ ...editing, blockExploits: e.target.checked })} />
+                Block common exploits
+              </label>
+              <label className="flex items-center gap-1.5" title="On: the app is told the hostname the visitor typed, which is what nginx does and what WebSocket and login checks expect. Off: it is told the upstream's own address.">
+                <input type="checkbox" checked={editing.passHost ?? true} onChange={(e) => setEditing({ ...editing, passHost: e.target.checked })} />
+                Send this hostname to the app
+              </label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />Enabled</label>
             </div>
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>

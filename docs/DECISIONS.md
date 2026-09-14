@@ -738,3 +738,60 @@ Worth noting how long this hid. Every test, every scripted check and every
 local browser session talked to the daemon directly, where Go's client sets
 Content-Length on a byte body, so the path was always taken. The condition was
 only false in the deployed configuration none of them reproduced.
+
+## 2026-09-14 — The Host header is the setting, not the WebSocket
+Reported as "WebSockets do not work after the import". Traefik proxies a
+WebSocket natively and needs nothing turned on, which was verified before
+anything was changed: a handshake through Islet completed on a container
+target, a URL target and a custom location.
+
+What differed was the Host header. Islet sent the visitor's hostname to a
+container target and the upstream's own `host:port` to a URL target — and a
+URL target is what an imported site almost always becomes, because the
+upstream in somebody's nginx config is usually an address rather than a
+container Islet can see. nginx and Nginx Proxy Manager both send `$host`, so
+an imported app started being told a different name than it had been told for
+years.
+
+Every WebSocket library checks Origin or Host before completing an upgrade, so
+that is the half people notice. The quiet half is worse: absolute redirects,
+cookie domains, generated links and anything that renders its own URL.
+
+The default is now to pass the visitor's hostname, for every target type,
+which is what the configurations being imported already did. The rewrite
+remains available for the case it was written for — proxying to a genuine
+external service, where the caller's Host means nothing to the far end.
+
+The import reads it rather than assuming: `proxy_set_header Host` naming
+anything other than `$host` or `$http_host` means rewrite, and its absence
+means pass, because that is nginx's own default.
+
+## 2026-09-14 — Block what a scanner asks for, not what a payload looks like
+The same report asked for Nginx Proxy Manager's "Block Common Exploits". Half
+of it is expressible in Traefik and half is not, and the honest thing was to
+build the half that is and say so.
+
+What is built: the paths. A new host appears in a certificate transparency log
+and within seconds something asks for `/.env`, `/.git/config`,
+`/vendor/phpunit`, a stray `.sql` backup. Those requests have no legitimate
+form — no application is served from them — so refusing them costs nothing and
+removes the most common way a server is given away. It is a router whose rule
+matches those paths, above every other router on the host, answering 403 from
+the daemon, because Traefik has no middleware that refuses a request and the
+rule language is the only place this can be written at all.
+
+`/.well-known/` is reachable by construction: no pattern names it. ACME
+answers its challenge there, and a filter that broke certificate issuance
+would be a worse bug than the one it prevents.
+
+What is not built: query strings. NPM greps the whole query for SQL and XSS
+fragments; Traefik's rule language can only match a named parameter, so the
+same expression cannot be written. It is also the half that ages worst,
+blocking payloads someone wrote down years ago while breaking search boxes
+that legitimately contain the word "select". An application that parameterises
+its queries is not helped by it and one that does not is not saved by it. The
+panel says what it blocks rather than implying a firewall it does not have.
+
+Both settings are read out of the configuration being imported — NPM records
+the checkbox as an include — so a host that had them keeps them, and the
+review says which settings came across.
