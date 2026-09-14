@@ -416,11 +416,19 @@ func (s *Service) resumeAgents(ctx context.Context, w *Workspace) []string {
 // dropIn is what makes a restart survivable, and it is deliberately the
 // smallest possible statement of it.
 const dropIn = `# Written by isletd. A workspace keeps an agent alive under tmux so that
-# restarting the daemon, which is what an update does, cannot end it. The
-# default KillMode sends SIGTERM to every process in this unit's control group,
-# and tmux is in it because isletd started it.
+# restarting the daemon, which is what an update does, cannot end it.
+#
+# KillMode: the default sends SIGTERM to every process in this unit's control
+# group, and tmux is in it because isletd started it.
+#
+# PrivateTmp: with a /tmp of its own, systemd destroys that /tmp on restart and
+# builds another. A session that survives the restart then holds a mount whose
+# backing directory is gone, and anything in it that touches /tmp fails with
+# ENOENT. The two settings have to change together: KillMode alone turns a
+# killed session into a stranded one.
 [Service]
 KillMode=process
+PrivateTmp=no
 `
 
 // EnsureRestartSafe repairs the unit on a server that was installed before this
@@ -463,6 +471,30 @@ func (s *Service) EnsureRestartSafe(ctx context.Context) {
 		return
 	}
 	s.log.Info("workspaces: restarting isletd will no longer end the sessions it started")
+}
+
+// Stranded reports that the tmux server is running in a mount namespace this
+// daemon no longer shares.
+//
+// That happens to a session started while the unit still had PrivateTmp=yes and
+// KillMode=process: it survives the restart, systemd destroys the /tmp it was
+// holding, and the session goes on running with a /tmp that resolves to
+// nothing. Nothing in the session reports it — the shell is fine, the agent is
+// fine, and then one command fails with ENOENT on a path that obviously exists.
+//
+// Restarting the tmux server fixes it, and that ends the work, so it is said
+// rather than done.
+func (s *Service) Stranded(ctx context.Context) bool {
+	out, err := s.tmux(ctx, "system", "display-message", "-p", "#{pid}")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return false
+	}
+	mine, err1 := os.Readlink("/proc/self/ns/mnt")
+	theirs, err2 := os.Readlink("/proc/" + strings.TrimSpace(out) + "/ns/mnt")
+	if err1 != nil || err2 != nil || mine == "" || theirs == "" {
+		return false // not Linux, or no /proc: nothing can be concluded
+	}
+	return mine != theirs
 }
 
 // ---- storage -------------------------------------------------------------

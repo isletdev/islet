@@ -20,18 +20,25 @@ survives:
 - `islet update`, which restarts the daemon underneath it
 
 The third one was not true before v0.10.0, and the way it failed is worth
-keeping. `islet update` ends at `systemctl restart isletd`, and a systemd unit
-with no `KillMode` set kills **every process in its control group**, not just the
-daemon — tmux included, because isletd started it. Daemonizing is no defence:
-systemd kills by cgroup, not by process tree. The unit now sets
-`KillMode=process`, and a daemon that finds an older unit on disk repairs it with
-a drop-in, because an update replaces the binary and never the unit.
+keeping. `islet update` ends at `systemctl restart isletd`. The unit used to set
+`PrivateTmp=yes`, which gives it a `/tmp` of its own that systemd destroys and
+rebuilds on every restart — and tmux's default socket lives in `/tmp`. So the
+socket went with it: the restarted daemon found nothing and made a fresh empty
+session, while the old one, process quite possibly still running, was unreachable
+from anywhere. From the panel that looks exactly like having been killed.
 
-The tmux server also has a socket of its own at `<data dir>/tmux.sock` rather
-than tmux's default under `/tmp`. The unit sets `PrivateTmp=yes`, so the daemon's
-`/tmp` is a namespace of its own and a fresh one on every restart: sessions on
-the default socket were unreachable after a restart, and were never reachable
-from an SSH shell at all.
+The socket is now an explicit path, `<data dir>/tmux.sock`, which is also what
+makes the SSH route below real rather than aspirational. `PrivateTmp` is off,
+because a private `/tmp` cannot be shared with a process that outlives the unit:
+a surviving session would hold a `/tmp` that had been deleted, and anything in it
+that touches `/tmp` fails with `ENOENT` on a path that plainly exists — `claude`
+does, on startup. And `KillMode=process` means only the daemon is signalled on a
+stop, rather than everything in its control group.
+
+An update replaces the binary and never the unit, so a daemon that finds an older
+unit on disk repairs it with a drop-in. Sessions that were already running under
+the old settings cannot be repaired — the page says so, and restarting the agent
+clears it.
 
 A reboot is different — nothing that lives only in memory survives one. Islet
 recreates each workspace's session in the right directory and then starts the

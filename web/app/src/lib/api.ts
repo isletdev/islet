@@ -475,7 +475,7 @@ export const api = {
   importScan: () => request<{ found: FoundProxy[] }>("/api/v1/domains/import/scan"),
   importSites: (b: { text: string; save: boolean; hosts?: string[] }) =>
     post<ImportProposal[]>("/api/v1/domains/import", { text: b.text, save: b.save, hosts: b.hosts ?? [] }),
-  workspaces: () => request<{ workspaces: Workspace[]; tmux: boolean; claude: boolean; claudePath: string }>("/api/v1/workspaces"),
+  workspaces: () => request<{ workspaces: Workspace[]; tmux: boolean; claude: boolean; claudePath: string; stranded?: boolean }>("/api/v1/workspaces"),
   workspaceSave: (w: Workspace) => w.id
     ? post<Workspace>(`/api/v1/workspaces/${w.id}`, w, "PUT")
     : post<Workspace>("/api/v1/workspaces", w),

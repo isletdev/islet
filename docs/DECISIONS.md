@@ -1056,36 +1056,46 @@ instead of calling `os.Exit`, so the daemon can dispatch into it and the test
 can assert on it. What reverses this is the second binary: add the build and
 archive, and give `update.Apply` the member name for the path it is replacing.
 
-## 2026-09-14 — systemd killed the thing the feature existed to protect
+## 2026-09-14 — the update did not kill the session, it lost it
+*Corrected the same day, by measurement — the first version of this entry blamed
+the control group, which is a real hazard but was not what happened.*
+
 `islet update` ended an agent mid-task. Workspaces exist so that cannot happen,
 and the e2e suite asserted exactly this — a workspace outliving the daemon — and
-passed.
+passed, because it ran isletd as a bare process and killed it with `pkill`.
 
-It passed because it ran isletd as a bare process in a container and killed it
-with `pkill`. The deployed shape is a systemd unit, and `islet update` ends at
-`systemctl restart isletd`. With no `KillMode` set, the default is
-`control-group`: SIGTERM to every process in the unit's cgroup. tmux was in it,
-because isletd started it. Daemonizing does not help — systemd kills by cgroup,
-not by process tree — which is why "tmux detaches, so it survives" felt true and
-was not.
+The deployed shape is a systemd unit with `PrivateTmp=yes`, and an update ends at
+`systemctl restart isletd`. A private `/tmp` is destroyed and rebuilt on every
+restart, and tmux's default socket lives in `/tmp`. So the socket went with it:
+the restarted daemon found nothing, made a fresh empty session, and the old one —
+process very possibly still running — was unreachable from anywhere. From the
+panel that is indistinguishable from having been killed, which is why it was
+diagnosed as a kill.
 
-`KillMode=process` is the fix, and the packaged unit carries it. That alone would
-have fixed nothing on any machine already installed: an update replaces the
-binary and never the unit, so every server running longest would have gone on
-killing its own workspaces after the fix shipped. The daemon writes a drop-in and
-reloads systemd when it finds a unit without it.
+`hack/e2e-systemd-restart.sh` pins it down, in a systemd container, by changing
+one thing at a time:
 
-Underneath was a second fault with the same shape. tmux's default socket lives
-under `/tmp`, and the unit sets `PrivateTmp=yes` — a private namespace, and a new
-one on every restart. Sessions created there are unreachable by the next isletd,
-and were never reachable from an SSH shell, so the documented escape hatch
-(`ssh in && tmux attach`) had never once worked. The socket is now an explicit
-path in the data directory.
+| socket | PrivateTmp | KillMode | outcome |
+|---|---|---|---|
+| in the private /tmp | yes | control-group | a *different* session: the work was lost |
+| outside /tmp | yes | process | the same session, with a `/tmp` that no longer exists |
+| outside /tmp | no | process | the same session, working |
 
-Both were invisible to every test because every test ran the daemon the way a
-developer runs it. The `ContentLength` bug was the same lesson in June: what is
-deployed and what is tested have to be the same shape, or the test is describing
-a program nobody runs.
+So the fix is the socket: an explicit path in the data directory, which also
+makes true the escape hatch this feature documented in v0.9.0 and never had —
+`tmux -S … attach` from an SSH shell could never have reached a session on a
+socket inside the daemon's private namespace.
+
+`KillMode=process` ships as well, and is worth having: the default eventually
+SIGKILLs everything in the cgroup, and whether a tmux server goes down inside the
+stop timeout is a race rather than a guarantee. It is insurance, not the cure,
+and saying otherwise sent the next person looking in the wrong place.
+
+The lesson is the one the `ContentLength` bug taught in June: what is deployed
+and what is tested have to be the same shape, or the test is describing a program
+nobody runs. The correction to this entry is the same lesson again, one level up
+— a plausible cause that explains the symptom is not the same as the cause, and
+the difference only shows when you change one thing at a time.
 
 ## 2026-09-14 — an agent is a window, and owns its conversation
 A workspace was one directory and one command, which made the obvious thing
@@ -1155,3 +1165,30 @@ had no test at all, which is why a precedence bug survived in it.
 What reverses the first: a real notion of account kinds, if service accounts ever
 need more than one bit. What reverses the second: nothing, unless Docker changes
 how it prints port mappings, which the test would catch.
+
+## 2026-09-14 — a private /tmp cannot be shared with something that outlives it
+Fixing the socket made sessions survive a restart, and that turned a hidden fault
+into a visible one: `claude` in a surviving session failed with
+`ENOENT ... mkdir '/tmp/claude-0'`.
+
+`PrivateTmp=yes` gives the unit its own `/tmp`. systemd destroys it on restart
+and builds another. Before, this was invisible — whatever was in there died or
+became unreachable along with it. Now the session survives, still holding the
+mount, and its `/tmp` resolves to a directory that has been deleted. Nothing
+reports this: the shell works, the agent starts, and then one command fails on a
+path that is plainly there.
+
+Two ways out. Start the tmux server outside the unit's namespace through
+`systemd-run`, which keeps the hardening; or drop `PrivateTmp`. The second is
+what ships. The first adds a dependency on systemd being present and reachable
+for a feature that must also work in a container, and buys protection that is
+close to theoretical here: isletd runs as root with the Docker socket, so an
+attacker who can make it write into `/tmp` can already do very much worse. A
+setting that protects nothing in practice and silently breaks the feature's one
+promise is not a trade worth keeping.
+
+Sessions already running when this is fixed cannot be repaired — they hold the
+old namespace, and only restarting them releases it. The daemon compares its own
+mount namespace with the tmux server's and says so on the page rather than acting
+on it: recycling the session is exactly the thing this whole area exists to avoid
+doing to somebody's work without asking.

@@ -54,6 +54,9 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 			"tmux":       s.workspaces.HasTmux(r.Context()),
 			"claude":     claude != "",
 			"claudePath": claude,
+			// Sessions left over from a configuration that has since been
+			// repaired. They run, and their /tmp does not exist.
+			"stranded": s.workspaces.Stranded(r.Context()),
 		})
 		return
 	}

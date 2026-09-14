@@ -111,6 +111,7 @@ export default function Workspaces() {
   const [list, setList] = useState<Workspace[]>([]);
   const [tmux, setTmux] = useState(true);
   const [claude, setClaude] = useState(true);
+  const [stranded, setStranded] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [wsID, setWsID] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -129,6 +130,7 @@ export default function Workspaces() {
       setList(r.workspaces);
       setTmux(r.tmux);
       setClaude(r.claude);
+      setStranded(r.stranded ?? false);
       setErr(null);
       setWsID((cur) => (cur && r.workspaces.some((w) => w.id === cur) ? cur : r.workspaces[0]?.id ?? null));
     } catch (e) {
@@ -330,6 +332,17 @@ export default function Workspaces() {
       </div>
 
       {err && <Alert>{err}</Alert>}
+
+      {stranded && (
+        <Alert tone="warning">
+          These sessions started under an older configuration and their <code>/tmp</code> no longer exists — a command
+          inside them can fail with <code>ENOENT</code> on a path that is plainly there. The configuration is already
+          repaired; the running sessions cannot be. Finish what is in them, then stop each agent and start it again, or
+          clear the lot at once with{" "}
+          <code>tmux -S /var/lib/islet/tmux.sock kill-server</code>. Anything with resume switched on comes back to the
+          conversation it was in.
+        </Alert>
+      )}
 
       {!tmux && (
         <Card title="tmux is not installed" description="Everything here is a tmux session, so this is the one thing that has to be there first.">

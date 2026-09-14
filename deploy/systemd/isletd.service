@@ -22,7 +22,14 @@ LimitNOFILE=65536
 # operation. These keep the blast radius small without breaking that.
 NoNewPrivileges=no
 ProtectKernelTunables=no
-PrivateTmp=yes
+# PrivateTmp is deliberately off. It gives the unit a /tmp of its own, and
+# systemd destroys that one and builds another on every restart — so a workspace
+# that survives the restart (which is the entire point of KillMode=process
+# above) is left holding a mount whose backing directory is gone, and anything
+# in it that touches /tmp fails with ENOENT. It bought little here in any case:
+# isletd runs as root with the Docker socket, so an attacker who can make it
+# write to /tmp can already do far worse.
+PrivateTmp=no
 UMask=0027
 
 [Install]
