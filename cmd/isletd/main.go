@@ -43,6 +43,7 @@ import (
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
+	"github.com/isletdev/islet/internal/workspace"
 )
 
 func main() {
@@ -164,6 +165,7 @@ func run() error {
 	if err := cr.Start(ctx); err != nil {
 		return fmt.Errorf("cron: %w", err)
 	}
+	ws := workspace.New(st, cmds, bus, *dataDir, log)
 	go watch.Docker(ctx, cmds, bus, log)
 	go watch.Resources(ctx, sampler, bus)
 	go watch.Daily(ctx, px, bus, log)
@@ -196,7 +198,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -215,6 +217,9 @@ func run() error {
 	if err := px.Reconcile(ctx); err != nil {
 		log.Warn("proxy reconcile failed", "err", err)
 	}
+	// A reboot takes every tmux session with it. Put the workspaces back at a
+	// shell prompt, without re-running what was in them.
+	go ws.Reconcile(ctx)
 	if *tlsMode != "off" {
 		cert, names, err := tlsutil.LoadOrCreate(*dataDir, st.Hostname)
 		if err != nil {

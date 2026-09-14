@@ -268,6 +268,29 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, opts terminal.
 	}
 	defer sess.Close()
 	_ = s.store.Audit(ctx, u.Username, auditAction+".open", target, "ip="+clientIP(r))
+	// A terminal that is being read rather than typed into sends nothing for
+	// minutes at a time, and an idle WebSocket is exactly what a reverse proxy
+	// closes. The SSE endpoints already keep themselves alive this way; without
+	// it, a workspace left open while something long runs drops for no reason
+	// the person can see.
+	go func() {
+		t := time.NewTicker(25 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pctx, pcancel := contextWithTimeout(ctx, 10*time.Second)
+				err := conn.Ping(pctx)
+				pcancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	go func() {
 		defer cancel()
 		buf := make([]byte, 32*1024)

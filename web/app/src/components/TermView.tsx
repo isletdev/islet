@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -8,16 +8,45 @@ import { apiPath } from "@/lib/api";
 
 export type TermStatus = "connecting" | "open" | "closed" | "error";
 
-/** xterm.js bound to a WebSocket PTY endpoint (host terminal or container exec). */
-export default function TermView({ path, className = "" }: { path: string; className?: string }) {
+/**
+ * xterm.js bound to a WebSocket PTY endpoint — the host terminal, a container
+ * exec, or a workspace.
+ *
+ * The terminal and the socket are deliberately separate. They used to live in
+ * one effect, so reconnecting disposed the terminal and wiped everything on
+ * screen; against a workspace, where the session on the other end is still
+ * running, that threw away the only record of what had happened while you were
+ * gone. The terminal is created once and the socket is replaced under it, so a
+ * reconnect redraws into the same scrollback.
+ *
+ * `reattaches` is true for endpoints that join something already running. Those
+ * can reconnect on their own, because doing so costs nothing and the screen
+ * comes back as it was. A plain shell must not: a dropped connection there has
+ * already killed the process, and silently opening a second one would leave
+ * somebody typing into a fresh shell believing it was the old one.
+ */
+export default function TermView({
+  path,
+  className = "",
+  reattaches = false,
+}: {
+  path: string;
+  className?: string;
+  reattaches?: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
+  const term = useRef<XTerm | null>(null);
+  const fit = useRef<FitAddon | null>(null);
+  const sock = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<TermStatus>("connecting");
   const [gen, setGen] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
+  // The terminal itself, created once and kept across reconnects.
   useEffect(() => {
     const el = host.current;
     if (!el) return;
-    const term = new XTerm({
+    const t = new XTerm({
       cursorBlink: true,
       fontFamily: "Geist Mono, ui-monospace, Menlo, Consolas, monospace",
       fontSize: 13,
@@ -29,34 +58,85 @@ export default function TermView({ path, className = "" }: { path: string; class
         brightBlack: "#6B6B6B", brightRed: "#FCA5A5", brightGreen: "#86EFAC", brightYellow: "#FDE68A", brightBlue: "#93C5FD", brightMagenta: "#D8B4FE", brightCyan: "#A5F3FC", brightWhite: "#FFFFFF",
       },
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
-    term.open(el);
-    fit.fit();
+    const f = new FitAddon();
+    t.loadAddon(f);
+    t.loadAddon(new WebLinksAddon());
+    t.open(el);
+    f.fit();
+    term.current = t;
+    fit.current = f;
 
+    const enc = new TextEncoder();
+    const onData = t.onData((d) => {
+      const ws = sock.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
+    });
+    const onResize = t.onResize(() => {
+      const ws = sock.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
+    });
+    const ro = new ResizeObserver(() => f.fit());
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      onData.dispose();
+      onResize.dispose();
+      t.dispose();
+      term.current = null;
+      fit.current = null;
+    };
+  }, []);
+
+  // The socket, replaced on every reconnect.
+  useEffect(() => {
+    const t = term.current;
+    if (!t) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}${apiPath(path)}`);
     ws.binaryType = "arraybuffer";
+    sock.current = ws;
     setStatus("connecting");
-    const sendResize = () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })); };
-    ws.onopen = () => { setStatus("open"); sendResize(); term.focus(); };
-    ws.onmessage = (ev) => term.write(new Uint8Array(ev.data as ArrayBuffer));
-    ws.onclose = () => { setStatus("closed"); term.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n"); };
+
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    ws.onopen = () => {
+      setStatus("open");
+      setAttempt(0);
+      ws.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
+      t.focus();
+    };
+    ws.onmessage = (ev) => t.write(new Uint8Array(ev.data as ArrayBuffer));
     ws.onerror = () => setStatus("error");
-    const enc = new TextEncoder();
-    const onData = term.onData((d) => { if (ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d)); });
-    const onResize = term.onResize(sendResize);
-    const ro = new ResizeObserver(() => fit.fit());
-    ro.observe(el);
-    return () => { ro.disconnect(); onData.dispose(); onResize.dispose(); ws.close(); term.dispose(); };
-  }, [path, gen]);
+    ws.onclose = () => {
+      setStatus("closed");
+      if (!reattaches) {
+        t.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");
+        return;
+      }
+      // Backing off to 15s: the session is safe on the other side, so trying
+      // forever is fine, but hammering a server that is restarting is not.
+      const wait = Math.min(15000, 500 * 2 ** attempt);
+      t.write(`\r\n\x1b[90m[reconnecting in ${Math.round(wait / 1000)}s]\x1b[0m\r\n`);
+      retry = setTimeout(() => { setAttempt((n) => n + 1); setGen((g) => g + 1); }, wait);
+    };
+    return () => {
+      if (retry) clearTimeout(retry);
+      ws.onclose = null;
+      ws.close();
+      sock.current = null;
+    };
+    // attempt is read for the backoff but must not re-open the socket by itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, gen, reattaches]);
+
+  const reconnect = useCallback(() => { setAttempt(0); setGen((g) => g + 1); }, []);
 
   return (
     <div className={`flex min-h-0 flex-col ${className}`}>
       <div className="mb-2 flex items-center justify-end gap-3 text-xs text-ink-muted">
         <span>{status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}</span>
-        {(status === "closed" || status === "error") && <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => setGen((g) => g + 1)}>Reconnect</Button>}
+        {(status === "closed" || status === "error") && (
+          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>Reconnect</Button>
+        )}
       </div>
       <div ref={host} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2" />
     </div>

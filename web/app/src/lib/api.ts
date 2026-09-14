@@ -108,6 +108,16 @@ export interface ImportProposal {
   skipped?: string[];
 }
 
+/** A directory, a command, and a session that outlives the browser. */
+export interface Workspace {
+  id: string; name: string; directory: string;
+  preset: "claude" | "shell" | "custom";
+  command: string; mcpEnabled: boolean;
+  createdAt: string; updatedAt: string; lastAttachedAt: string;
+  running: boolean; started?: string; error?: string;
+}
+export interface WorkspaceMCP { enabled: boolean; path: string; tools: number; scopes: string[] }
+
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; proxiedBy?: string; suggestion: string }
 
 export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
@@ -444,6 +454,16 @@ export const api = {
   importScan: () => request<{ found: FoundProxy[] }>("/api/v1/domains/import/scan"),
   importSites: (b: { text: string; save: boolean; hosts?: string[] }) =>
     post<ImportProposal[]>("/api/v1/domains/import", { text: b.text, save: b.save, hosts: b.hosts ?? [] }),
+  workspaces: () => request<{ workspaces: Workspace[]; tmux: boolean }>("/api/v1/workspaces"),
+  workspaceSave: (w: Workspace) => w.id
+    ? post<Workspace>(`/api/v1/workspaces/${w.id}`, w, "PUT")
+    : post<Workspace>("/api/v1/workspaces", w),
+  workspaceDelete: (id: string) => post<void>(`/api/v1/workspaces/${id}`, undefined, "DELETE"),
+  workspaceStart: (id: string) => post<Workspace>(`/api/v1/workspaces/${id}/start`),
+  workspaceStop: (id: string) => post<Workspace>(`/api/v1/workspaces/${id}/stop`),
+  workspaceHistory: (id: string) => request<{ text: string }>(`/api/v1/workspaces/${id}/history`),
+  workspaceMcp: (id: string) => request<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
+  workspaceMcpRenew: (id: string) => post<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
   channels: () => request<Channel[]>("/api/v1/notify/channels"),
   channelSave: (c: Channel) => c.id ? post<Channel>(`/api/v1/notify/channels/${c.id}`, c, "PUT") : post<Channel>("/api/v1/notify/channels", c),
   channelDelete: (id: string) => post<void>(`/api/v1/notify/channels/${id}`, undefined, "DELETE"),

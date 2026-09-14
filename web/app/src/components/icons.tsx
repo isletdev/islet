@@ -398,7 +398,18 @@ export const TableIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** A window with a second one behind it: a session that is still there. */
+export const WorkspacesIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <rect x="2" y="6" width="14" height="12" rx="2" />
+    <path d="M8 3h12a2 2 0 0 1 2 2v10" />
+    <path d="m5.5 11 2 2-2 2" />
+    <path d="M10 15h3" />
+  </svg>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
+  workspaces: WorkspacesIcon,
   overview: OverviewIcon,
   containers: ContainersIcon,
   files: FilesIcon,

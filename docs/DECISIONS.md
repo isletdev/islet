@@ -833,3 +833,78 @@ networks in its own file, so a container the panel attached to `islet-proxy`
 by hand loses that attachment on the next deploy and every route 502s. The
 durable fix is to name Islet's network in the app's compose, not to reattach
 it after the fact.
+
+## 2026-09-14 — A session that outlives the daemon has to belong to something else
+Workspaces exist so an agent can run on the server it is changing rather than on
+a laptop that has to stay awake. That only works if the session survives
+everything the panel does to itself, and the panel restarts itself on every
+update.
+
+So the session cannot belong to the daemon. Islet's terminal starts a PTY inside
+the WebSocket handler and `defer sess.Close()` kills it when the handler
+returns, which is why a refresh, a navigation, or an `islet update` all take the
+shell with them. tmux is the whole answer: the command is a child of tmux, and
+the daemon is only ever a client attaching to it. The test that matters is
+`pkill isletd` — the process in the session has to still be there afterwards,
+and it is.
+
+The second reason for tmux over a session registry inside the daemon is that it
+leaves a way in that is not us. `ssh in && tmux attach -t islet-ws-<id>` reaches
+the same session with Islet stopped. A panel that is the only route to your own
+work is a panel you cannot afford to have go down.
+
+Three smaller decisions fell out of it.
+
+**The command is sent with `send-keys`, not passed to `new-session`.** It lands
+in the scrollback as if it had been typed — visible to whoever attaches next,
+and repeatable with the up arrow — instead of being a process nobody can see the
+provenance of.
+
+**Attach uses `-d`.** tmux sizes a session to its smallest attached client, so a
+tab forgotten on a phone would squeeze a desktop session to its width. The most
+recent viewer wins.
+
+**After a reboot the session comes back, the command does not.** Nothing in
+memory survives a reboot, so the sessions are recreated in the right directory
+at a shell prompt. Re-running the command would mean an agent resuming by
+itself, mid-task, with nobody watching, on somebody's live server. That is a
+thing to ask for, not a default.
+
+## 2026-09-14 — A credential belongs where it cannot be committed
+A workspace can give its agent an Islet API token so it can read logs and act on
+containers through audited, scoped calls rather than working it out as root.
+Claude Code reads `.mcp.json` from a repository root, which is the obvious place
+to put it and the wrong one: a bearer token in a repository root is one
+`git add .` away from being published, and the person who does it will not
+notice.
+
+It is written to `<data dir>/workspaces/<id>/mcp.json` at 0600 instead, and the
+agent is started with `--mcp-config <that path>`. `--strict-mcp-config` is
+deliberately not passed, so somebody's own MCP servers keep working alongside
+Islet's rather than being silently replaced by it.
+
+The scopes are `read, logs, containers, cron, notify` and pointedly not `shell`.
+A token that could open a terminal would be a way around the admin-only check on
+the feature that mints it.
+
+## 2026-09-14 — Reconnecting must not throw away the screen
+Two things in the terminal transport were survivable while a shell died with its
+socket, and stopped being survivable once the session on the other end outlived
+it.
+
+`servePTY` had no keepalive. A terminal being read rather than typed into sends
+nothing for minutes, and an idle WebSocket is exactly what a reverse proxy
+closes — so a workspace left open while something long ran would drop for no
+reason the person could see. It pings every 25 seconds now, the same interval
+the SSE endpoints already used.
+
+`TermView` built the terminal and the socket in one effect, so reconnecting
+disposed the xterm and wiped the scrollback. Against a workspace, where the
+session is still running and the screen would have come straight back, that
+threw away the only record of what happened while nobody was watching. The
+terminal is created once and the socket is replaced under it.
+
+Automatic reconnection is offered only to endpoints that reattach to something
+already running. A plain shell must not reconnect on its own: the process is
+already dead, and quietly opening a second one would leave somebody typing into
+a fresh shell believing it was the old one.

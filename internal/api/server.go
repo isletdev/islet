@@ -35,59 +35,62 @@ import (
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/version"
+	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
 )
 
 // Deps are the services the API exposes.
 type Deps struct {
-	Store    *store.Store
-	Keys     *auth.Keys
-	Auth     *auth.Service
-	Metrics  *metrics.Collector
-	Sampler  *metrics.Sampler
-	Docker   *docker.Service
-	Files    *files.Service
-	Runner   *cmdrun.Runner
-	Proxy    *proxy.Manager
-	Catalog  *catalog.Service
-	Notify   *notify.Bus
-	Cron     *cron.Service
-	DB       *db.Service
-	Uptime   *uptime.Service
-	Deploy   *deploy.Service
-	Runners  *runner.Service
-	Security *security.Service
-	Fleet    *fleet.Service
-	Backup   *backup.Service
-	GitHub   *github.Client
-	UI       http.Handler
-	Log      *slog.Logger
+	Store      *store.Store
+	Keys       *auth.Keys
+	Auth       *auth.Service
+	Metrics    *metrics.Collector
+	Sampler    *metrics.Sampler
+	Docker     *docker.Service
+	Files      *files.Service
+	Runner     *cmdrun.Runner
+	Proxy      *proxy.Manager
+	Catalog    *catalog.Service
+	Notify     *notify.Bus
+	Cron       *cron.Service
+	Workspaces *workspace.Service
+	DB         *db.Service
+	Uptime     *uptime.Service
+	Deploy     *deploy.Service
+	Runners    *runner.Service
+	Security   *security.Service
+	Fleet      *fleet.Service
+	Backup     *backup.Service
+	GitHub     *github.Client
+	UI         http.Handler
+	Log        *slog.Logger
 }
 
 // Server holds the dependencies handlers need.
 type Server struct {
-	store    *store.Store
-	keys     *auth.Keys
-	auth     *auth.Service
-	metrics  *metrics.Collector
-	sampler  *metrics.Sampler
-	docker   *docker.Service
-	files    *files.Service
-	runner   *cmdrun.Runner
-	proxy    *proxy.Manager
-	catalog  *catalog.Service
-	recipes  *recipes.Engine
-	notify   *notify.Bus
-	cron     *cron.Service
-	db       *db.Service
-	uptime   *uptime.Service
-	deploy   *deploy.Service
-	runners  *runner.Service
-	security *security.Service
-	fleet    *fleet.Service
-	sqlMgr   *sqlclient.Manager
-	sqlStore *sqlclient.Store
-	sqlCache *sqlclient.SchemaCache
+	store      *store.Store
+	keys       *auth.Keys
+	auth       *auth.Service
+	metrics    *metrics.Collector
+	sampler    *metrics.Sampler
+	docker     *docker.Service
+	files      *files.Service
+	runner     *cmdrun.Runner
+	proxy      *proxy.Manager
+	catalog    *catalog.Service
+	recipes    *recipes.Engine
+	notify     *notify.Bus
+	cron       *cron.Service
+	workspaces *workspace.Service
+	db         *db.Service
+	uptime     *uptime.Service
+	deploy     *deploy.Service
+	runners    *runner.Service
+	security   *security.Service
+	fleet      *fleet.Service
+	sqlMgr     *sqlclient.Manager
+	sqlStore   *sqlclient.Store
+	sqlCache   *sqlclient.SchemaCache
 	// sqlInstances is installedDatabases in the daemon, and a fixed list in
 	// the tests. See internal/api/sqlclient.go.
 	sqlInstances func(context.Context, string) ([]sqlInstance, error)
@@ -101,7 +104,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	// The SQL client costs a map and a ticker until somebody opens a
 	// connection, which is the whole argument for it living in the daemon.
 	if s.store != nil && s.keys != nil {
@@ -175,6 +178,20 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/metrics/history", s.requireAuth(s.handleMetricsHistory))
 	mux.HandleFunc("GET /api/v1/metrics/live", s.requireAuth(s.handleMetricsLive))
 	mux.HandleFunc("GET /api/v1/terminal/ws", s.requireAuth(scopeAdminOnly(s.handleTerminal)))
+	// ---- workspaces: sessions that outlive the browser ----
+	mux.HandleFunc("GET /api/v1/workspaces", s.requireAuth(scopeAdminOnly(s.handleWorkspaces)))
+	mux.HandleFunc("POST /api/v1/workspaces", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaces))))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}", s.requireAuth(scopeAdminOnly(s.handleWorkspace)))
+	mux.HandleFunc("PUT /api/v1/workspaces/{id}", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspace))))
+	mux.HandleFunc("DELETE /api/v1/workspaces/{id}", s.requireAuth(scopeAdminOnly(s.handleWorkspace)))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/start", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceStart))))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/stop", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceStop))))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/history", s.requireAuth(scopeAdminOnly(s.handleWorkspaceHistory)))
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/mcp", s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP)))
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/mcp", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceMCP))))
+	mux.HandleFunc("POST /api/v1/workspaces/tmux", requireJSON(s.requireAuth(scopeAdminOnly(s.handleWorkspaceTmux))))
+	// The attach socket is a shell, and is gated like one.
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/attach", s.requireAuth(scopeAdminOnly(s.handleWorkspaceAttach)))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleAudit))
 	// ---- more than one server ----
 	mux.HandleFunc("GET /api/v1/servers", s.requireAuth(s.handleServers))

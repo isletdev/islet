@@ -16,11 +16,12 @@ export default function Console() {
   const [params] = useSearchParams();
   const container = params.get("container") ?? "";
   const dir = params.get("dir") ?? "";
+  const workspace = params.get("workspace") ?? "";
   const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => { void api.health().then(setHealth).catch(() => {}); }, []);
 
-  const where = container || health?.hostname || "this server";
+  const where = container || (workspace && "workspace") || health?.hostname || "this server";
   useEffect(() => { document.title = `${where} · Islet console`; }, [where]);
 
   return (
@@ -34,7 +35,16 @@ export default function Console() {
       </div>
       <div className="min-h-0 flex-1 p-2">
         <TermView
-          path={container ? `/api/v1/docker/containers/${encodeURIComponent(container)}/exec` : `/api/v1/terminal/ws${dir ? `?dir=${encodeURIComponent(dir)}` : ""}`}
+          path={
+            workspace
+              ? `/api/v1/workspaces/${encodeURIComponent(workspace)}/attach`
+              : container
+                ? `/api/v1/docker/containers/${encodeURIComponent(container)}/exec`
+                : `/api/v1/terminal/ws${dir ? `?dir=${encodeURIComponent(dir)}` : ""}`
+          }
+          // A workspace is a tmux session that is still there after a drop, so
+          // this one may reconnect on its own. A plain shell may not.
+          reattaches={workspace !== ""}
           className="h-full"
         />
       </div>
@@ -43,15 +53,16 @@ export default function Console() {
 }
 
 /** Open the console in its own window, sized like a terminal emulator. */
-export function openConsole(opts: { container?: string; dir?: string } = {}) {
-  const { container, dir } = opts;
+export function openConsole(opts: { container?: string; dir?: string; workspace?: string } = {}) {
+  const { container, dir, workspace } = opts;
   const q = new URLSearchParams();
   if (container) q.set("container", container);
   if (dir) q.set("dir", dir);
+  if (workspace) q.set("workspace", workspace);
   const url = q.toString() ? `/console?${q}` : "/console";
   const w = Math.min(1100, Math.round(window.screen.availWidth * 0.8));
   const h = Math.min(720, Math.round(window.screen.availHeight * 0.8));
   const left = Math.round((window.screen.availWidth - w) / 2);
   const top = Math.round((window.screen.availHeight - h) / 2);
-  window.open(url, "islet-console-" + (container || dir || "host"), `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+  window.open(url, "islet-console-" + (workspace || container || dir || "host"), `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
 }

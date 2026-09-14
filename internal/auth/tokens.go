@@ -200,7 +200,9 @@ func ScopeAllows(scopes, method, path string) bool {
 	// These upgrade to a shell on the host or in a container. They are a GET
 	// only because that is how a WebSocket starts, so they must never be
 	// reachable with a read scope.
-	case path == "/api/v1/terminal/ws", strings.HasSuffix(path, "/exec"):
+	case path == "/api/v1/terminal/ws",
+		strings.HasSuffix(path, "/exec"),
+		strings.HasSuffix(path, "/attach"):
 		return has("shell")
 	case path == "/mcp":
 		return true
