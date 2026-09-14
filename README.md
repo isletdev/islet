@@ -80,6 +80,7 @@ The REST API is described in [docs/openapi.yaml](docs/openapi.yaml). An MCP serv
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Log of decisions that shape the code |
 | [docs/NEEDED_FROM_YOU.md](docs/NEEDED_FROM_YOU.md) | What only the maintainer can unblock |
 | [docs/STRUCTURE.md](docs/STRUCTURE.md) | What every folder is for |
+| [.claude/CLAUDE.md](.claude/CLAUDE.md) | Rules and skills for an AI agent working in this repo |
 | [docs/AGENT_SETUP.md](docs/AGENT_SETUP.md) | Running an AI agent on a server Islet manages |
 | [docs/recipes/](docs/recipes/) | Step-by-step guides for common setups |
 | [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) | How to help, how to report |

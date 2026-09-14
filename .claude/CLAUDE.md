@@ -10,12 +10,12 @@ bugs here are about a real system's state, not about code in isolation.
 
 | File | What it answers |
 |---|---|
-| `docs/STATUS.md` | where the work stands and what to pick up — **start here** |
-| `docs/ROADMAP.md` | the phased plan, with checkboxes |
-| `docs/DECISIONS.md` | why a non-obvious call was made. Long; the entries nearest the end explain the current code |
-| `docs/STRUCTURE.md` | what every folder is for |
-| `CONTRIBUTING.md` | build and dev-server commands |
-| `docs/AGENT_SETUP.md` | running an agent on a server Islet manages, and the machine rules that do not belong in this file |
+| `../docs/STATUS.md` | where the work stands and what to pick up — **start here** |
+| `../docs/ROADMAP.md` | the phased plan, with checkboxes |
+| `../docs/DECISIONS.md` | why a non-obvious call was made. Long; the entries nearest the end explain the current code |
+| `../docs/STRUCTURE.md` | what every folder is for |
+| `../CONTRIBUTING.md` | build and dev-server commands |
+| `../docs/AGENT_SETUP.md` | running an agent on a server Islet manages, and the machine rules that do not belong in this file |
 
 ## Build, run, verify
 
@@ -104,6 +104,50 @@ every grid declares `grid-cols-1` before its breakpoint; hit targets are at leas
 - When a call was not obvious, append an entry to `docs/DECISIONS.md` saying what
   was assumed, what it cost, and what would reverse it. That file is why this
   project can be picked up cold.
+
+## Skills
+
+`.claude/skills/` travels with the repository, so the same skills are available
+wherever it is cloned — a laptop, or a workspace on the server. Each is a folder
+holding a `SKILL.md` whose frontmatter carries a `name` and a `description` of
+when to use it; they load by matching that description, or by name with
+`/<name>`.
+
+`islet-commit` is the one specific to this project: the commit identity,
+Conventional Commits, the clean-repo check, and the rule that no AI-attribution
+trailer is ever added. The rest are general design and UI skills.
+
+## This is a server with other things on it
+
+When this repository is checked out on a machine that also serves live
+applications — which is the normal case, since Islet manages exactly such
+machines — everything on the box that is not this project is out of scope.
+
+Look freely. `docker ps`, `docker compose ls`, `systemctl status`, reading a
+config to understand how something is wired: all fine, on anything.
+
+Change nothing outside this project. That means, against any container, unit,
+file or database that is not Islet's own:
+
+- no `docker stop / start / restart / kill / rm / exec / cp`
+- no `docker compose up / down / restart / pull` on another project
+- no `docker volume rm`, `docker network rm`, `docker image rm`
+- **never** `docker system prune`, `docker volume prune` or `docker image
+  prune` — they act on the whole daemon, cannot be scoped to one project, and
+  read as routine housekeeping right up until an unrelated application is gone
+- no `systemctl` stop, start, restart or disable on someone else's unit
+- no edits under another application's directory, under `/etc`, or to shared
+  configuration
+- no `ufw` / `iptables` / `nftables` changes
+- no connecting to, dumping or altering a database that is not this project's
+- no binding a port already in use, and no killing a process you did not start
+- no `git push`, no `git tag`, nothing else that publishes, without being asked
+
+If a task appears to need one of these, stop and say so: what you want to
+touch, why the task needs it, and what you expect to happen. Do not route
+around it and do not do it "just to check". A blocked task is a normal
+outcome; an application somebody depends on going down, so that a task could
+finish faster, is not.
 
 ## How to work here
 
