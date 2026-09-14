@@ -21,10 +21,23 @@ export default function Security() {
   const load = useCallback(() => api.security().then((x) => { setS(x); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); }, [load]);
 
-  const fix = async (id: string) => {
-    setBusy(id); setOut(null);
+  // Two checks can share one fix (ssh-root and ssh-password are both
+  // ssh-harden; firewall and firewall-docker are both firewall), so the
+  // spinner is keyed to the row pressed, not to the fix it runs.
+  const fix = async (id: string, key?: string) => {
+    setBusy(key ?? id); setOut(null);
     try { const r = await api.securityFix(id); setOut({ title: `Applied ${id}`, text: r.output || "done" }); await load(); }
     catch (e) { setOut({ title: `${id} failed`, text: err(e) }); }
+    finally { setBusy(null); }
+  };
+  // The SSH fix in the checks list arms a five-minute rollback, and the banner
+  // offering to confirm it used to live only inside the SSH card further down
+  // the page. Press Fix, never scroll, and the change quietly reverts — which
+  // reads as the fix not working. The banner belongs where the button is.
+  const confirmSSH = async () => {
+    setBusy("ssh-confirm");
+    try { await api.sshConfirm(); setOut({ title: "SSH change confirmed", text: "The settings stay." }); await load(); }
+    catch (e) { setOut({ title: "Could not confirm", text: err(e) }); }
     finally { setBusy(null); }
   };
   const panic = async () => {
@@ -58,6 +71,15 @@ export default function Security() {
         </div>
       </div>
 
+      {s.sshRollback && (
+        <Alert tone="warning">
+          An SSH change is waiting. Open a new SSH session to check you can still get in, then{" "}
+          <button type="button" onClick={() => void confirmSSH()} disabled={busy !== null} className="underline">
+            {busy === "ssh-confirm" ? "confirming…" : "confirm it"}
+          </button>. Otherwise it rolls back in five minutes.
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card>
           <div className="text-center">
@@ -71,8 +93,8 @@ export default function Security() {
             {r.checks.map((c) => (
               <li key={c.id} className="flex items-start gap-3 py-2">
                 <span className={`mt-1.5 h-2 w-2 flex-none rounded-full ${c.status === "pass" ? "bg-success" : c.status === "fail" ? "bg-danger" : c.status === "warn" ? "bg-warning" : "bg-ink-faint"}`} />
-                <div className="min-w-0 flex-1"><div className="font-medium">{c.title} <span className="font-mono text-[11px] text-ink-faint">+{c.weight}</span></div><div className="text-xs text-ink-muted">{c.detail}</div></div>
-                {c.status !== "pass" && (c.fix && isAdmin && r.linux ? <Button variant="secondary" className="h-7 text-xs" disabled={busy !== null} onClick={() => void fix(c.fix!)} title={c.fixNote}>{busy === c.fix ? "Working…" : "Fix"}</Button> : c.fixNote ? <span className="max-w-48 text-right text-[11px] text-ink-faint">{c.fixNote}</span> : null)}
+                <div className="min-w-0 flex-1"><div className="font-medium">{c.title} {c.status !== "pass" && <span className="font-mono text-[11px] text-ink-faint" title="Points this is worth">+{c.weight}</span>}</div><div className="text-xs text-ink-muted">{c.detail}</div></div>
+                {c.status !== "pass" && (c.fix && isAdmin && r.linux ? <Button variant="secondary" className="h-7 text-xs" disabled={busy !== null} onClick={() => void fix(c.fix!, c.id)} title={c.fixNote}>{busy === c.id ? "Working…" : "Fix"}</Button> : c.fixNote ? <span className="max-w-48 text-right text-[11px] text-ink-faint">{c.fixNote}</span> : null)}
               </li>
             ))}
           </ul>
@@ -248,10 +270,8 @@ function SSHCard({ s, isAdmin, onChanged }: { s: SecurityState; isAdmin: boolean
   useEffect(() => setCfg(s.ssh), [s.ssh]);
   const set = (p: Partial<SSHSettings>) => setCfg((c) => ({ ...c, ...p }));
   const apply = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.sshApply(cfg); setMsg(r.message); await onChanged(); } catch (er) { setMsg(err(er)); } };
-  const confirm_ = async () => { try { await api.sshConfirm(); setMsg("Confirmed. The settings stay."); await onChanged(); } catch (er) { setMsg(err(er)); } };
   return (
     <Card title="SSH" description={s.report.linux ? (s.sshHasKeys ? "authorized_keys found. Settings are validated with sshd -t before reload." : "No authorized_keys found yet. Add your public key before turning off passwords.") : "Available on Linux servers."}>
-      {s.sshRollback && <Alert tone="warning">A change is waiting. Open a new SSH session to make sure you can still get in, then <button type="button" onClick={() => void confirm_()} className="underline">confirm it</button>. Otherwise it rolls back in five minutes.</Alert>}
       <form onSubmit={apply} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Port"><Input type="number" value={cfg.port} onChange={(e) => set({ port: +e.target.value })} disabled={!isAdmin || !s.report.linux} /></Field>
         <Field label="Max auth tries"><Input type="number" value={cfg.maxAuthTries} onChange={(e) => set({ maxAuthTries: +e.target.value })} disabled={!isAdmin || !s.report.linux} /></Field>

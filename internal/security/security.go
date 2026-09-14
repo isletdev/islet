@@ -195,17 +195,15 @@ func (s *Service) Report(ctx context.Context) Report {
 		var exposed []string
 		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 			name, ports, _ := strings.Cut(l, "\t")
-			for _, p := range []string{"5432", "3306", "6379", "27017", "9200", "5984", "8086"} {
-				if strings.Contains(ports, "0.0.0.0:"+p+"->") || strings.Contains(ports, ":::"+p+"->") || strings.Contains(ports, "0.0.0.0:") && strings.Contains(ports, "->"+p+"/") {
-					exposed = append(exposed, name+":"+p)
-				}
+			for _, p := range PublishedDBPorts(ports) {
+				exposed = append(exposed, name+" port "+p)
 			}
 		}
 		st, detail := "pass", "No database ports are published on public interfaces."
 		if len(exposed) > 0 {
-			st, detail = "fail", "Published on every interface: "+strings.Join(exposed, ", ")+". Prefer an SSH tunnel or an IP allowlist."
+			st, detail = "fail", "Reachable on every interface: "+strings.Join(exposed, ", ")+". Prefer an SSH tunnel or an IP allowlist."
 		}
-		add(Check{ID: "db-exposed", Title: "No databases reachable from the internet", Detail: detail, Weight: 10, Status: st})
+		add(Check{ID: "db-exposed", Title: "No databases reachable from the internet", Detail: detail, Weight: 10, Status: st, FixNote: "Republish the port on 127.0.0.1, or add the Docker firewall rules below"})
 	}
 	if out, err := s.sh(ctx, "system", "docker", "ps", "--format", "{{.Names}}\t{{.Mounts}}"); err == nil {
 		var sock []string

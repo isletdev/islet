@@ -17,7 +17,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]api.User, 0, len(list))
 	for _, u := range list {
-		out = append(out, api.User{ID: u.ID, Username: u.Username, Role: u.Role, Projects: u.Projects, TOTPEnabled: u.TOTPEnabled, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt})
+		out = append(out, api.User{ID: u.ID, Username: u.Username, Role: u.Role, Projects: u.Projects, TOTPEnabled: u.TOTPEnabled, IsService: u.IsService, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

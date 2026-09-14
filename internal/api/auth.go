@@ -187,7 +187,7 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 }
 
 func toAPIUser(u *auth.User) api.User {
-	return api.User{ID: u.ID, Username: u.Username, Role: u.Role, Projects: u.Projects, TOTPEnabled: u.TOTPEnabled, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
+	return api.User{ID: u.ID, Username: u.Username, Role: u.Role, Projects: u.Projects, TOTPEnabled: u.TOTPEnabled, IsService: u.IsService, CreatedAt: u.CreatedAt, LastLoginAt: u.LastLoginAt}
 }
 
 func authError(w http.ResponseWriter, err error) {

@@ -1115,3 +1115,43 @@ One smaller call: tmux's status bar is switched off for Islet's sessions. Inside
 the panel it is a second, worse copy of the workspace and agent names already on
 screen, and it costs a row of the terminal. Anyone attaching over SSH can turn it
 back on for their own client.
+
+## 2026-09-14 — Two score checks that were measuring the wrong thing
+Both were reported from a real server, and both had been failing since the
+feature that created them.
+
+**Two-factor on every admin account** counted `islet-controller`. Adopting a
+server into a fleet creates that account so the audit log can say an action
+arrived from the controlling panel rather than attributing it to a person; its
+password is random, never printed and never used, because the account is reached
+only by an API token. There is no sign-in during which a secret could be
+enrolled, so once a server had been adopted the check could never pass again —
+a permanent ten points, with no fix offered anywhere in the panel, on a server
+whose one human admin had 2FA correctly on.
+
+Excluding it by username would have worked and would have been wrong the first
+time a second machine account existed. `0029` adds `is_service` instead, and the
+check asks only the accounts a person can actually sign in to. The Users list
+says "service account · no sign-in" where it used to say "2FA off", which is the
+same fact stated so it no longer reads as a thing to go and fix.
+
+**No databases reachable from the internet** flagged a container whose published
+port was 5433, and named 5432. The condition was
+`A || B || (C && D)`, and `&&` binds tighter than `||`, so the third arm asked
+whether `0.0.0.0:` appeared anywhere in the ports string and `->5432/` appeared
+anywhere in it — never that the two belonged to the same mapping. A database
+bound to `127.0.0.1` in a container that also published an unrelated web port
+was reported as open to the internet. A database genuinely published on a
+shifted host port was reported under its container port, which is the one number
+in the line that nobody can connect to.
+
+Docker prints one mapping per published port, `0.0.0.0:5433->5432/tcp`: the host
+port is what the internet reaches, the container port identifies the database.
+`PublishedDBPorts` parses each mapping as a unit and reports the host port, so
+the number in the message is the number to close. It is a pure function over the
+`{{.Ports}}` field with a table test, including the two shapes above — the check
+had no test at all, which is why a precedence bug survived in it.
+
+What reverses the first: a real notion of account kinds, if service accounts ever
+need more than one bit. What reverses the second: nothing, unless Docker changes
+how it prints port mappings, which the test would catch.

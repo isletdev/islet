@@ -44,6 +44,8 @@ type User struct {
 	Role        string `json:"role"`
 	Projects    string `json:"projects,omitempty"`
 	TOTPEnabled bool   `json:"totpEnabled"`
+	// IsService marks a token-only account, which cannot enrol a second factor.
+	IsService   bool   `json:"isService,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	LastLoginAt string `json:"lastLoginAt,omitempty"`
 }

@@ -75,7 +75,7 @@ func fleetToken(dataDir, name string) error {
 		}
 		// The password is never used and never printed: this account is reached
 		// only by the token below.
-		u, err = as.CreateUser(ctx, controller, pw, "admin")
+		u, err = as.CreateServiceUser(ctx, controller, pw, "admin")
 		if err != nil {
 			return fmt.Errorf("create the controller account: %w", err)
 		}

@@ -51,6 +51,10 @@ type User struct {
 	Role        string
 	Projects    string // comma list of app-name globs for deployers and viewers; empty = all
 	TOTPEnabled bool
+	// IsService marks an account reached only by an API token, with a random
+	// password nobody holds. It cannot enrol a second factor, so the security
+	// score does not ask it for one.
+	IsService   bool
 	CreatedAt   string
 	LastLoginAt string
 }
@@ -175,7 +179,7 @@ func (s *Service) createUser(ctx context.Context, username, password, role strin
 
 // Users lists every account.
 func (s *Service) Users(ctx context.Context) ([]User, error) {
-	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects FROM users ORDER BY created_at`)
+	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects, is_service FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +189,7 @@ func (s *Service) Users(ctx context.Context) ([]User, error) {
 		var u User
 		var totp []byte
 		var last sql.NullString
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &last, &u.Projects); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &last, &u.Projects, &u.IsService); err != nil {
 			return nil, err
 		}
 		u.TOTPEnabled = len(totp) > 0
@@ -201,6 +205,20 @@ func (s *Service) CreateUser(ctx context.Context, username, password, role strin
 		return nil, errors.New("role must be admin, deployer or viewer")
 	}
 	return s.createUser(ctx, username, password, role)
+}
+
+// CreateServiceUser makes an account that is reached only by an API token. It
+// is excluded from the two-factor check, which no token-only account could ever
+// satisfy: there is no sign-in during which a secret could be enrolled.
+func (s *Service) CreateServiceUser(ctx context.Context, username, password, role string) (*User, error) {
+	u, err := s.CreateUser(ctx, username, password, role)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.st.DB.ExecContext(ctx, `UPDATE users SET is_service = 1 WHERE id = ?`, u.ID); err != nil {
+		return nil, err
+	}
+	return s.UserByID(ctx, u.ID)
 }
 
 // UpdateUser changes a role and/or password. The last admin cannot be
@@ -264,8 +282,8 @@ func (s *Service) UserByID(ctx context.Context, id string) (*User, error) {
 	var u User
 	var lastLogin sql.NullString
 	var totp []byte
-	err := s.st.DB.QueryRowContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &lastLogin, &u.Projects)
+	err := s.st.DB.QueryRowContext(ctx, `SELECT id, username, role, totp_secret_enc, created_at, last_login_at, projects, is_service FROM users WHERE id = ?`, id).
+		Scan(&u.ID, &u.Username, &u.Role, &totp, &u.CreatedAt, &lastLogin, &u.Projects, &u.IsService)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +439,7 @@ func (s *Service) RevokeOthers(ctx context.Context, keep string) error {
 // AllAdminsHave2FA reports whether every admin has TOTP enabled.
 func (s *Service) AllAdminsHave2FA(ctx context.Context) bool {
 	var n int
-	if err := s.st.DB.QueryRowContext(ctx, `SELECT count(*) FROM users u WHERE u.role = 'admin' AND (u.totp_secret_enc IS NULL OR length(u.totp_secret_enc) = 0)`).Scan(&n); err != nil {
+	if err := s.st.DB.QueryRowContext(ctx, `SELECT count(*) FROM users u WHERE u.role = 'admin' AND u.is_service = 0 AND (u.totp_secret_enc IS NULL OR length(u.totp_secret_enc) = 0)`).Scan(&n); err != nil {
 		return false
 	}
 	return n == 0

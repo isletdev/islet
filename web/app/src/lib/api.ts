@@ -22,6 +22,8 @@ export interface User {
   role: "admin" | "deployer" | "viewer";
   projects?: string;
   totpEnabled: boolean;
+  /** A token-only account (the fleet controller): nobody can sign in to it. */
+  isService?: boolean;
   createdAt: string;
   lastLoginAt?: string;
 }

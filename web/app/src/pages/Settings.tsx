@@ -302,7 +302,7 @@ function Users({ meId }: { meId: string }) {
       <ul className="divide-y divide-border">
         {list.map((u) => (
           <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-            <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
+            <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.isService ? "service account · no sign-in" : u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
             <div className="flex items-center gap-2 text-xs">
               <Select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 w-auto px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></Select>
               {u.role !== "admin" && <button type="button" onClick={() => void setProjects(u)} className="text-ink-muted hover:text-ink" title="Limit this account to some apps">{u.projects ? `projects: ${u.projects}` : "all projects"}</button>}
