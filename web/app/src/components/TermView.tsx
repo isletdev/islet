@@ -85,20 +85,18 @@ export default function TermView({
       const mac = /Mac|iPhone|iPad/.test(navigator.platform);
       const mod = mac ? e.metaKey : e.ctrlKey;
       if (!mod) return true;
-      const key = e.key.toLowerCase();
-      if (key === "c") {
-        if (!t.hasSelection()) return true; // nothing to copy: let SIGINT through
-        void copy(t.getSelection());
-        // Clear it, so the next Ctrl+C interrupts rather than copying the same
-        // text again. Otherwise a stray selection quietly disables interrupt.
-        t.clearSelection();
-        return false;
-      }
-      if (key === "v") {
-        void paste();
-        return false;
-      }
-      return true;
+      if (e.key.toLowerCase() !== "c") return true;
+      // Paste is deliberately absent here. xterm keeps a hidden textarea and
+      // the browser's own paste event delivers into it, so Ctrl+V and Cmd+V
+      // already work — handling them here as well pasted everything twice.
+      // The only paste that needs code is the one from the context menu, where
+      // there is no native event to ride on.
+      if (!t.hasSelection()) return true; // nothing to copy: let SIGINT through
+      void copy(t.getSelection());
+      // Clear it, so the next Ctrl+C interrupts rather than copying the same
+      // text again. Otherwise a stray selection quietly disables interrupt.
+      t.clearSelection();
+      return false;
     });
 
     const onSel = t.onSelectionChange(() => setHasSel(t.hasSelection()));
@@ -184,11 +182,18 @@ export default function TermView({
     try {
       const text = await navigator.clipboard.readText();
       if (text) ws.send(new TextEncoder().encode(text));
+      // Clicking the menu took focus off the terminal, and a terminal you have
+      // just pasted into is one you are about to type into.
+      term.current?.focus();
     } catch {
       setNote("The browser would not let the page read the clipboard. Use Ctrl+Shift+V, or allow clipboard access for this site.");
       setTimeout(() => setNote(null), 6000);
     }
   }, []);
+
+  // Closing the menu always hands the keyboard back. Paste does its own
+  // focusing after the clipboard read resolves, so it is not closed here.
+  const close = useCallback(() => { setMenu(null); term.current?.focus(); }, []);
 
   const reconnect = useCallback(() => { setAttempt(0); setGen((g) => g + 1); }, []);
 
@@ -210,18 +215,18 @@ export default function TermView({
       />
       {menu && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div className="fixed inset-0 z-40" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
           <div
             role="menu"
             className="fixed z-50 min-w-40 rounded-md border border-border bg-surface py-1 text-sm shadow-float"
             style={{ left: Math.min(menu.x, window.innerWidth - 180), top: Math.min(menu.y, window.innerHeight - 160) }}
           >
-            <MenuItem disabled={!hasSel} onClick={() => { void copy(term.current?.getSelection() ?? ""); setMenu(null); }}>
+            <MenuItem disabled={!hasSel} onClick={() => { void copy(term.current?.getSelection() ?? ""); close(); }}>
               Copy
             </MenuItem>
             <MenuItem onClick={() => { void paste(); setMenu(null); }}>Paste</MenuItem>
-            <MenuItem onClick={() => { term.current?.selectAll(); setHasSel(true); setMenu(null); }}>Select all</MenuItem>
-            <MenuItem onClick={() => { term.current?.clear(); setMenu(null); }}>Clear</MenuItem>
+            <MenuItem onClick={() => { term.current?.selectAll(); setHasSel(true); close(); }}>Select all</MenuItem>
+            <MenuItem onClick={() => { term.current?.clear(); close(); }}>Clear</MenuItem>
           </div>
         </>
       )}

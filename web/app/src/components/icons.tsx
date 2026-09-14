@@ -303,6 +303,12 @@ export const NewFolderIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const PlusIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Icon>
+);
+
 export const RefreshIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" />

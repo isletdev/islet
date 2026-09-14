@@ -112,7 +112,7 @@ export interface ImportProposal {
 export interface Workspace {
   id: string; name: string; directory: string;
   preset: "claude" | "shell" | "custom";
-  command: string; mcpEnabled: boolean;
+  command: string; mcpEnabled: boolean; skipPermissions?: boolean;
   createdAt: string; updatedAt: string; lastAttachedAt: string;
   running: boolean; started?: string; error?: string;
 }

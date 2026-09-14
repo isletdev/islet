@@ -31,7 +31,7 @@ const PRESETS: Record<Workspace["preset"], { label: string; blurb: string; comma
 };
 
 const EMPTY: Workspace = {
-  id: "", name: "", directory: "", preset: "claude", command: "claude", mcpEnabled: true,
+  id: "", name: "", directory: "", preset: "claude", command: "claude", mcpEnabled: true, skipPermissions: false,
   createdAt: "", updatedAt: "", lastAttachedAt: "", running: false,
 };
 
@@ -317,6 +317,23 @@ function Editor({ w, onChange, onSubmit, onCancel, busy }: {
           <Field label="Command" hint="Typed into the session when you press Run, so you can see and repeat it.">
             <Input value={w.command} onChange={(e) => onChange({ ...w, command: e.target.value })} placeholder="claude" required />
           </Field>
+        )}
+        {w.preset === "claude" && (
+          <div className="md:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={w.skipPermissions ?? false}
+                onChange={(e) => onChange({ ...w, skipPermissions: e.target.checked })} />
+              <span>
+                Let it act without asking
+                <span className="mt-0.5 block text-xs text-ink-muted">
+                  Adds <span className="font-mono">--dangerously-skip-permissions</span>, so it edits files and runs
+                  commands without stopping for approval. That is the point of leaving one running while you are away,
+                  and it is also a shell on a machine serving real sites — turn it on for a workspace you would hand
+                  the keys to, not by default.
+                </span>
+              </span>
+            </label>
+          </div>
         )}
         {w.preset !== "shell" && (
           <div className="md:col-span-2">

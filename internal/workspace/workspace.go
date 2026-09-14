@@ -45,9 +45,13 @@ type Workspace struct {
 	Preset     string `json:"preset"` // claude | shell | custom
 	Command    string `json:"command"`
 	MCPEnabled bool   `json:"mcpEnabled"`
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
-	LastAttach string `json:"lastAttachedAt"`
+	// SkipPermissions runs Claude Code with --dangerously-skip-permissions, so
+	// it acts without asking first. Useful when nobody is watching; the panel
+	// says what it costs.
+	SkipPermissions bool   `json:"skipPermissions"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
+	LastAttach      string `json:"lastAttachedAt"`
 
 	// Derived from tmux, never stored.
 	Running bool   `json:"running"`
@@ -164,6 +168,9 @@ func (s *Service) launch(ctx context.Context, w *Workspace) string {
 			if p := s.mcpPath(w.ID); fileExists(p) {
 				cmd += " --mcp-config " + p
 			}
+		}
+		if w.SkipPermissions && !strings.Contains(cmd, "--dangerously-skip-permissions") {
+			cmd += " --dangerously-skip-permissions"
 		}
 	}
 	return cmd
@@ -370,18 +377,21 @@ func (w *Workspace) Validate() error {
 	if w.Preset == "shell" {
 		w.MCPEnabled = false // nothing is being launched for it to configure
 	}
+	if w.Preset != "claude" {
+		w.SkipPermissions = false // the flag belongs to one program
+	}
 	return nil
 }
 
-const cols = `id, name, directory, preset, command, mcp_enabled, mcp_token_id, created_at, updated_at, last_attached_at`
+const cols = `id, name, directory, preset, command, mcp_enabled, mcp_token_id, skip_permissions, created_at, updated_at, last_attached_at`
 
 func scan(sc interface{ Scan(...any) error }) (Workspace, string, error) {
 	var w Workspace
-	var mcp int
+	var mcp, skip int
 	var tokenID string
-	err := sc.Scan(&w.ID, &w.Name, &w.Directory, &w.Preset, &w.Command, &mcp, &tokenID,
+	err := sc.Scan(&w.ID, &w.Name, &w.Directory, &w.Preset, &w.Command, &mcp, &tokenID, &skip,
 		&w.CreatedAt, &w.UpdatedAt, &w.LastAttach)
-	w.MCPEnabled = mcp == 1
+	w.MCPEnabled, w.SkipPermissions = mcp == 1, skip == 1
 	return w, tokenID, err
 }
 
@@ -438,15 +448,19 @@ func (s *Service) Save(ctx context.Context, actor string, w *Workspace) (*Worksp
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
-	mcp := 0
+	mcp, skip := 0, 0
 	if w.MCPEnabled {
 		mcp = 1
+	}
+	if w.SkipPermissions {
+		skip = 1
 	}
 	if w.ID == "" {
 		w.ID = newID()
 		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO workspaces
-			(id, server_id, name, directory, preset, command, mcp_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			w.ID, s.st.ServerID, w.Name, w.Directory, w.Preset, w.Command, mcp)
+			(id, server_id, name, directory, preset, command, mcp_enabled, skip_permissions)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			w.ID, s.st.ServerID, w.Name, w.Directory, w.Preset, w.Command, mcp, skip)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("there is already a workspace with that name")
@@ -455,10 +469,10 @@ func (s *Service) Save(ctx context.Context, actor string, w *Workspace) (*Worksp
 		}
 	} else {
 		res, err := s.st.DB.ExecContext(ctx, `UPDATE workspaces
-			SET name=?, directory=?, preset=?, command=?, mcp_enabled=?,
+			SET name=?, directory=?, preset=?, command=?, mcp_enabled=?, skip_permissions=?,
 			    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id = ? AND server_id = ?`,
-			w.Name, w.Directory, w.Preset, w.Command, mcp, w.ID, s.st.ServerID)
+			w.Name, w.Directory, w.Preset, w.Command, mcp, skip, w.ID, s.st.ServerID)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("there is already a workspace with that name")

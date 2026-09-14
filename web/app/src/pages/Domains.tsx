@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Container, type Domain, type DomainLocation, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { useDialog } from "@/lib/dialogs";
+import { DownloadIcon, PlusIcon, RefreshIcon, RenameIcon, TrashIcon } from "@/components/icons";
 
 const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, passHost: true, blockExploits: false, locations: [], createdAt: "", updatedAt: "" };
 
@@ -112,6 +113,13 @@ export default function Domains() {
   // The form is hidden once there is nothing to decide; this opens it again.
   const [settings, setSettings] = useState(false);
   const [cookieDom, setCookieDom] = useState("");
+  const formRef = useRef<HTMLDivElement>(null);
+  // The form opens under the table, where it is off the bottom of the screen
+  // once there are a few domains. Editing that looks like nothing happened is
+  // how somebody ends up clicking Edit on the wrong row twice.
+  useEffect(() => {
+    if (editing) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing?.id, editing !== null]);
   useEffect(() => { void api.cookieDomain().then((r) => setCookieDom(r.cookieDomain)).catch(() => {}); }, []);
   // What the last apply did, kept outside the form so closing it does not take
   // the only confirmation with it.
@@ -263,10 +271,23 @@ export default function Domains() {
 
 
       <div className="rounded-lg border border-border bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
           <span className="font-semibold">Routed domains</span>
-          {isAdmin && <Link to="/domains/import" className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs text-ink hover:bg-surface-2">Import existing sites</Link>}
-          {isAdmin && <Button className="h-8 text-xs" onClick={() => { setEditing({ ...EMPTY }); setMsg(null); }}>Add domain</Button>}
+          {/* Both actions in one group, so they sit together at the right
+              instead of being spread across the row by justify-between. */}
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <Link
+                to="/domains/import"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-ink hover:bg-surface-2"
+              >
+                <DownloadIcon className="h-3.5 w-3.5" />Import existing sites
+              </Link>
+              <Button className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => { setEditing({ ...EMPTY }); setMsg(null); }}>
+                <PlusIcon className="h-3.5 w-3.5" />Add domain
+              </Button>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
           <thead className="text-left text-xs text-ink-muted"><tr><th className="px-4 py-2 font-medium">Host</th><th className="py-2 font-medium">Target</th><th className="py-2 font-medium">DNS</th><th className="py-2 font-medium">Certificate</th><th className="py-2 pr-4 text-right"></th></tr></thead>
@@ -278,10 +299,27 @@ export default function Domains() {
                   <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="-my-1 inline-block py-1 font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
                   <td className="py-2 font-mono text-xs text-ink-muted">{d.targetType === "container" ? `${d.target}:${d.port}` : d.targetType === "panel" ? "Islet panel" : d.target}</td>
                   <td className="py-2 text-xs"><DnsCell check={c} /></td>
-                  <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - Date.now() < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {new Date(cert.notAfter).toLocaleDateString()}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
-                  <td className="py-2 pr-4 text-right whitespace-nowrap">
-                    <button type="button" onClick={() => void checkDns(d)} className="-my-1 py-1 text-xs text-ink-muted hover:text-ink">Recheck</button>
-                    {isAdmin && <><button type="button" onClick={() => setEditing({ ...d, basicAuth: "" })} className="-my-1 ml-3 py-1 text-xs text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={() => void remove(d)} className="-my-1 ml-3 py-1 text-xs text-danger hover:underline">Remove</button></>}
+                  <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - Date.now() < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {dmy(cert.notAfter)}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
+                  <td className="py-2 pr-4 whitespace-nowrap">
+                    {/* Icons rather than three words per row: the labels
+                        repeated down the table and pushed everything else
+                        narrow. Each keeps its name for a pointer and a
+                        screen reader. */}
+                    <div className="flex items-center justify-end gap-1">
+                      <RowAction label="Check DNS again" onClick={() => void checkDns(d)}>
+                        <RefreshIcon className="h-4 w-4" />
+                      </RowAction>
+                      {isAdmin && (
+                        <>
+                          <RowAction label={`Edit ${d.host}`} onClick={() => setEditing({ ...d, basicAuth: "" })}>
+                            <RenameIcon className="h-4 w-4" />
+                          </RowAction>
+                          <RowAction label={`Remove ${d.host}`} danger onClick={() => void remove(d)}>
+                            <TrashIcon className="h-4 w-4" />
+                          </RowAction>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -297,6 +335,7 @@ export default function Domains() {
         const editingWildcard = editing.host.trim().startsWith("*.");
         const savedProvider = status?.dnsProvider ?? "";
         return (
+        <div ref={formRef}>
         <Card title={editing.id ? `Edit ${editing.host}` : "Add domain"} description="Create the DNS A record first; the helper checks it for you.">
           {editingWildcard && !savedProvider && (
             <Alert>
@@ -371,6 +410,7 @@ export default function Domains() {
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
           </form>
         </Card>
+        </div>
         );
       })()}
     </div>
@@ -385,6 +425,31 @@ export default function Domains() {
  * yet" and telling the person to change their A record is telling them to
  * switch off the thing they deliberately switched on.
  */
+/** A date the way it is written down: 22/11/2026. */
+function dmy(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/** One icon button on a table row, with the name it would have had as text. */
+function RowAction({ label, onClick, danger = false, children }: {
+  label: string; onClick: () => void; danger?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-2 ${danger ? "hover:text-danger" : "hover:text-ink"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function DnsCell({ check }: { check?: DNSCheck }) {
   if (!check) {
     return (
@@ -403,7 +468,12 @@ function DnsCell({ check }: { check?: DNSCheck }) {
       <span className={`inline-flex items-center gap-1.5 ${state.text}`}>
         <span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />{state.label}
       </span>
-      {!check.ok && <div className="mt-0.5 max-w-[32ch] text-ink-muted">{check.suggestion}</div>}
+      {/* Only when something is actually wrong. A domain behind a CDN
+          resolves exactly as it should, and printing "change the A record to…"
+          under it is both untrue and three lines of noise in every row. */}
+      {!check.ok && !check.proxiedBy && (
+        <div className="mt-0.5 max-w-[32ch] text-ink-muted">{check.suggestion}</div>
+      )}
     </>
   );
 }

@@ -984,3 +984,40 @@ cookie domain is set at all, where nothing but the panel's own host is covered.
 
 What does work is a panel on a name under the domain being protected, which is
 worth saying in the same breath as the refusal.
+
+## 2026-09-14 — xterm already pastes; handling it again pasted twice
+Ctrl+V pasted everything twice, and paste from the right-click menu left the
+keyboard somewhere else.
+
+The double was mine. xterm keeps a hidden textarea and the browser's own paste
+event delivers into it, so Ctrl+V and Cmd+V have always worked without help.
+Adding a key handler that also read the clipboard and wrote to the socket meant
+both paths ran. The handler now covers copy only — the one thing that genuinely
+cannot be left to the browser, because Ctrl+C in a terminal is interrupt.
+
+The only paste that needs code is the one from the context menu, where there is
+no native event to ride on, and that one has to hand the keyboard back
+afterwards: clicking a menu moves focus out of the terminal, and a terminal you
+have just pasted into is one you are about to type into. Every menu action ends
+by focusing it again.
+
+## 2026-09-14 — A table row is not the place for a sentence
+The domains table gave every row up to three lines of DNS advice, three words
+of actions, and a date in whatever format the browser felt like. Four rows
+filled a screen.
+
+The advice now appears only when something is actually wrong. A domain behind a
+CDN resolves exactly as it should, so printing "change the A record to…"
+beneath it was both untrue and the largest single source of noise in the table
+— the reason it was added, in an earlier fix, was to stop calling that state
+broken, and leaving the remedy underneath undid half of it.
+
+Actions became icons with their names kept as titles and labels. Three words
+repeated down every row cost more width than the columns that carry the
+information. Dates are written the way people write them down.
+
+The two header actions were spread apart by `justify-between` with three
+children in the row; they are one group now, so they sit together at the right.
+And the edit form, which opens under the table, scrolls into view — a form
+below the fold is the same "nothing happened" that the workspace terminal and
+the catalog installer both had.
