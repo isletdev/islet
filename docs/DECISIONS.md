@@ -1192,3 +1192,36 @@ old namespace, and only restarting them releases it. The daemon compares its own
 mount namespace with the tmux server's and says so on the page rather than acting
 on it: recycling the session is exactly the thing this whole area exists to avoid
 doing to somebody's work without asking.
+
+## 2026-09-14 — The firewall fix wrote the Docker rules and then reset them away
+Pressing Fix on "Docker cannot bypass the firewall" did nothing, three times,
+and said it had worked each time.
+
+`EnableFirewall` built its command list with `ufw --force reset` as the first
+entry, wrote the ufw-docker snippet into `/etc/ufw/after.rules`, and then ran
+the list. Reset restores every rules file to the one the package shipped, after
+backing the current one up beside it — so the snippet was written, immediately
+discarded, and the run reported success because nothing had failed. The comment
+above the write said the rules "have to be in place before ufw is enabled",
+which is true and was not the same as being written before the loop that
+enables it.
+
+The evidence was sitting in `/etc/ufw`: three `after.rules.<timestamp>` backups
+that each contained `BEGIN UFW AND DOCKER`, next to a live `after.rules` that
+did not. The backup is taken by reset, so every one of them is a record of the
+snippet being written and then thrown away.
+
+The reset now runs on its own before anything is written, and the snippet goes
+in after it. Two smaller things came with it, because the failure was silent
+rather than wrong: `EnableFirewall` ends by asking `FirewallStatus` whether the
+rules are actually there and says so in the log if they are not, and the marker
+is a constant the snippet is tested to contain, so the string that decides
+"already applied" cannot drift from the text it looks for.
+
+`withDockerRules` is a pure function over the file contents, which is what made
+any of this testable without a firewall: the ordering test models a reset as
+"the file goes back to stock" and asserts the snippet only survives when it is
+written afterwards. The old order fails that test.
+
+What reverses it: nothing, unless ufw stops resetting after.rules, and the
+DockerOK check at the end would catch that too.

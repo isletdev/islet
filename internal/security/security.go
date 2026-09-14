@@ -467,7 +467,7 @@ func (s *Service) FirewallStatus(ctx context.Context) Firewall {
 		return fw
 	}
 	fw.Active, fw.Rules = ParseUFWStatus(out)
-	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
+	if b, err := os.ReadFile(afterRulesPath); err == nil && strings.Contains(string(b), dockerMarker) {
 		fw.DockerOK = true
 	}
 	httpP, httpsP := s.ports()
@@ -484,6 +484,24 @@ func (s *Service) ports() (string, string) {
 		}
 	}
 	return "80", "443"
+}
+
+// afterRulesPath is where ufw keeps the rules appended after its own. A reset
+// restores it from the package, so anything Islet adds goes in after that.
+const afterRulesPath = "/etc/ufw/after.rules"
+
+// dockerMarker opens the snippet below and is what every check for it looks
+// for, so the two can never drift apart.
+const dockerMarker = "BEGIN UFW AND DOCKER"
+
+// withDockerRules appends the ufw-docker snippet to an after.rules that does
+// not already carry it, and reports whether it changed anything. Appending
+// twice would load the same chains twice, so the marker is the guard.
+func withDockerRules(existing []byte) ([]byte, bool) {
+	if strings.Contains(string(existing), dockerMarker) {
+		return existing, false
+	}
+	return append(append([]byte{}, existing...), []byte(dockerRules)...), true
 }
 
 // dockerRules is the widely used ufw-docker snippet: published container
@@ -580,8 +598,34 @@ func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string, op
 	if warn != "" {
 		log.WriteString("[islet] " + warn + "\n")
 	}
+
+	// The reset runs on its own, before anything is written to /etc/ufw.
+	//
+	// `ufw --force reset` restores every rules file to the one the package
+	// shipped, after backing the current one up beside it. The Docker snippet
+	// used to be written before this loop ran, with the reset as its first
+	// command: every run wrote the rules, reset threw them away, and the fix
+	// reported success. The evidence was three after.rules.<date> backups that
+	// each contained the snippet next to a live file that did not.
+	out, err := s.sh(ctx, actor, "ufw", "--force", "reset")
+	log.WriteString(out)
+	if err != nil {
+		return log.String(), fmt.Errorf("ufw --force reset: %w", err)
+	}
+
+	// Now the snippet, which ufw reads when it is enabled below.
+	if b, readErr := os.ReadFile(afterRulesPath); readErr == nil {
+		if next, added := withDockerRules(b); added {
+			if err := os.WriteFile(afterRulesPath, next, 0o640); err != nil {
+				return log.String(), fmt.Errorf("write %s: %w", afterRulesPath, err)
+			}
+			log.WriteString("[islet] added the ufw-docker rules to " + afterRulesPath + "\n")
+		}
+	} else {
+		log.WriteString("[islet] warning: could not read " + afterRulesPath + " (" + readErr.Error() + "); published container ports will not be covered\n")
+	}
+
 	cmds := [][]string{
-		{"ufw", "--force", "reset"},
 		{"ufw", "default", "deny", "incoming"},
 		{"ufw", "default", "allow", "outgoing"},
 		{"ufw", "default", "deny", "routed"},
@@ -594,15 +638,6 @@ func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string, op
 		cmds = append(cmds, []string{"ufw", "allow", "from", admin, "comment", "current admin"})
 	}
 
-	// The Docker rules have to be in place before ufw is enabled, or the first
-	// reload leaves forwarding denied with nothing to allow it.
-	if b, err := os.ReadFile("/etc/ufw/after.rules"); err == nil && !strings.Contains(string(b), "BEGIN UFW AND DOCKER") {
-		if err := os.WriteFile("/etc/ufw/after.rules", append(b, []byte(dockerRules)...), 0o640); err != nil {
-			return log.String(), fmt.Errorf("write /etc/ufw/after.rules: %w", err)
-		}
-		log.WriteString("[islet] added the ufw-docker rules to /etc/ufw/after.rules\n")
-	}
-
 	for _, c := range cmds {
 		out, err := s.sh(ctx, actor, c[0], c[1:]...)
 		log.WriteString(out)
@@ -610,7 +645,7 @@ func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string, op
 			return log.String(), fmt.Errorf("%s: %w", strings.Join(c, " "), err)
 		}
 	}
-	out, err := s.sh(ctx, actor, "ufw", "--force", "enable")
+	out, err = s.sh(ctx, actor, "ufw", "--force", "enable")
 	log.WriteString(out)
 	if err != nil {
 		return log.String(), err
@@ -619,6 +654,11 @@ func (s *Service) EnableFirewall(ctx context.Context, actor, clientIP string, op
 
 	// Say plainly what the internet can now reach.
 	fw := s.FirewallStatus(ctx)
+	// This is the check the silent failure above needed: the run is only
+	// finished if the snippet survived it.
+	if !fw.DockerOK {
+		log.WriteString("[islet] warning: the ufw-docker rules are not in " + afterRulesPath + "; a published container port is open regardless of ufw\n")
+	}
 	if len(fw.MissingRoutes) > 0 {
 		log.WriteString("[islet] warning: no forward rule for port " + strings.Join(fw.MissingRoutes, ", ") + "; sites behind the proxy will not answer\n")
 	}
