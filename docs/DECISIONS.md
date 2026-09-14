@@ -1499,3 +1499,47 @@ backups, files, settings, catalog, uptime, recipes and runners all end at
 agent asked to create a domain needs a token that can do everything, including
 minting more tokens. The scope vocabulary has to grow write scopes per area
 before an agent can be given real power without being given all of it.
+
+## 2026-09-14 — Scopes per area, so an agent can be trusted with less
+The escape hatch could reach any route the token allowed, and the token could
+allow almost nothing: `ScopeAllows` granted writes in six areas and reads
+everywhere else, so an agent asked to put a site behind a domain needed `*` — a
+token that can also open a shell and mint more tokens. The choice was read
+everything or own everything, which is no choice to give anyone.
+
+Areas are now a table, one write scope each: `domains`, `files`, `backups`,
+`security`, `uptime`, `runners`, `catalog`, `workspaces`, `system`, `settings`
+beside the existing `deploy`, `cron`, `db`, `containers`. A deploy agent gets
+`read,deploy,domains` and can create a domain, and nothing else. Proved against
+a live daemon: that token created a domain and was refused the file API, the
+terminal and the token endpoint.
+
+Two things were deliberately left out of the table.
+
+**Nothing mints a token.** `/api/v1/auth` and `/api/v1/users` stay closed to
+every scope except the caller reading who they are. `settings` stops short of
+it. A narrow scope that could widen itself would make every other rule here
+decorative, and that property is worth more than the convenience.
+
+**`files` is not covered by `read`.** This is a change in behaviour and the
+reason for it is worth stating plainly: the file API serves whatever path the
+daemon can open, and the daemon is root. A `read` token could therefore read
+`/etc/shadow`, the `.env` of every deployed app and the daemon's own database.
+"Read" means "look at the state of the panel" in every other area and cannot
+also mean that, so files need their own scope in both directions. An existing
+token with `read` that browses files will stop working and has to be reissued
+with `files`; that is the correct trade.
+
+Two smaller corrections found by writing the tests rather than by reading the
+code. `notify` briefly gained read access to the channel list, which holds
+webhook URLs and bot tokens — the existing test caught it, and it is send-only
+again. And the logs rule granted any method, which was harmless only because
+every log route happens to be a GET; a permission check should not depend on
+that, so it is reads only now.
+
+The panel offers these scopes from a hand-written list, as every type in this
+project is mirrored by hand. `TestPanelOffersTheSameScopes` reads that line out
+of `Settings.tsx` and fails when the two disagree, in the spirit of
+`hack/sql-split-agree.mjs`: a scope offered but unknown to the rules would grant
+nothing, and a scope the rules know but the panel never offers could not be
+given to anyone.

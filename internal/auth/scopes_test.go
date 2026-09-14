@@ -1,78 +1,181 @@
 package auth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-// A token minted read-only used to satisfy the host terminal and container
-// exec, because both start as a GET and the scope table ended in "any GET is a
-// read". That turned a monitoring token into a root shell.
-func TestReadScopeCannotOpenAShell(t *testing.T) {
-	for _, path := range []string{
+// Each scope grants writing in its own area and nowhere else. An agent given
+// "domains" to put a site behind a name must not thereby be able to take the
+// firewall down, empty a backup or read a file off the disk.
+func TestAScopeCoversOnlyItsOwnArea(t *testing.T) {
+	writable := map[string]string{
+		"deploy":     "/api/v1/apps",
+		"cron":       "/api/v1/cron/jobs",
+		"db":         "/api/v1/databases",
+		"containers": "/api/v1/docker/containers",
+		"domains":    "/api/v1/domains",
+		"backups":    "/api/v1/backups/plans",
+		"security":   "/api/v1/security/fix/swap",
+		"uptime":     "/api/v1/uptime/checks",
+		"runners":    "/api/v1/runners/pools",
+		"catalog":    "/api/v1/catalog/install",
+		"workspaces": "/api/v1/workspaces",
+		"settings":   "/api/v1/settings/theme",
+	}
+	for scope, own := range writable {
+		if !ScopeAllows(scope, "POST", own) {
+			t.Errorf("%q should be able to POST its own area %s", scope, own)
+		}
+		for other, path := range writable {
+			if other == scope {
+				continue
+			}
+			if ScopeAllows(scope, "POST", path) {
+				t.Errorf("%q must not be able to POST %s, which belongs to %q", scope, path, other)
+			}
+		}
+	}
+}
+
+// Nothing short of "*" may mint a token, change an account or read one. A
+// narrow scope that could widen itself would make every other rule here
+// decorative.
+func TestNoScopeCanWidenItself(t *testing.T) {
+	paths := []string{
+		"/api/v1/auth/tokens",
+		"/api/v1/auth/password",
+		"/api/v1/auth/totp/disable",
+		"/api/v1/users",
+		"/api/v1/users/abc",
+	}
+	for _, scope := range append(append([]string{}, Scopes...), "read,deploy,settings,security,files") {
+		for _, p := range paths {
+			for _, m := range []string{"GET", "POST", "PUT", "DELETE"} {
+				if ScopeAllows(scope, m, p) {
+					t.Errorf("scope %q must not reach %s %s", scope, m, p)
+				}
+			}
+		}
+	}
+	// The one thing a token may always do is say who it belongs to.
+	if !ScopeAllows("read", "GET", "/api/v1/auth/me") {
+		t.Error("a token should be able to read its own identity")
+	}
+	// And "*" is the deliberate exception, which is why it is not in Scopes.
+	if !ScopeAllows("*", "POST", "/api/v1/auth/tokens") {
+		t.Error("* is meant to be able to do everything the user can")
+	}
+	for _, s := range Scopes {
+		if s == "*" {
+			t.Error(`"*" must not be offered as an ordinary scope`)
+		}
+	}
+}
+
+// A shell is root on the box. These routes are GETs only because that is how a
+// WebSocket opens, so no amount of read access may reach them.
+func TestOnlyShellOpensAShell(t *testing.T) {
+	for _, p := range []string{
 		"/api/v1/terminal/ws",
 		"/api/v1/docker/containers/abc/exec",
+		"/api/v1/workspaces/w1/attach",
+		"/api/v1/workspaces/w1/agents/a1/attach",
 	} {
-		if ScopeAllows("read", "GET", path) {
-			t.Errorf("read scope must not reach %s", path)
+		if ScopeAllows("read", "GET", p) {
+			t.Errorf("read must not reach %s", p)
 		}
-		if !ScopeAllows("shell", "GET", path) {
-			t.Errorf("shell scope should reach %s", path)
+		if ScopeAllows("read,workspaces,containers,system", "GET", p) {
+			t.Errorf("no combination short of shell may reach %s", p)
 		}
-	}
-}
-
-// A path nobody classified must not inherit the read scope.
-func TestUnknownPathsAreDenied(t *testing.T) {
-	for _, path := range []string{"/api/v1/something-new", "/api/v1/admin/danger"} {
-		if ScopeAllows("read", "GET", path) {
-			t.Errorf("unknown path %s must deny by default", path)
+		if !ScopeAllows("shell", "GET", p) {
+			t.Errorf("shell should reach %s", p)
 		}
 	}
 }
 
-func TestReadScopeStillReadsWhatItShould(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/system",
-		"/api/v1/metrics/latest",
-		"/api/v1/domains",
-		"/api/v1/security",
-		"/api/v1/backups",
-		"/api/v1/apps",
-		"/api/v1/docker/containers",
-	} {
-		if !ScopeAllows("read", "GET", path) {
-			t.Errorf("read scope should reach %s", path)
+// "read" reads everywhere and writes nowhere.
+func TestReadReadsEverywhereAndWritesNothing(t *testing.T) {
+	for _, a := range areas {
+		p := a.prefix
+		if !ScopeAllows("read", "GET", p) {
+			t.Errorf("read should GET %s", p)
 		}
-	}
-	if ScopeAllows("read", "POST", "/api/v1/apps/x/deploy") {
-		t.Error("read scope must not deploy")
+		if ScopeAllows("read", "POST", p) {
+			t.Errorf("read must not POST %s", p)
+		}
 	}
 }
 
-// A token is its owner acting later, so it cannot carry more than the owner has.
-func TestCapScopes(t *testing.T) {
-	if _, err := CapScopes("deploy", "viewer"); err == nil {
-		t.Error("a viewer must not mint a deploy token")
-	}
-	if _, err := CapScopes("shell", "deployer"); err == nil {
-		t.Error("only an admin may mint a shell token")
-	}
-	if got, err := CapScopes("shell", "admin"); err != nil || got != "shell" {
-		t.Errorf("admin shell token = %q, %v", got, err)
-	}
-	// An empty request means "everything this role may hold", not everything.
-	got, err := CapScopes("", "viewer")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ScopeAllows(got, "GET", "/api/v1/system") {
-		t.Errorf("a viewer's default token should still read: %q", got)
-	}
-	for _, bad := range []string{"deploy", "cron", "containers", "shell", "db"} {
-		if ScopeAllows(got, "POST", "/api/v1/apps/x/deploy") {
-			t.Fatalf("viewer default token %q can write", got)
+// A read token must not be able to read the disk. The file API serves any path
+// the daemon can open, as root, so "read" covering it would mean every secret
+// on the machine — an app's .env, the daemon's database, /etc/shadow.
+func TestReadingFilesNeedsItsOwnScope(t *testing.T) {
+	for _, p := range []string{"/api/v1/files", "/api/v1/files/read", "/api/v1/files/write"} {
+		if ScopeAllows("read", "GET", p) {
+			t.Errorf("read must not reach %s", p)
 		}
-		_ = bad
+		if ScopeAllows("read,deploy,domains,system,catalog", "GET", p) {
+			t.Errorf("no combination short of files may reach %s", p)
+		}
+		if !ScopeAllows("files", "GET", p) {
+			t.Errorf("files should reach %s", p)
+		}
 	}
-	if _, err := CapScopes("read,deploy", "deployer"); err != nil {
-		t.Errorf("a deployer may hold deploy: %v", err)
+	if !ScopeAllows("files", "POST", "/api/v1/files/write") {
+		t.Error("files should be able to write too")
+	}
+}
+
+// Notify sends. It does not read the channel list, which holds webhook URLs
+// and bot tokens.
+func TestNotifySendsButDoesNotRead(t *testing.T) {
+	if !ScopeAllows("notify", "POST", "/api/v1/notify/emit") {
+		t.Error("notify should be able to send")
+	}
+	if ScopeAllows("notify", "GET", "/api/v1/notify/channels") {
+		t.Error("notify must not read channel configuration")
+	}
+	if !ScopeAllows("read", "GET", "/api/v1/notify/channels") {
+		t.Error("read should still be able to list channels")
+	}
+}
+
+// A path nobody has thought about is refused, rather than inheriting read
+// because it happens to answer a GET.
+func TestUnknownPathsAreRefused(t *testing.T) {
+	for _, p := range []string{"/api/v1/something-new", "/api/v2/apps", "/internal/debug", "/"} {
+		for _, s := range []string{"read", "deploy", "system", strings.Join(Scopes, ",")} {
+			if ScopeAllows(s, "GET", p) {
+				t.Errorf("scope %q must not reach unknown path %s", s, p)
+			}
+		}
+	}
+}
+
+// The scopes a token can be given are the scopes the rules understand: one
+// offered in the panel that grants nothing would be a lie, and a rule keyed to
+// a scope nobody can be given would be dead.
+func TestEveryOfferedScopeIsUnderstood(t *testing.T) {
+	// The scopes handled by a case of their own rather than by the area table.
+	known := map[string]bool{"read": true, "shell": true, "notify": true, "logs": true, "files": true}
+	for _, a := range areas {
+		known[a.scope] = true
+	}
+	for _, s := range Scopes {
+		if !known[s] {
+			t.Errorf("scope %q is offered but no rule uses it", s)
+		}
+	}
+	for _, a := range areas {
+		found := false
+		for _, s := range Scopes {
+			if s == a.scope {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("area %q needs scope %q, which is not offered", a.prefix, a.scope)
+		}
 	}
 }

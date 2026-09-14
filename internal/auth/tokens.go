@@ -20,10 +20,18 @@ type Token struct {
 	Prefix     string `json:"prefix"`
 }
 
-// Scopes a token can carry. "*" grants everything the user can do.
-// Scopes a token may carry. "shell" is root on the server: it opens the host
-// terminal and container exec, so it is deliberately separate from "read".
-var Scopes = []string{"read", "deploy", "cron", "notify", "logs", "db", "containers", "shell"}
+// Scopes a token may carry, in the order the panel offers them. "*" grants
+// everything the user can do and is chosen by picking none of these.
+//
+// "shell" is root on the server — it opens the host terminal and container
+// exec — so it is deliberately separate from everything else, and "security"
+// can take the firewall down, so it is its own grant too. Nothing here lets a
+// token mint another: see ScopeAllows.
+var Scopes = []string{
+	"read", "deploy", "cron", "db", "containers", "domains", "files",
+	"backups", "security", "uptime", "runners", "catalog", "workspaces",
+	"notify", "logs", "system", "settings", "shell",
+}
 
 // ErrBadToken is returned for unknown, expired or malformed tokens.
 var ErrBadToken = errors.New("invalid api token")
@@ -182,7 +190,46 @@ func CapScopes(requested, role string) (string, error) {
 	return strings.Join(keep, ","), nil
 }
 
+// Areas are the scopes that grant writing, one per part of the panel. A read is
+// covered by "read" everywhere; these are what let a token change something, so
+// an agent can be given exactly the ground it needs instead of everything.
+//
+// The order matters only where one prefix contains another, and none here does.
+var areas = []struct{ prefix, scope string }{
+	{"/api/v1/apps", "deploy"},
+	{"/api/v1/deploy", "deploy"},
+	{"/api/v1/cron", "cron"},
+	{"/api/v1/databases", "db"},
+	{"/api/v1/sql", "db"},
+	{"/api/v1/docker", "containers"},
+	{"/api/v1/domains", "domains"},
+	{"/api/v1/proxy", "domains"},
+	{"/api/v1/certificates", "domains"},
+	{"/api/v1/backups", "backups"},
+	{"/api/v1/security", "security"},
+	{"/api/v1/uptime", "uptime"},
+	{"/api/v1/runners", "runners"},
+	{"/api/v1/catalog", "catalog"},
+	{"/api/v1/recipes", "catalog"},
+	{"/api/v1/workspaces", "workspaces"},
+	{"/api/v1/logs", "logs"},
+	{"/api/v1/system", "system"},
+	{"/api/v1/metrics", "system"},
+	{"/api/v1/health", "system"},
+	{"/api/v1/attention", "system"},
+	{"/api/v1/audit", "system"},
+	{"/api/v1/commands", "system"},
+	{"/api/v1/servers", "system"},
+	{"/api/v1/fleet", "system"},
+	{"/api/v1/settings", "settings"},
+}
+
 // ScopeAllows reports whether a token's scopes cover a method and path.
+//
+// Deny by default, in both directions: a path nobody thought about is refused,
+// and a scope only ever covers its own area. Nothing here grants a token the
+// ability to mint another — /api/v1/auth stays closed to everything except the
+// caller reading who they are, so no narrow scope can widen itself.
 func ScopeAllows(scopes, method, path string) bool {
 	if scopes == "*" {
 		return true
@@ -206,43 +253,45 @@ func ScopeAllows(scopes, method, path string) bool {
 		return has("shell")
 	case path == "/mcp":
 		return true
-	case strings.HasPrefix(path, "/api/v1/apps"):
-		return has("deploy") || (read && has("read"))
-	case strings.HasPrefix(path, "/api/v1/cron"):
-		return has("cron") || (read && has("read"))
+	// Sending a notification is a write that the read scope must not cover,
+	// and it is the one thing under /api/v1/notify that "notify" is for.
 	case path == "/api/v1/notify/emit":
 		return has("notify")
+	// Everything else under notify is channel configuration, which holds
+	// webhook URLs and tokens. "notify" sends; it does not read those.
 	case strings.HasPrefix(path, "/api/v1/notify"):
 		return read && has("read")
+	// Logs hang off many areas, so they are matched wherever they appear
+	// rather than only under their own prefix.
 	case strings.HasPrefix(path, "/api/v1/logs"), strings.Contains(path, "/logs"):
-		return has("logs") || has("read")
-	case strings.HasPrefix(path, "/api/v1/databases"):
-		return has("db") || (read && has("read"))
-	case strings.HasPrefix(path, "/api/v1/docker"):
-		return has("containers") || (read && has("read"))
-	case strings.HasPrefix(path, "/api/v1/auth/tokens"), strings.HasPrefix(path, "/api/v1/auth/"):
+		// Every log route is a GET; there is nothing to write. The rule used
+		// to grant any method, which was harmless only because no such route
+		// existed — a poor thing for a permission check to rely on.
+		return read && (has("logs") || has("read"))
+	// Reading a file is reading anything on the server. The file API serves
+	// whatever path the daemon can open, and the daemon is root, so a scope
+	// that covered it would quietly include /etc/shadow, every .env an app was
+	// deployed with and the daemon's own database. "read" means "look at the
+	// state of the panel" everywhere else and must not mean this, so files
+	// need their own scope in both directions.
+	case strings.HasPrefix(path, "/api/v1/files"):
+		return has("files")
+	// Accounts and tokens. A token may read who it belongs to and nothing
+	// else: no scope mints a token, so a narrow one cannot widen itself, and
+	// "settings" deliberately stops short of this.
+	case strings.HasPrefix(path, "/api/v1/auth/"), strings.HasPrefix(path, "/api/v1/users"):
 		return path == "/api/v1/auth/me"
-	// Plain reads of the server's own state.
-	case strings.HasPrefix(path, "/api/v1/health"),
-		strings.HasPrefix(path, "/api/v1/system"),
-		strings.HasPrefix(path, "/api/v1/metrics"),
-		strings.HasPrefix(path, "/api/v1/domains"),
-		strings.HasPrefix(path, "/api/v1/proxy"),
-		strings.HasPrefix(path, "/api/v1/catalog"),
-		strings.HasPrefix(path, "/api/v1/uptime"),
-		strings.HasPrefix(path, "/api/v1/backups"),
-		strings.HasPrefix(path, "/api/v1/security"),
-		strings.HasPrefix(path, "/api/v1/runners"),
-		strings.HasPrefix(path, "/api/v1/recipes"),
-		strings.HasPrefix(path, "/api/v1/attention"),
-		strings.HasPrefix(path, "/api/v1/audit"),
-		strings.HasPrefix(path, "/api/v1/commands"),
-		strings.HasPrefix(path, "/api/v1/files"),
-		strings.HasPrefix(path, "/api/v1/settings"):
-		return read && has("read")
-	default:
-		// Deny by default. A path nobody thought about must not inherit the
-		// read scope simply because it answers a GET.
-		return false
 	}
+	for _, a := range areas {
+		if !strings.HasPrefix(path, a.prefix) {
+			continue
+		}
+		if has(a.scope) {
+			return true
+		}
+		return read && has("read")
+	}
+	// A path nobody thought about must not inherit the read scope simply
+	// because it answers a GET.
+	return false
 }

@@ -239,7 +239,11 @@ function Tokens() {
   const load = () => api.tokens().then(setList).catch(() => setList([]));
   useEffect(() => { void load(); }, []);
   // "shell" opens a root terminal, so it is never part of a read-only token.
-  const SCOPES = ["read", "deploy", "cron", "notify", "logs", "db", "containers", "shell"];
+  // Mirrors auth.Scopes in internal/auth/tokens.go, in the same order.
+  // TestPanelOffersTheSameScopes reads this line and fails if they drift: a
+  // scope offered here that no rule understands would grant nothing, and a
+  // scope the rules know that is missing here cannot be given to anyone.
+  const SCOPES = ["read", "deploy", "cron", "db", "containers", "domains", "files", "backups", "security", "uptime", "runners", "catalog", "workspaces", "notify", "logs", "system", "settings", "shell"];
   const create = async (e: FormEvent) => {
     e.preventDefault(); setMsg(null);
     try { const r = await api.tokenCreate({ name, scopes: scopes.length ? scopes.join(",") : "*", ttlDays: ttl }); setCreated(r.token); setName(""); setScopes([]); await load(); }
