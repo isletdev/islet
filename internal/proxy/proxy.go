@@ -206,6 +206,14 @@ type Status struct {
 	// Islet with different flags. Routes still work; the container is simply
 	// out of date, and recreating it is a deliberate act.
 	NeedsRestart bool `json:"needsRestart"`
+	// Problems are the reasons certificates are not being issued, in words.
+	//
+	// This exists because the failure it reports is silent everywhere else: a
+	// proxy started without an ACME email has no certificate resolver, every
+	// router asks for one that does not exist, and Traefik quietly serves its
+	// own self-signed certificate for every site. The panel showed a running
+	// proxy, an empty certificate list, and nothing to connect the two.
+	Problems []string `json:"problems,omitempty"`
 }
 
 // Status inspects the proxy container.
@@ -242,14 +250,30 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 	} else {
 		acmeEmail, _, _ = m.st.Setting(ctx, "proxy.acme_email")
 	}
+	// Without an email there is no ACME account, so Traefik is started with no
+	// certificate resolver at all. Any domain asking for Let's Encrypt then
+	// gets Traefik's built-in self-signed certificate and the browser calls it
+	// insecure — which is a worse outcome than refusing, and one nothing in
+	// the panel used to explain.
+	if acmeEmail == "" {
+		if doms, err := m.Domains(ctx); err == nil {
+			var want []string
+			for _, d := range doms {
+				if d.Enabled && (d.TLS == "letsencrypt" || d.TLS == "letsencrypt-dns") {
+					want = append(want, d.Host)
+				}
+			}
+			if len(want) > 0 {
+				return fmt.Errorf("%s %s a Let's Encrypt certificate, and Let's Encrypt needs an email address to issue one. Add one above and apply again, or set those domains to a self-signed certificate",
+					hostList(want), verb(len(want), "asks for", "ask for"))
+			}
+		}
+	}
 	if err := os.MkdirAll(filepath.Join(m.dir, "dynamic"), 0o750); err != nil {
 		return err
 	}
-	acme := filepath.Join(m.dir, "acme.json")
-	if _, err := os.Stat(acme); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(acme, []byte("{}"), 0o600); err != nil {
-			return err
-		}
+	if err := ensureACMEFile(filepath.Join(m.dir, "acme.json")); err != nil {
+		return err
 	}
 	if err := m.writeMaintenancePage(); err != nil {
 		return err
@@ -321,10 +345,7 @@ func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
 			"--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web",
 		)
 		if prov := m.DNSProvider(ctx); prov != "" {
-			acmeDNS := filepath.Join(m.dir, "acme-dns.json")
-			if _, err := os.Stat(acmeDNS); errors.Is(err, os.ErrNotExist) {
-				_ = os.WriteFile(acmeDNS, []byte("{}"), 0o600)
-			}
+			_ = ensureACMEFile(filepath.Join(m.dir, "acme-dns.json"))
 			args = append(args,
 				"--certificatesresolvers.letsencrypt-dns.acme.email="+acmeEmail,
 				"--certificatesresolvers.letsencrypt-dns.acme.storage="+mountPath+"/acme-dns.json",
@@ -366,6 +387,149 @@ func lastLines(s string) string {
 		lines = lines[len(lines)-5:]
 	}
 	return strings.Join(lines, " | ")
+}
+
+// ensureACMEFile creates the certificate store if it is missing and, every
+// time, makes sure nothing but the owner can read it.
+//
+// The mode is not housekeeping. Traefik refuses to load an ACME account from a
+// file more permissive than 0600 — "permissions 777 ... are too open" — and
+// its response is to drop the resolver from the list and carry on. Every
+// router then asks for a resolver that no longer exists, so every site is
+// served Traefik's own self-signed certificate and no certificate is ever
+// requested. Nothing about that is loud: the proxy is running, the email is
+// set, the certificate list is simply empty forever.
+//
+// Creating the file with 0600 was not enough, because the file outlives the
+// install that made it: a restored backup, a copied data directory, an older
+// Islet, or a bind mount that reports its own mode can all widen it.
+func ensureACMEFile(path string) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.WriteFile(path, []byte("{}"), 0o600)
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o600 {
+		// A failure here is not fatal on its own: a bind mount on Windows or a
+		// filesystem without Unix modes cannot honour it, and Traefik does not
+		// mind those. Diagnose reports it if Traefik does mind.
+		_ = os.Chmod(path, 0o600)
+	}
+	return nil
+}
+
+// hostList prints a few host names and counts the rest.
+func hostList(hosts []string) string {
+	switch {
+	case len(hosts) == 1:
+		return hosts[0]
+	case len(hosts) <= 3:
+		return strings.Join(hosts[:len(hosts)-1], ", ") + " and " + hosts[len(hosts)-1]
+	default:
+		return fmt.Sprintf("%s and %d others", strings.Join(hosts[:2], ", "), len(hosts)-2)
+	}
+}
+
+// verb picks the form that agrees with the number of hosts named.
+func verb(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// Diagnose says, in words, why certificates are not being issued.
+//
+// Two sources. The panel's own configuration, where a domain asking for a
+// certificate Islet cannot request is knowable without asking anybody. And
+// Traefik's log, which is where the answer already was — "Router uses a
+// nonexistent certificate resolver", an ACME rejection, a challenge that timed
+// out — behind a docker logs command nobody running a control panel should
+// have to reach for.
+func (m *Manager) Diagnose(ctx context.Context, st Status) []string {
+	var out []string
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		return nil
+	}
+	var wantLE []string
+	for _, d := range doms {
+		if d.Enabled && (d.TLS == "letsencrypt" || d.TLS == "letsencrypt-dns") {
+			wantLE = append(wantLE, d.Host)
+		}
+	}
+	if len(wantLE) > 0 && st.Email == "" {
+		out = append(out, fmt.Sprintf("%s %s a Let's Encrypt certificate, but no email address is set, so none can be requested and every one of them is served a self-signed certificate. Add an email under Settings and apply.",
+			hostList(wantLE), verb(len(wantLE), "asks for", "ask for")))
+	}
+	var wantDNS []string
+	for _, d := range doms {
+		if d.Enabled && d.TLS == "letsencrypt-dns" {
+			wantDNS = append(wantDNS, d.Host)
+		}
+	}
+	if len(wantDNS) > 0 && st.DNSProvider == "" {
+		out = append(out, fmt.Sprintf("%s %s to be issued over DNS, but no DNS provider is configured.",
+			hostList(wantDNS), verb(len(wantDNS), "asks", "ask")))
+	}
+	if !st.Running {
+		return out
+	}
+
+	// What Traefik itself has been saying. Recent only: an error from before
+	// the last apply has usually been fixed by it.
+	res, err := m.run.Run(ctx, "system", "docker", "logs", "--since", "30m", "--tail", "300", ContainerName)
+	if err != nil {
+		return out
+	}
+	seen := map[string]bool{}
+	// A resolver that was dropped explains every router that then cannot find
+	// it, so the specific reason is collected first and the general complaint
+	// is only reported when nothing better was found.
+	generic := ""
+	for _, line := range strings.Split(res.Stdout+res.Stderr, "\n") {
+		clean := ansiRe.ReplaceAllString(line, "")
+		var msg string
+		switch {
+		case strings.Contains(clean, "are too open"):
+			msg = "Traefik refused to open its certificate store because the file is readable by more than its owner, so Let's Encrypt is switched off entirely and every site is served a self-signed certificate. Applying the settings again fixes the permissions."
+		case strings.Contains(clean, "The ACME resolve is skipped"):
+			msg = "Traefik dropped the Let's Encrypt resolver at startup: " + tail(clean)
+		case strings.Contains(clean, "nonexistent certificate resolver"):
+			generic = "Sites are asking for a certificate resolver Traefik does not have, so they are served a self-signed certificate. The usual cause is an empty email address or a certificate store Traefik refused to open."
+			continue
+		case strings.Contains(clean, "Unable to obtain ACME certificate"), strings.Contains(clean, "unable to generate a certificate"):
+			msg = "Let's Encrypt refused a certificate: " + tail(clean)
+		case strings.Contains(clean, "acme: error"), strings.Contains(clean, "urn:ietf:params:acme"):
+			msg = "Let's Encrypt returned an error: " + tail(clean)
+		case strings.Contains(clean, "port is already allocated"), strings.Contains(clean, "address already in use"):
+			msg = "Another program already holds port 80 or 443. If nginx is still running, stop it with: systemctl disable --now nginx"
+		default:
+			continue
+		}
+		if !seen[msg] {
+			seen[msg] = true
+			out = append(out, msg)
+		}
+	}
+	if generic != "" && len(out) == 0 {
+		out = append(out, generic)
+	}
+	return out
+}
+
+// ansiRe strips the colour codes Traefik writes to a terminal.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// tail keeps the end of a log line, which is where the reason is.
+func tail(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 220 {
+		s = "…" + s[len(s)-220:]
+	}
+	return s
 }
 
 // Remove stops and deletes the proxy container. Config and certificates stay.

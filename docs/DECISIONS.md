@@ -668,3 +668,39 @@ What cannot be translated is now named rather than dropped: regular-expression
 locations, named locations, exact matches. An import that quietly loses a path
 looks complete and is not, and the person has no way to find out except in
 production.
+
+## 2026-09-14 — Traefik turns Let's Encrypt off quietly, so the panel has to say so
+Reported from a real migration: imported every site from nginx, installed the
+proxy, entered an email — and got no certificates, no explanation, and every
+site marked insecure by the browser.
+
+Traefik refuses to load an ACME account from a file more permissive than 0600.
+Its response is not to fail: it logs `The ACME resolve is skipped from the
+resolvers list`, drops the resolver, and carries on. Every router then asks for
+a resolver that no longer exists, so Traefik serves its own self-signed
+certificate for every host and never requests anything. From the panel that
+looks like a running proxy, an empty certificate list, and nothing connecting
+the two.
+
+Islet created `acme.json` with 0600 and never looked at it again. The file
+outlives the install that made it — a restored backup, a copied data
+directory, an older version, a bind mount that reports its own mode — so the
+mode is now checked and repaired on every install, not only at creation.
+
+The same shape had a second instance. Installing with no email produced a
+proxy with no certificate resolver at all, which is the identical dead end,
+and the install returned 200. It is now refused, naming the domains that were
+asking and what to do instead.
+
+Neither fix would have helped the person who hit this, because nothing in the
+panel could tell them what was wrong. `Diagnose` reads Islet's own
+configuration and Traefik's recent log and answers the actual question — why
+are there no certificates — in words: a store Traefik refused to open, an
+empty email, a missing DNS provider, a rejected challenge, a port already
+held by nginx. The answer was always in `docker logs islet-proxy`, which is
+precisely the place somebody running a control panel should not have to look.
+
+One more, found while testing the fix: Apply closed the settings panel on
+success, and the settings panel was where the result message was rendered, so
+a successful apply was indistinguishable from a dead button. The confirmation
+now lives outside the form it reports on.

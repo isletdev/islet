@@ -89,7 +89,7 @@ export interface CommandEntry { id: number; actor: string; command: string; exit
 export interface FileEntry { name: string; path: string; isDir: boolean; size: number; mode: string; perms: string; owner: string; group: string; modTime: string; isSymlink: boolean; target?: string; protected: boolean }
 export interface TrashItem { id: string; original: string; name: string; isDir: boolean; size: number; deletedAt: string; actor: string }
 
-export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string; needsRestart?: boolean }
+export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string; needsRestart?: boolean; problems?: string[] }
 export type TargetType = "container" | "panel" | "url";
 /** One extra path on a host, forwarded somewhere of its own. */
 export interface DomainLocation { id?: string; path: string; targetType: TargetType; target: string; port: number; stripPath: boolean }

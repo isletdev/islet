@@ -18,7 +18,11 @@ func (s *Server) handleMaintenancePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProxyStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
+	// Diagnose reads Traefik's log, so it is not part of Status, which is
+	// called from inside the install path itself.
+	st := s.proxy.Status(r.Context())
+	st.Problems = s.proxy.Diagnose(r.Context(), st)
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {

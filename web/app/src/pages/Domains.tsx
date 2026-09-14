@@ -91,6 +91,9 @@ export default function Domains() {
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
   // The form is hidden once there is nothing to decide; this opens it again.
   const [settings, setSettings] = useState(false);
+  // What the last apply did, kept outside the form so closing it does not take
+  // the only confirmation with it.
+  const [note, setNote] = useState<string | null>(null);
   useEffect(() => { void api.dnsProviders().then(setProviders).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
@@ -110,7 +113,18 @@ export default function Domains() {
 
   const install = async () => {
     setBusy(true); setMsg(null);
-    try { await api.proxyInstall(email, { dnsProvider, dnsEnv }); setDnsEnv({}); setSettings(false); setMsg("Proxy is running."); await load(); } catch (e) { setMsg(e instanceof RequestError ? e.message : String(e)); }
+    try {
+      const st = await api.proxyInstall(email, { dnsProvider, dnsEnv });
+      setDnsEnv({});
+      setSettings(false);
+      // The note goes where it will still be visible after the form closes.
+      setNote(st.acmeEmail
+        ? `Applied. Certificates will be requested for ${st.acmeEmail}; it takes a minute.`
+        : "Applied.");
+      await load();
+    } catch (e) {
+      setMsg(e instanceof RequestError ? e.message : String(e));
+    }
     finally { setBusy(false); }
   };
   const save = async (e: FormEvent) => {
@@ -147,6 +161,26 @@ export default function Domains() {
             {isAdmin && <Button className="mt-2 h-8 text-xs" disabled={busy} onClick={() => void install()}>{busy ? "Applying…" : "Apply the new settings"}</Button>}
           </div>
         )}
+        {/* Why there are no certificates, in words, from Islet's own
+            configuration and from what Traefik has been saying. Without this
+            the page showed a running proxy, an empty certificate list, and
+            nothing at all connecting the two. */}
+        {(status?.problems ?? []).length > 0 && (
+          <div className="mb-3 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
+            <p className="font-medium">Certificates are not being issued.</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {(status?.problems ?? []).map((p) => <li key={p}>{p}</li>)}
+            </ul>
+            {isAdmin && !settings && (
+              <Button variant="secondary" className="mt-2 h-8 text-xs" onClick={() => setSettings(true)}>
+                Open settings
+              </Button>
+            )}
+          </div>
+        )}
+        {note && !settings && (
+          <p className="mb-3 rounded-md border border-border bg-surface-2 p-2 text-sm text-ink-muted">{note}</p>
+        )}
         {status?.installed && !settings && (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <Fact label="Ports">{status.httpPort} and {status.httpsPort}</Fact>
@@ -155,8 +189,8 @@ export default function Domains() {
                 ? <span className="text-ink-muted">none yet</span>
                 : <>{certs.length}, next renewal {renewalDate(certs)}</>}
             </Fact>
-            <Fact label="Renewal notices">
-              {status.acmeEmail || <span className="text-warning">no email set</span>}
+            <Fact label="Let's Encrypt account">
+              {status.acmeEmail || <span className="font-medium text-warning">no email — no certificates</span>}
             </Fact>
             <Fact label="Wildcards">
               {status.dnsProvider || <span className="text-ink-muted">off, HTTP-01 only</span>}
@@ -172,8 +206,11 @@ export default function Domains() {
         {(!status?.installed || settings) && (
           <>
             <div className="flex flex-wrap items-start gap-3">
-              <Field label="Let's Encrypt email" hint="Where expiry notices go. Required for public certificates.">
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" />
+              <Field
+                label="Let's Encrypt email"
+                hint="Without one there is no Let's Encrypt account, so no public certificate can be issued for any domain here."
+              >
+                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" type="email" className="w-72" required />
               </Field>
               <Field label="Wildcard certificates" className="w-56" hint="Lets *.example.com get a certificate over DNS-01.">
                 <Select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)}>
