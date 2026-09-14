@@ -795,3 +795,41 @@ panel says what it blocks rather than implying a firewall it does not have.
 Both settings are read out of the configuration being imported — NPM records
 the checkbox as an include — so a host that had them keeps them, and the
 review says which settings came across.
+
+## 2026-09-14 — Say which scheme the browser used, not which one the socket did
+Reported as WebSockets refusing on a Phoenix app behind Islet. Everything about
+the route was right: the request reached the app, the path was not rewritten,
+the Host was correct, and the middleware chain was proved not to break upgrades
+on Traefik 2.11, 3.0, 3.4 and 3.5.
+
+The app was answering the upgrade with `301` to the exact URL it had just been
+asked for — a redirect loop — while an ordinary request to the same path
+worked. The asymmetry was the clue, and it is this:
+
+    plain request:   X-Forwarded-Proto: https
+    upgrade request: X-Forwarded-Proto: wss
+
+Traefik reports the *connection's* protocol, so an upgrade over TLS is "wss".
+Almost nothing downstream understands that. `Plug.SSL`, Rails, Django and
+Laravel all compare the value with "https", find "wss", conclude the request
+arrived in the clear, and redirect to HTTPS — which is where it came from. The
+socket dies in a loop while every other request on the host is fine, and
+nothing in the proxy or the app looks wrong, because separately they are.
+
+Islet knows which scheme each route answers on, so it now states it: a
+`customRequestHeaders` middleware at the front of every chain, https for a TLS
+route and http for a plain one. The value no longer depends on whether the
+request happened to upgrade, which is the property an app is relying on when
+it reads the header at all.
+
+Worth noting what this is not. It is not Traefik being wrong — "wss" is a true
+statement about the connection. It is that the header's only real consumers
+read it as "was this HTTPS", and a proxy that knows the answer should give the
+answer rather than a synonym its readers do not know.
+
+The same investigation turned up a second failure on the same machine, which
+belongs to the app and not here: compose recreates a container with only the
+networks in its own file, so a container the panel attached to `islet-proxy`
+by hand loses that attachment on the next deploy and every route 502s. The
+durable fix is to name Islet's network in the app's compose, not to reattach
+it after the fact.

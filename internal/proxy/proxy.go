@@ -1077,6 +1077,21 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 	routers := map[string]any{}
 	services := map[string]any{}
 	middlewares := map[string]any{
+		// Traefik sets X-Forwarded-Proto to "ws" or "wss" on a WebSocket
+		// upgrade, rather than to the scheme the browser actually used. Almost
+		// nothing downstream understands those: Plug.SSL, Rails, Django and
+		// Laravel all compare the value against "https" and, finding "wss",
+		// conclude the connection is plain and redirect to HTTPS — which is
+		// where the request already came from. The socket then fails as a
+		// redirect loop while every ordinary request on the same host works,
+		// which is a very hard thing to see from the outside.
+		//
+		// Islet knows which scheme the route answers on, so it says so, and
+		// the value is the same for every request whether or not it upgrades.
+		"islet-proto-https": map[string]any{"headers": map[string]any{
+			"customRequestHeaders": map[string]string{"X-Forwarded-Proto": "https"}}},
+		"islet-proto-http": map[string]any{"headers": map[string]any{
+			"customRequestHeaders": map[string]string{"X-Forwarded-Proto": "http"}}},
 		"islet-compress":         map[string]any{"compress": map[string]any{}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
 		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
@@ -1104,7 +1119,13 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		if d.PathPrefix != "" {
 			rule += fmt.Sprintf(" && PathPrefix(`%s`)", d.PathPrefix)
 		}
-		mws := []string{"islet-compress", "islet-security-headers"}
+		// First in the chain: a later middleware that reads the scheme has to
+		// see the corrected value.
+		proto := "islet-proto-https"
+		if d.TLS == "none" {
+			proto = "islet-proto-http"
+		}
+		mws := []string{proto, "islet-compress", "islet-security-headers"}
 		if d.IPAllowlist != "" {
 			middlewares[name+"-ipallow"] = map[string]any{"ipAllowList": map[string]any{"sourceRange": splitList(d.IPAllowlist)}}
 			mws = append(mws, name+"-ipallow")
