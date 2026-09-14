@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Workspace, type WorkspaceMCP } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDialog, failure } from "@/lib/dialogs";
@@ -7,8 +7,10 @@ import { pollInterval } from "@/lib/poll";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { ExternalIcon, TrashIcon } from "@/components/icons";
 import { openConsole } from "./Console";
-
-const TermView = lazy(() => import("@/components/TermView"));
+// Imported directly, as Terminal and Console do. Behind Suspense the card
+// renders at nothing-height first, and the scroll below then runs against a
+// page that has nothing to scroll yet.
+import TermView from "@/components/TermView";
 
 const PRESETS: Record<Workspace["preset"], { label: string; blurb: string; command: string }> = {
   claude: {
@@ -54,6 +56,14 @@ export default function Workspaces() {
   const [open, setOpen] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string[] | null>(null);
+  const termRef = useRef<HTMLDivElement>(null);
+
+  // Opening a workspace puts the terminal below the list, which is off the
+  // bottom of the screen as soon as there are a few of them — and a button that
+  // appears to do nothing is a button people press twice.
+  useEffect(() => {
+    if (open) termRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [open?.id]);
 
   const load = useCallback(async () => {
     try {
@@ -216,21 +226,21 @@ export default function Workspaces() {
       {editing && <Editor w={editing} onChange={setEditing} onSubmit={save} busy={busy === "save"} onCancel={() => setEditing(null)} />}
 
       {open && (
+        <div ref={termRef}>
         <Card
           title={open.name}
           description={`${open.directory}${open.running ? "" : " · the session is not running; opening it starts one"}`}
         >
-          <Suspense fallback={<p className="text-sm text-ink-muted">Loading the terminal…</p>}>
-            {/* reattaches: the session lives in tmux, so a dropped connection
-                costs nothing and reconnecting is safe to do automatically. */}
-            <TermView path={`/api/v1/workspaces/${open.id}/attach`} reattaches className="h-[60vh]" />
-          </Suspense>
+          {/* reattaches: the session lives in tmux, so a dropped connection
+              costs nothing and reconnecting is safe to do automatically. */}
+          <TermView path={`/api/v1/workspaces/${open.id}/attach`} reattaches className="h-[60vh]" />
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-ink-muted">
             <span>Detach by closing this — the session keeps running.</span>
             <button type="button" onClick={() => setOpen(null)} className="-my-1 py-1 hover:text-ink">Close</button>
             {open.mcpEnabled && <McpNote id={open.id} />}
           </div>
         </Card>
+        </div>
       )}
     </div>
   );
