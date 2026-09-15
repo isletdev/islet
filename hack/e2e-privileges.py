@@ -4,7 +4,7 @@ outranks them."""
 import http.cookiejar, json, os, sys, urllib.error, urllib.request
 
 sys.stdout.reconfigure(encoding="utf-8")
-BASE = "http://127.0.0.1:9443"
+BASE = os.environ.get("ISLET_BASE", "http://127.0.0.1:9443")
 ADMIN = sys.argv[1]
 
 

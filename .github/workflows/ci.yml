@@ -15,14 +15,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -54,3 +54,43 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/isletd
       - name: Installer syntax
         run: for f in installer/*.sh hack/*.sh; do sh -n "$f" || exit 1; done
+
+  # The end-to-end suites, which until now existed and were run by hand — so
+  # nothing caught the change that broke one. These two need a daemon and
+  # nothing else: no cloud account, no API key, no second machine. The runner
+  # already has Docker, which is what backups use.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build the daemon
+        run: go build -o /tmp/isletd ./cmd/isletd
+      - name: Start it on a scratch data directory
+        run: |
+          mkdir -p /tmp/isletdata
+          ISLET_DATA_DIR=/tmp/isletdata ISLET_LISTEN=127.0.0.1:9443 ISLET_TLS=off             /tmp/isletd > /tmp/isletd.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:9443/api/v1/health > /dev/null && break
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:9443/api/v1/health || { cat /tmp/isletd.log; exit 1; }
+      - name: Create the first admin
+        run: |
+          TOKEN=$(cat /tmp/isletdata/setup-token)
+          curl -sS -X POST http://127.0.0.1:9443/api/v1/setup \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"ci-admin\",\"password\":\"ci-only-password-123\",\"token\":\"$TOKEN\"}" \
+            -D /tmp/setup.headers -o /dev/null
+          sed -n 's/.*islet_session=\([^;]*\).*/\1/p' /tmp/setup.headers | head -1 > /tmp/cookie
+          test -s /tmp/cookie
+      - name: Privileges
+        run: python3 hack/e2e-privileges.py "$(cat /tmp/cookie)"
+      - name: A backup that restores
+        run: ISLET_BASE=http://127.0.0.1:9443 sh hack/e2e-backup.sh "$(cat /tmp/cookie)"
+      - name: The daemon logged no panics
+        if: always()
+        run: |
+          ! grep -q "panic" /tmp/isletd.log || { cat /tmp/isletd.log; exit 1; }

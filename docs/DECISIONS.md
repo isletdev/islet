@@ -2328,3 +2328,30 @@ the editor, because one decoder capped every body in the panel at a size chosen
 for a form — reported, to add injury, as `bad_json`. And `/api/v1/health` told
 anyone on the internet the version, the commit, the hostname and the server id;
 the version is what a stranger matches against a list of known holes.
+
+## 2026-09-15 — Proving the backup, and letting the machine prove it from now on
+`internal/backup` was the largest package here with no tests, and its failure
+mode is the worst there is: silent until the day somebody needs the data. It
+turns out to work — a 200 KB random file and a text file, backed up to a local
+restic repository through the real API and restored to a fresh directory, came
+back md5-identical. That is Phase 5's definition of done, held for the first
+time by something other than hope.
+
+Getting there by hand took four tries, all on the same detail. Sources are
+mounted into the restic container before they are backed up, so /var/www/site
+becomes /data/paths/var/www/site — and that was the only thing Restore would
+accept. The obvious guess, /data/var/www/site, answers "path data/var: not
+found". `InSnapshot` now takes a host path, a volume name, or the /data/… form
+the snapshot listing shows, and turns any of them into what restic wants.
+
+`hack/e2e-backup.sh` does the round trip on every push now, along with
+`hack/e2e-privileges.py`, in a CI job that builds the daemon, starts it on a
+scratch directory and creates the first admin. Rehearsing it locally exactly as
+the job runs it caught the username being two characters too short for the
+validator — which is the argument for rehearsing rather than pushing and
+watching.
+
+The release path's actions are deliberately not bumped with the rest. The Node
+20 deprecation named checkout, setup-go, setup-node and pnpm/action-setup;
+goreleaser, cosign and the attestation action were not in it, and a release that
+cannot publish is a worse outcome than a warning in a log.

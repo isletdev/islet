@@ -1038,6 +1038,32 @@ func (s *Service) Ls(ctx context.Context, actor, destID, snapshot, path string) 
 
 // Restore extracts part of a snapshot. Volume targets restore into a new
 // Docker volume; everything else lands under <data>/restore/<time>/.
+// InSnapshot turns what somebody has into the path restic wants.
+//
+// Sources are mounted into the container before they are backed up: a directory
+// at /var/www/site becomes /data/paths/var/www/site, a volume called `pgdata`
+// becomes /data/volumes/pgdata. That is an implementation detail of how the
+// backup runs, and it was the only thing Restore would accept — so restoring a
+// directory meant knowing to type a prefix that appears nowhere in the panel,
+// and /data/var/www/site (the obvious guess) answered "path data/var: not
+// found".
+//
+// So: a path that is already inside the snapshot is used as it is, a host path
+// is translated, and a bare name is taken for a volume.
+func InSnapshot(include string) string {
+	include = strings.TrimSpace(include)
+	switch {
+	case include == "":
+		return ""
+	case strings.HasPrefix(include, "/data/"), include == "/data":
+		return include
+	case strings.HasPrefix(include, "/"):
+		return "/data/paths" + filepath.ToSlash(filepath.Clean(include))
+	default:
+		return "/data/volumes/" + include
+	}
+}
+
 func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include, newVolume string, dryRun bool) (string, error) {
 	d, err := s.Destination(ctx, destID)
 	if err != nil {
@@ -1046,8 +1072,9 @@ func (s *Service) Restore(ctx context.Context, actor, destID, snapshot, include,
 	if !regexp.MustCompile(`^[0-9a-f]{8,64}$|^latest$`).MatchString(snapshot) {
 		return "", errors.New("invalid snapshot id")
 	}
-	if include == "" || !strings.HasPrefix(include, "/data/") {
-		return "", errors.New("pick a path inside the snapshot")
+	include = InSnapshot(include)
+	if include == "" {
+		return "", errors.New("pick a path inside the snapshot — a host path like /var/www/site, a volume name, or the /data/… path the snapshot listing shows")
 	}
 	var mounts []string
 	target := ""

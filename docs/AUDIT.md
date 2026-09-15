@@ -38,6 +38,26 @@ Carried by **v0.18.0**:
   else unless the caller has a session, a token, or came in over the local
   socket. `islet status` sends its saved token and says so when it has none.
 
+Carried by **v0.18.1**:
+
+- **6. The restore path.** `backup.InSnapshot` takes what somebody actually has —
+  a host path, a volume name, or the `/data/…` path the snapshot listing shows —
+  and turns it into what restic wants. The e2e below restores by host path,
+  which is what made it worth doing.
+- **7. `internal/backup` has a test now**, and it is the one that matters:
+  `hack/e2e-backup.sh` writes a 200 KB random file and a text file, backs them
+  up to a local restic repository through the real API, restores them, and
+  compares the bytes. The rest of the untested packages are still untested.
+- **8. Both suites run in CI.** A new `e2e` job builds the daemon, starts it on a
+  scratch data directory, creates the first admin and runs
+  `hack/e2e-privileges.py` and `hack/e2e-backup.sh` against it, then fails if the
+  daemon logged a panic. Rehearsed locally exactly as the job runs it, which
+  caught that the username it used was too short for the validator.
+- **10 (part).** The four actions that were being forced onto Node 24 are bumped.
+  The release path — goreleaser, cosign, attestation — is deliberately left
+  alone: it was not what the deprecation warning named, and a release that
+  cannot publish is worse than a warning in a log.
+
 ## ~~1.~~ (done) The command log is 61% polling noise — and every row is a process
 
 `commands` holds 8,681 rows on this server, three days old. What is in them:
@@ -99,7 +119,7 @@ matches against a CVE list; the hostname and server id are free reconnaissance.
 
 **Do:** keep `status` unauthenticated and move the rest behind a session.
 
-## 6. Restoring a backup needs a path nobody could guess
+## ~~6.~~ (done) Restoring a backup needs a path nobody could guess
 
 Backups restore, byte for byte — verified here for the first time: a 200 KB
 random file and a text file backed up to a local repository, restored to a fresh
@@ -112,7 +132,7 @@ restic container; `/data/<host path>` answers `path data/tmp: not found`.
 **Do:** accept the host path and translate it, and say what is available when it
 does not match.
 
-## 7. Packages carrying real risk with no tests
+## ~~7.~~ (done) Packages carrying real risk with no tests
 
     internal/backup  1,369 lines   restore proven by hand, nothing automated
     internal/db        951 lines   creates and drops databases on a live server
@@ -124,7 +144,7 @@ does not match.
 **Do:** the backup round trip as a `hack/e2e-*` script first, since it is the one
 whose failure is silent until the day it matters.
 
-## 8. The e2e suites still are not in CI
+## ~~8.~~ (done) The e2e suites still are not in CI
 
 `hack/e2e-privileges.py` passes today — twenty checks, run by hand against a
 daemon built from this working tree. `hack/e2e-assistant.mjs` passes too.
@@ -142,9 +162,9 @@ the same class: state that changes without an event.
 **Do:** read them one by one. They are a list of places where the panel does work
 it was not asked to do.
 
-## 10. Smaller things
+## 10. Smaller things (partly done)
 
-- CI logs a Node 20 deprecation on every run; four actions need a bump.
+- ~~CI logs a Node 20 deprecation on every run.~~ Bumped in v0.18.1.
 - `islet.dev` docs site and the `isletdev/catalog` repository are both 404.
 - The VPS e2e workflow has never run: it skips itself without `HCLOUD_TOKEN`.
 - The assistant's MCP token on this server carries `*`. That is the operator's
