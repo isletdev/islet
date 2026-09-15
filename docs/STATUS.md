@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `f15a49e`, tagged `v0.15.0`, 2026-09-15. 130 commits, 56 tags, CI green on `main`.
+**Head:** `c3aef45`, tagged `v0.17.0`, 2026-09-15. 134 commits, 59 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.15.0
+## Shipped since the plan ran out — v0.6.0 to v0.17.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -72,6 +72,10 @@ recent history, because it is the half that was found rather than designed.
 | v0.14.7 | `6378beb` | Creating a Mongo database sends the new user's password inside a `--eval` script — one argument, so no redaction rule could see it, and it reached the audit table and the command drawer in full |
 | v0.14.8 | `4babc79` | Streaming broke the tab that was already open: it reads the whole reply with `JSON.parse` and fails at the first newline. The shape now follows `Accept`, and a stale tab reloads itself when it asks for a chunk that no longer exists |
 | v0.15.0 | `f15a49e` | **A run belongs to the daemon.** Asking for anything long from a phone failed silently — a locked screen closes the connection, and the loop was bound to the request. Runs now have an id, an event log and a sequence number to come back on; the panel reattaches on mount, on visibility and on reconnect. And they say what they are doing: each tool named as it starts and ticked when it returns, read out of Claude Code's own `stream-json` for the subscription provider and out of the loop for the rest |
+
+| v0.15.1 | `6855b35` | Traefik's compressor holds a response's first kilobyte back to decide whether compressing is worth it, and for a stream that kilobyte is however long the work takes — so the browser saw nothing and then a gateway timeout, while curl, which sends no `Accept-Encoding`, saw it stream perfectly. Every streaming endpoint was affected: logs, Compose, SQL, ping |
+| v0.16.0 | `defc6d7` | **Conversations.** Stored on the server, so one started on a laptop opens on a phone; titled from the first question; turns written as they complete. One run per conversation, no limit across them |
+| v0.17.0 | `c3aef45` | **The assistant had a root shell.** `--allowed-tools` says which tools need no approval, not which exist, so Claude Code's own Bash was there — and classified as safe, so it ran without asking. Asked to `id -u`, the assistant answered 0. Closed with a deny list in `--settings`, `--permission-prompts none` and `--strict-mcp-config`. Found by getting a browser and looking at the panel, which also produced the Markdown rendering, the tool lines, and the record of what a turn did |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
@@ -193,6 +197,35 @@ boxes had been left unticked from before any of that was true and are now
 corrected, as is the summary at the top of `NEEDED_FROM_YOU.md`, which still
 described a repository of 48 commits.
 
+### The assistant is finished
+
+Everything asked of it is built and was exercised against this server rather
+than reasoned about:
+
+- both provider kinds — an API key, and the person's own Claude subscription
+- seventy MCP tools, every one of them called; five were broken and only calling
+  them found out
+- answers that stream, tool by tool, with what each one did and how long it took
+- runs that belong to the daemon, so a phone locking its screen mid-deploy does
+  not stop the deploy, and reattach from a sequence number when it comes back
+- conversations stored per person, openable from another device, several running
+  at once, one run each
+- a boundary that holds: no shell, no unscoped file access, every call through
+  the same gate a direct API request passes, and written to the audit log
+
+Two things are deliberately left, and neither blocks the feature:
+
+1. **The claude process runs as root.** The deny list is what stops its built-in
+   tools, and a deny list is a floor: a tool added upstream and classified as
+   safe would not be on it. Running it as another user is the durable answer and
+   needs the subscription's credentials to live somewhere other than root's
+   home. Until then, the assistant's real boundary is the scopes on the token in
+   its MCP configuration — and on this server that token carries `*`, so
+   narrowing it is a decision worth taking deliberately.
+2. **A run's events die with the daemon.** The conversation survives, because
+   turns are written as they complete; the live event log does not, since a
+   model call cannot be resumed across a restart anyway.
+
 ### Not verified by anyone yet
 
 One thing in the workspace feature has never been exercised end to end by a
@@ -251,9 +284,11 @@ On a server Islet already manages, the installed daemon owns `0.0.0.0:9443`, so 
 development one needs another port — and `hack/layout-audit.mjs` and
 `hack/width-audit.mjs` both hardcode `127.0.0.1:9443`, which means they would
 drive the *installed* panel rather than the build under test. Worth knowing before
-either is run there. Both also need a browser speaking the DevTools protocol, and
-the development server has none installed, so neither audit can be run there as
-it stands: a UI change made on that box is typechecked and linted, not measured.
+either is run there. Both take `ISLET_BASE`, so they can drive a build under test
+rather than the installed daemon. They need a browser speaking the DevTools
+protocol, which this server has no package for — a Chrome-for-Testing build
+unpacked into a scratch directory works, is not an install, and is how
+`/assistant` was measured at 390, 768 and 1440.
 
 Working on a server that Islet manages has one advantage worth using: features can
 be exercised against the thing they manage rather than against Docker Desktop on a
