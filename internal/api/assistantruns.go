@@ -30,6 +30,7 @@ import (
 type run struct {
 	ID      string
 	User    string
+	ChatID  string // the conversation it belongs to, if any
 	Ask     string // the question, for a list somebody is choosing from
 	Started time.Time
 
@@ -175,9 +176,9 @@ const maxKeptRuns = 20
 
 func newRuns() *runs { return &runs{byID: map[string]*run{}} }
 
-func (rs *runs) start(user, ask string, cancel context.CancelFunc) *run {
+func (rs *runs) start(user, chatID, ask string, cancel context.CancelFunc) *run {
 	r := &run{
-		ID: newRunID(), User: user, Ask: ask, Started: time.Now(),
+		ID: newRunID(), User: user, ChatID: chatID, Ask: ask, Started: time.Now(),
 		status: "running", changed: make(chan struct{}), cancel: cancel,
 	}
 	rs.mu.Lock()
@@ -204,6 +205,35 @@ func (rs *runs) start(user, ask string, cancel context.CancelFunc) *run {
 	}
 	rs.mu.Unlock()
 	return r
+}
+
+// activeFor is the run working on a conversation, if one is.
+//
+// One at a time per conversation: two loops appending to the same transcript
+// would interleave into something neither of them meant, and the person would
+// be watching one of them at random. Different conversations run side by side,
+// which is the point of having more than one.
+func (rs *runs) activeFor(chatID string) *run {
+	if chatID == "" {
+		return nil
+	}
+	rs.mu.Lock()
+	ids := append([]string(nil), rs.order...)
+	byID := make(map[string]*run, len(rs.byID))
+	for k, v := range rs.byID {
+		byID[k] = v
+	}
+	rs.mu.Unlock()
+	for i := len(ids) - 1; i >= 0; i-- {
+		r, ok := byID[ids[i]]
+		if !ok || r.ChatID != chatID {
+			continue
+		}
+		if st, _ := r.state(); st == "running" {
+			return r
+		}
+	}
+	return nil
 }
 
 func (rs *runs) get(id string) *run {

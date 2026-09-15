@@ -233,8 +233,15 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 // through a deploy, with nothing kept. Now the connection closing ends only the
 // streaming; the run carries on, and /api/v1/assistant/runs/{id} picks it up
 // again from wherever the client got to.
+//
+// It also does not belong to this browser. The conversation is stored, so the
+// question asked on a laptop is answered into something a phone can open.
 func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		ChatID string `json:"chatId"`
+		Text   string `json:"text"`
+		// messages is the older shape: the whole conversation, sent every time,
+		// kept nowhere. A client still using it gets what it always got.
 		Messages []assistant.Message `json:"messages"`
 		MaxSteps int                 `json:"maxSteps"`
 	}
@@ -242,8 +249,8 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
-	if len(req.Messages) == 0 {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "send at least one message"})
+	if strings.TrimSpace(req.Text) == "" && len(req.Messages) == 0 {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "send a question"})
 		return
 	}
 	p, err := s.providerFor(r.Context())
@@ -254,26 +261,81 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	actor, scopes, role := scopesForRequest(r.Context())
 
+	// Writes to the conversation outlive the request as much as the run does,
+	// and must outlive the run being cancelled too: a stopped run still did
+	// whatever it did, and that belongs in the transcript.
+	persist := context.WithoutCancel(r.Context())
+
+	chatID, msgs := req.ChatID, req.Messages
+	if strings.TrimSpace(req.Text) != "" {
+		if s.chats == nil {
+			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "conversations are not available"})
+			return
+		}
+		if chatID == "" {
+			ch, err := s.chats.Create(persist, u.Username, req.Text)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+				return
+			}
+			chatID = ch.ID
+		}
+		// One run at a time per conversation. Two loops appending to one
+		// transcript would interleave into something neither meant.
+		if active := s.runs.activeFor(chatID); active != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "busy", "message": "this conversation is still working; watch it instead of starting another",
+				"runId": active.ID, "chatId": chatID,
+			})
+			return
+		}
+		ask := assistant.Message{Role: assistant.RoleUser, Text: req.Text}
+		if err := s.chats.Append(persist, u.Username, chatID, ask); err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
+			return
+		}
+		_, history, err := s.chats.Get(persist, u.Username, chatID)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
+			return
+		}
+		msgs = history
+	}
+
 	// The values of the request context — who is asking, and under which token
 	// — are what every tool call is checked against, so they have to travel
 	// with the run. Its cancellation must not: that is the thing this exists to
 	// survive. WithoutCancel keeps the first and drops the second.
-	runCtx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	runCtx, cancel := context.WithCancel(persist)
 	// A ceiling, so a run that never finishes is not immortal.
 	runCtx, cancelTimeout := context.WithTimeout(runCtx, assistantRunCeiling)
 
-	rn := s.runs.start(u.Username, lastQuestion(req.Messages), cancel)
+	rn := s.runs.start(u.Username, chatID, lastQuestion(msgs), cancel)
 	exec := s.assistantExecutor(runCtx, actor, scopes, role)
 	tools := s.assistantTools()
 	// The question travels in the first event so a client that reattaches after
 	// a reload — a phone reopening the panel — can show what was asked without
 	// waiting for the run to finish and hand over the whole transcript.
-	rn.add("start", map[string]any{"runId": rn.ID, "tools": len(tools), "ask": rn.Ask})
+	rn.add("start", map[string]any{"runId": rn.ID, "chatId": chatID, "tools": len(tools), "ask": rn.Ask})
+
+	obs := rn.observer()
+	if chatID != "" && s.chats != nil {
+		// Each turn is written as it completes rather than the transcript being
+		// saved at the end, so a run cut short by a restart leaves behind what
+		// it had already done.
+		turn := obs.Turn
+		obs.Turn = func(m assistant.Message) {
+			turn(m)
+			if err := s.chats.Append(persist, u.Username, chatID, m); err != nil {
+				s.log.Warn("assistant: could not store a turn", "chat", chatID, "err", err)
+			}
+		}
+	}
 
 	go func() {
 		defer cancelTimeout()
 		defer cancel()
-		out, err := assistant.RunStream(runCtx, p, assistantSystem, req.Messages, tools, exec, req.MaxSteps, rn.observer())
+		out, err := assistant.RunStream(runCtx, p, assistantSystem, msgs, tools, exec, req.MaxSteps, obs)
 		switch {
 		case err != nil && runCtx.Err() != nil && rn.cancelled():
 			rn.add("error", map[string]any{"message": "stopped", "messages": out})
@@ -295,10 +357,103 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "provider", "message": err.Error(), "messages": out})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out), "runId": rn.ID})
+		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out), "runId": rn.ID, "chatId": chatID})
 		return
 	}
 	streamRun(r.Context(), w, rn, 0)
+}
+
+// handleAssistantChats lists conversations, or starts an empty one.
+func (s *Server) handleAssistantChats(w http.ResponseWriter, r *http.Request) {
+	if s.chats == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	u := userFrom(r.Context())
+	if r.Method == http.MethodPost {
+		var req struct {
+			Title string `json:"title"`
+		}
+		_ = decode(r, &req)
+		ch, err := s.chats.Create(r.Context(), u.Username, req.Title)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.withRun(ch))
+		return
+	}
+	list, err := s.chats.List(r.Context(), u.Username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		return
+	}
+	out := make([]map[string]any, 0, len(list))
+	for i := range list {
+		out = append(out, s.withRun(&list[i]))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// withRun says whether a conversation is working right now, so a client that
+// has just opened on another device knows to watch rather than to ask again.
+func (s *Server) withRun(ch *assistant.Chat) map[string]any {
+	out := map[string]any{
+		"id": ch.ID, "title": ch.Title, "messages": ch.Messages,
+		"createdAt": ch.CreatedAt, "updatedAt": ch.UpdatedAt,
+	}
+	if rn := s.runs.activeFor(ch.ID); rn != nil {
+		_, events := rn.state()
+		out["runId"], out["runEvents"] = rn.ID, events
+	}
+	return out
+}
+
+// handleAssistantChat1 reads, renames or deletes one conversation.
+func (s *Server) handleAssistantChat1(w http.ResponseWriter, r *http.Request) {
+	if s.chats == nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "conversations are not available"})
+		return
+	}
+	u := userFrom(r.Context())
+	id := r.PathValue("id")
+	switch r.Method {
+	case http.MethodDelete:
+		if err := s.chats.Delete(r.Context(), u.Username, id); err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
+			return
+		}
+		// A conversation being deleted takes its run with it: there is nowhere
+		// left to write the answer down.
+		if rn := s.runs.activeFor(id); rn != nil {
+			rn.stop()
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodPost:
+		var req struct {
+			Title string `json:"title"`
+		}
+		if err := decode(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			return
+		}
+		if err := s.chats.Rename(r.Context(), u.Username, id, req.Title); err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	default:
+		ch, msgs, err := s.chats.Get(r.Context(), u.Username, id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
+			return
+		}
+		out := s.withRun(ch)
+		// "messages" is already the count in a listing, so the transcript has a
+		// name of its own rather than the same key meaning two things.
+		out["turns"] = msgs
+		writeJSON(w, http.StatusOK, out)
+	}
 }
 
 // handleAssistantRun reattaches to a run in progress, or reads a finished one.

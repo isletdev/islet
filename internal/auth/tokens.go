@@ -302,7 +302,8 @@ func ScopeAllows(scopes, method, path string) bool {
 	// Watching or stopping a run is the same authority as starting one: a run
 	// belongs to the person who asked for it, and the handler checks that
 	// before it shows a transcript to anyone.
-	case path == "/api/v1/assistant/chat" || strings.HasPrefix(path, "/api/v1/assistant/runs"):
+	case path == "/api/v1/assistant/chat" || strings.HasPrefix(path, "/api/v1/assistant/runs") ||
+		strings.HasPrefix(path, "/api/v1/assistant/chats"):
 		return has("read")
 	case strings.HasPrefix(path, "/api/v1/assistant"):
 		if read {

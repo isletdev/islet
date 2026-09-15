@@ -43,7 +43,7 @@ func startRun(t *testing.T, p assistant.Provider, exec assistant.Executor) (*run
 	t.Helper()
 	rs := newRuns()
 	ctx, cancel := context.WithCancel(context.Background())
-	rn := rs.start("alice", "do the thing", cancel)
+	rn := rs.start("alice", "chat-1", "do the thing", cancel)
 	rn.add("start", map[string]any{"runId": rn.ID, "tools": 0})
 	go func() {
 		defer cancel()
@@ -316,9 +316,9 @@ func TestTheShapeOfTheReplyFollowsAccept(t *testing.T) {
 // whole mechanism exists to keep.
 func TestAWorkingRunIsNeverEvicted(t *testing.T) {
 	rs := newRuns()
-	keep := rs.start("alice", "the long one", func() {})
+	keep := rs.start("alice", "", "the long one", func() {})
 	for i := 0; i < maxKeptRuns+5; i++ {
-		r := rs.start("alice", "quick", func() {})
+		r := rs.start("alice", "", "quick", func() {})
 		r.finish("done")
 	}
 	if rs.get(keep.ID) == nil {
@@ -326,5 +326,34 @@ func TestAWorkingRunIsNeverEvicted(t *testing.T) {
 	}
 	if n := len(rs.list("alice")); n > maxKeptRuns+1 {
 		t.Errorf("registry kept %d runs, which is unbounded in practice", n)
+	}
+}
+
+// Several conversations at once is the ordinary case: one waiting on a deploy
+// while another asks a question. What must not happen is two runs appending to
+// the same transcript, which would interleave into something neither meant.
+func TestOneRunPerConversationAndNoLimitAcrossThem(t *testing.T) {
+	rs := newRuns()
+	a := rs.start("alice", "chat-a", "deploy", func() {})
+	b := rs.start("alice", "chat-b", "ask", func() {})
+
+	if got := rs.activeFor("chat-a"); got != a {
+		t.Error("the run working on chat-a was not found")
+	}
+	if got := rs.activeFor("chat-b"); got != b {
+		t.Error("two conversations cannot run at once, which is the whole point")
+	}
+	if rs.activeFor("chat-c") != nil {
+		t.Error("a conversation with no run reported one")
+	}
+	// A finished run leaves the conversation free again.
+	a.finish("done")
+	if rs.activeFor("chat-a") != nil {
+		t.Error("a finished run still blocks its conversation")
+	}
+	// A run with no conversation belongs to nobody's transcript.
+	rs.start("alice", "", "legacy", func() {})
+	if rs.activeFor("") != nil {
+		t.Error("an unattached run was matched to the empty conversation")
 	}
 }

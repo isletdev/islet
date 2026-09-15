@@ -2049,3 +2049,37 @@ The general lesson is about the test, not the code: a measurement taken with a
 client that does not behave like the real one is not a measurement of the thing
 that matters. Both tests added here encode that — one on the rendered Traefik
 config, one scanning for a streaming content type set without `no-transform`.
+
+## 2026-09-15 — Conversations belong on the server
+The transcript lived in React state: gone on reload, and never on the other
+device. For this feature that is wrong twice over. A record of what the
+assistant did is a record of changes to a real server — it belongs beside the
+audit log, not inside one tab's memory — and the person asking is as likely to
+be holding a phone as sitting at the laptop that started the conversation.
+
+Two tables. A message is stored as the JSON of one turn rather than as columns,
+because a turn is a small tree: text, the calls it asked for, the results that
+came back. Splitting that into tables would buy queries nobody runs — the panel
+reads a conversation whole, in order — and would need a migration every time a
+provider gains a field.
+
+Turns are written as they complete, not at the end, so a run cut short by an
+update leaves behind what it had already done rather than nothing.
+
+Conversations are per person, not per server. A transcript carries whatever the
+tools returned: file contents, a container's environment, a database listing.
+Another admin reading it would be reading those, so every query filters on the
+owner and the tests check each of read, write, rename and delete separately.
+
+Several at once was the other half of the ask, and it needs exactly one rule:
+one run per conversation, no limit across them. Two loops appending to the same
+transcript would interleave into something neither of them meant, and the person
+watching would see one of them at random — so a second question to a working
+conversation is refused with the id of the run already going, which is what the
+client should attach to instead. Different conversations run side by side, which
+is the point of having more than one.
+
+A conversation opened while it is working attaches from the event count reported
+with it rather than from zero, so the stored transcript and the live stream do
+not overlap. The final event carries the whole transcript, which corrects any
+race between reading the messages and counting the events.

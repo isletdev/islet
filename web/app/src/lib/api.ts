@@ -198,7 +198,7 @@ export interface AssistantMessage {
  * reattaches with the next number and is given what it missed.
  */
 export type AssistantEvent =
-  | { seq: number; type: "start"; runId: string; tools: number; ask: string }
+  | { seq: number; type: "start"; runId: string; chatId: string; tools: number; ask: string }
   | { type: "ping" }
   | { seq: number; type: "text"; text: string }
   | { seq: number; type: "tool"; id: string; name: string; input?: Record<string, unknown> }
@@ -206,6 +206,27 @@ export type AssistantEvent =
   | { seq: number; type: "turn"; message: AssistantMessage }
   | { seq: number; type: "error"; message: string; messages?: AssistantMessage[] }
   | { seq: number; type: "done"; messages: AssistantMessage[]; reply: string };
+
+/**
+ * A stored conversation. It lives on the server, so the question asked on a
+ * laptop is answered into something a phone can open — and `runId` says whether
+ * it is working right now, so a device that has just joined watches rather than
+ * asks again.
+ */
+export interface AssistantChat {
+  id: string;
+  title: string;
+  messages: number;
+  createdAt: string;
+  updatedAt: string;
+  runId?: string;
+  runEvents?: number;
+}
+
+/** One conversation with everything said in it. */
+export interface AssistantChatDetail extends AssistantChat {
+  turns: AssistantMessage[];
+}
 
 /** A conversation the daemon is having, or recently had, on your behalf. */
 export interface AssistantRun {
@@ -374,6 +395,11 @@ export const api = {
   vaultReveal: (name: string) => post<{ name: string; value: string }>(`/api/v1/vault/${encodeURIComponent(name)}/reveal`, {}),
   assistant: () => request<AssistantConfig>("/api/v1/assistant"),
   assistantRuns: () => request<AssistantRun[]>("/api/v1/assistant/runs"),
+  assistantChats: () => request<AssistantChat[]>("/api/v1/assistant/chats"),
+  assistantChatNew: () => post<AssistantChat>("/api/v1/assistant/chats", {}),
+  assistantChatOpen: (id: string) => request<AssistantChatDetail>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`),
+  assistantChatRename: (id: string, title: string) => post<{ ok: boolean }>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`, { title }),
+  assistantChatDelete: (id: string) => post<void>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`, undefined, "DELETE"),
   assistantRunCancel: (id: string) => post<{ ok: boolean }>(`/api/v1/assistant/runs/${id}/cancel`, {}),
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
