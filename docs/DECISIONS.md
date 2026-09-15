@@ -1821,3 +1821,22 @@ not be done from a token — "tokens cannot mint tokens; sign in with a browser"
 That is the rule working. It makes setting the assistant up a two-step job that
 cannot be automated from the server, and that is the correct trade: a server
 that could mint its own credentials is a server whose credentials mean nothing.
+
+## 2026-09-15 — Print mode cannot ask, so it has to be told
+The assistant was configured against a Claude subscription and answered every
+question the same way: it could not, because permission for the tools was never
+granted. The tools were fine and the token was fine — Claude Code prompts before
+using an MCP tool, and `--print` has no terminal to prompt on, so it refuses.
+Read as a user, that looks like a broken integration rather than an ungranted
+one, which is the worst kind of failure to ship.
+
+`--allowed-tools` fixes it, and what goes in it is the decision. The grant is
+the MCP servers named in the configuration file and nothing else: not Bash, not
+file editing, not `--permission-mode bypassPermissions`. The token in that
+configuration is the only thing bounding this provider, and a shell would go
+around every scope it carries — an assistant that can run `cat` can read the
+file API's refusal and then read the file anyway.
+
+The names come from the file rather than being assumed to be "islet", so a
+configuration with a different server name works, and one that cannot be read
+grants nothing at all rather than guessing.

@@ -255,3 +255,59 @@ func TestSubscriptionSaysWhenClaudeIsMissing(t *testing.T) {
 		t.Fatalf("want a clear missing-binary error, got %v", err)
 	}
 }
+
+// Print mode cannot show a permission prompt, so Claude Code refuses every MCP
+// tool unless it is granted up front. Without this the assistant answers "I
+// could not, permission was never granted" to everything — which reads like a
+// broken tool rather than an ungranted one.
+func TestSubscriptionGrantsTheMCPServersInItsConfig(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(cfg, []byte(`{"mcpServers":{"islet":{"type":"http","url":"https://x/mcp"},"other":{"type":"http","url":"https://y/mcp"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Subscription{Bin: bin, MCPConfig: cfg}
+	if _, err := p.Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	got := string(args)
+	if !strings.Contains(got, "--allowed-tools") {
+		t.Fatalf("no grant was passed: %q", got)
+	}
+	for _, want := range []string{"mcp__islet", "mcp__other"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("server %q from the config was not granted: %q", want, got)
+		}
+	}
+	// Only the MCP servers. Granting Bash or file editing would go around the
+	// token's scopes entirely, and that token is the only fence here.
+	for _, never := range []string{"Bash", "Edit", "Write", "bypassPermissions"} {
+		if strings.Contains(got, never) {
+			t.Errorf("%q must never be granted: %q", never, got)
+		}
+	}
+}
+
+// A configuration that cannot be read grants nothing rather than guessing a
+// server name, so it fails closed.
+func TestSubscriptionGrantsNothingWithoutAReadableConfig(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Subscription{Bin: bin, MCPConfig: filepath.Join(dir, "does-not-exist.json")}
+	if _, err := p.Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	if strings.Contains(string(args), "--allowed-tools") {
+		t.Errorf("nothing should be granted from an unreadable config: %q", args)
+	}
+}

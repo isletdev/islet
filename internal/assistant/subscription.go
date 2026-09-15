@@ -3,8 +3,11 @@ package assistant
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -51,6 +54,20 @@ func (s *Subscription) Complete(ctx context.Context, system string, msgs []Messa
 	args := []string{"--print"}
 	if s.MCPConfig != "" {
 		args = append(args, "--mcp-config", s.MCPConfig)
+		// Print mode cannot ask. Claude Code prompts before using an MCP tool,
+		// and with no terminal to prompt on it refuses every one of them — so
+		// without this the assistant answers "I could not, permission was
+		// never granted" to everything, which reads like a broken tool rather
+		// than an ungranted one.
+		//
+		// The grant is per MCP server and nothing else: no Bash, no file
+		// editing, no built-in tools. Those would go around the scopes
+		// entirely, and the token in this configuration is the only thing
+		// bounding what the assistant can do. Islet's tools are already
+		// checked against it on every call.
+		if names := mcpServerNames(s.MCPConfig); len(names) > 0 {
+			args = append(args, "--allowed-tools", strings.Join(names, " "))
+		}
 	}
 	if s.Model != "" {
 		args = append(args, "--model", s.Model)
@@ -77,6 +94,29 @@ func (s *Subscription) Complete(ctx context.Context, system string, msgs []Messa
 		return Message{}, fmt.Errorf("claude: %s", msg)
 	}
 	return Message{Role: RoleAssistant, Text: strings.TrimSpace(out.String())}, nil
+}
+
+// mcpServerNames reads the server names out of an MCP configuration and
+// returns them as tool patterns, so the grant follows the file rather than
+// assuming the server is called "islet". A configuration that cannot be read
+// yields nothing, and the caller then grants nothing, which fails closed.
+func mcpServerNames(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(cfg.MCPServers))
+	for name := range cfg.MCPServers {
+		out = append(out, "mcp__"+name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // transcript renders the conversation as text, because print mode takes a
