@@ -1972,3 +1972,50 @@ The general shape is worth keeping: a daemon that updates itself restarts under
 whoever is looking at it, so every wire format change has an old client on the
 other end for as long as that tab stays open. Version the behaviour on what the
 client asks for, not on what was deployed.
+
+## 2026-09-15 — The run belongs to the daemon, not to the phone
+Asking the assistant for anything long from a phone failed. Not visibly: the
+answer simply never came. A screen that locks, an app sent to the background or
+a tab swiped away closes the connection, the request context is cancelled with
+it, and the loop was bound to that context — so the work stopped, usually
+mid-deploy, and nothing was kept.
+
+A run is now the daemon's. `context.WithoutCancel` keeps the request's values —
+who is asking and under which token, which is what every tool call is checked
+against — and drops its cancellation. The run gets an id, an event log and a
+ceiling of thirty minutes. Closing the connection ends the watching and nothing
+else.
+
+Coming back is the other half, and it needs a sequence number rather than a
+replay. Each event carries `seq`; a client reattaching says what it already has
+and is given the rest. The panel does this on mount, on `visibilitychange` and
+on `online`, which on a phone is every time the screen unlocks. The first event
+carries the question too, so a page that has just loaded can show what was asked
+without waiting for the whole transcript.
+
+Events live in memory and die with the daemon, which is honest: a model call
+cannot be resumed across a restart, so a run interrupted that way is reported as
+gone rather than pretended about. Only finished runs are evicted when the
+registry fills — the one still working is the one somebody is waiting on.
+
+## 2026-09-15 — Reading Claude Code's own stream, so the tools are visible
+"Working…" for four minutes is indistinguishable from a hang, and with the
+subscription provider that was exactly the experience: Claude Code runs its own
+tool loop inside a single call, so a run that made nine tool calls reached the
+panel as one turn, several minutes later, with nothing in between.
+
+`--output-format stream-json --verbose` writes one JSON object per event as it
+happens. The parser reads four shapes out of it — assistant text, `tool_use`,
+`tool_result`, and the final `result` — and ignores everything else, so a new
+field or a new event type upstream cannot break a run. A line that will not
+parse is skipped rather than fatal, for the same reason.
+
+The API providers get the same treatment from the other direction: the loop
+itself announces each call before it runs it and again when it returns, with how
+long it took and whether it was refused. Both paths end up emitting the same
+four event types, so the panel has one thing to render.
+
+The MCP prefix is dropped for display — `list_domains`, not
+`mcp__islet__list_domains`. And a refused tool is shown in the colour of a
+refusal rather than hidden: it names the scope that was missing, which is the
+most useful thing on the screen when it happens.

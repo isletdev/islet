@@ -60,6 +60,21 @@ export async function postStream(path: string, onLine: (l: string) => void, body
  */
 export async function postNDJSON<T>(path: string, onEvent: (e: T) => void, body?: unknown, signal?: AbortSignal): Promise<void> {
   const res = await fetch(apiPath(path), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson, application/json" }, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body), signal });
+  return readNDJSON(res, onEvent, signal);
+}
+
+/**
+ * Follow an endpoint that streams newline-delimited JSON.
+ *
+ * Used to pick a run back up: the work belongs to the server, so a phone that
+ * locked its screen halfway through reattaches here rather than starting again.
+ */
+export async function getNDJSON<T>(path: string, onEvent: (e: T) => void, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(apiPath(path), { headers: { Accept: "application/x-ndjson" }, credentials: "same-origin", signal });
+  return readNDJSON(res, onEvent, signal);
+}
+
+async function readNDJSON<T>(res: Response, onEvent: (e: T) => void, signal?: AbortSignal): Promise<void> {
   if (!res.ok || !res.body) {
     let msg = res.statusText;
     try { msg = ((await res.json()) as { message: string }).message; } catch { /* ignore */ }

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Role is who said something. Tool results are carried on a user message,
@@ -69,6 +70,70 @@ type Provider interface {
 // refused tool would be useless on a token that is deliberately narrow.
 type Executor func(ctx context.Context, call ToolCall) (string, error)
 
+// Observer watches a run while it is happening. Every field may be nil.
+//
+// It exists because "Working…" is not an answer. A deploy is a dozen tool calls
+// and several minutes, and somebody watching a blank screen cannot tell a slow
+// build from a wedged one — so each call is announced as it starts and again
+// when it finishes, with how long it took and whether it worked.
+type Observer struct {
+	// Turn is a completed message: the model's reply, or the results going
+	// back to it.
+	Turn func(Message)
+	// Text is something the model said on its way to a tool call. Providers
+	// that answer in one piece never call it.
+	Text func(string)
+	// ToolStart is a call about to be made, ToolEnd the same call with its
+	// answer and how long it took.
+	ToolStart func(ToolCall)
+	ToolEnd   func(ToolCall, ToolResult, time.Duration)
+}
+
+func (o *Observer) turn(m Message) {
+	if o != nil && o.Turn != nil {
+		o.Turn(m)
+	}
+}
+
+func (o *Observer) text(t string) {
+	if o != nil && o.Text != nil && strings.TrimSpace(t) != "" {
+		o.Text(t)
+	}
+}
+
+func (o *Observer) toolStart(c ToolCall) {
+	if o != nil && o.ToolStart != nil {
+		o.ToolStart(c)
+	}
+}
+
+func (o *Observer) toolEnd(c ToolCall, r ToolResult, d time.Duration) {
+	if o != nil && o.ToolEnd != nil {
+		o.ToolEnd(c, r, d)
+	}
+}
+
+// StreamingProvider is a provider that runs its own tool loop and can say what
+// it is doing while it does it.
+//
+// The subscription provider is the one that needs this. Claude Code calls
+// Islet's tools itself, inside a single Complete, so without a way to report
+// from in there a run that made nine calls would reach the panel as one turn
+// arriving several minutes later with nothing in between.
+type StreamingProvider interface {
+	Provider
+	CompleteStream(ctx context.Context, system string, msgs []Message, tools []Tool, obs *Observer) (Message, error)
+}
+
+// complete asks the provider for the next turn, letting it report progress
+// when it is able to.
+func complete(ctx context.Context, p Provider, system string, msgs []Message, tools []Tool, obs *Observer) (Message, error) {
+	if sp, ok := p.(StreamingProvider); ok {
+		return sp.CompleteStream(ctx, system, msgs, tools, obs)
+	}
+	return p.Complete(ctx, system, msgs, tools)
+}
+
 // Run drives the conversation until the model stops asking for tools.
 //
 // maxSteps bounds it. Every step is a paid request and a set of calls against
@@ -87,12 +152,8 @@ func Run(ctx context.Context, p Provider, system string, msgs []Message, tools [
 // origin 100 seconds to respond and then answers 524, so a request that waits
 // for the whole conversation is a request that fails on exactly the tasks
 // worth asking for. Emitting each turn as it happens keeps bytes moving.
-func RunStream(ctx context.Context, p Provider, system string, msgs []Message, tools []Tool, exec Executor, maxSteps int, on func(Message)) ([]Message, error) {
-	emit := func(m Message) {
-		if on != nil {
-			on(m)
-		}
-	}
+func RunStream(ctx context.Context, p Provider, system string, msgs []Message, tools []Tool, exec Executor, maxSteps int, obs *Observer) ([]Message, error) {
+	emit := obs.turn
 	if p == nil {
 		return msgs, errors.New("no assistant provider is configured")
 	}
@@ -100,7 +161,7 @@ func RunStream(ctx context.Context, p Provider, system string, msgs []Message, t
 		maxSteps = 12
 	}
 	for step := 0; step < maxSteps; step++ {
-		reply, err := p.Complete(ctx, system, msgs, tools)
+		reply, err := complete(ctx, p, system, msgs, tools, obs)
 		if err != nil {
 			return msgs, err
 		}
@@ -115,12 +176,15 @@ func RunStream(ctx context.Context, p Provider, system string, msgs []Message, t
 			// one leaves the model with a call it never heard back about, and
 			// both wire formats reject a turn whose results do not line up
 			// with the calls that preceded it.
+			obs.toolStart(c)
+			started := time.Now()
 			out, err := exec(ctx, c)
+			res := ToolResult{CallID: c.ID, Content: out}
 			if err != nil {
-				results = append(results, ToolResult{CallID: c.ID, Content: err.Error(), IsError: true})
-				continue
+				res = ToolResult{CallID: c.ID, Content: err.Error(), IsError: true}
 			}
-			results = append(results, ToolResult{CallID: c.ID, Content: out})
+			obs.toolEnd(c, res, time.Since(started))
+			results = append(results, res)
 		}
 		done := Message{Role: RoleUser, Results: results}
 		msgs = append(msgs, done)

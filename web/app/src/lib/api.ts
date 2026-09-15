@@ -192,13 +192,29 @@ export interface AssistantMessage {
  * One line of an assistant answer. The endpoint streams these rather than
  * replying once at the end: a conversation that deploys something runs for
  * minutes, and a proxy in front of the panel would time the request out first.
+ *
+ * Every line but the heartbeat carries `seq`. It is what a client says it has
+ * already seen when it comes back — a phone that locked its screen mid-deploy
+ * reattaches with the next number and is given what it missed.
  */
 export type AssistantEvent =
-  | { type: "start"; tools: number }
+  | { seq: number; type: "start"; runId: string; tools: number; ask: string }
   | { type: "ping" }
-  | { type: "turn"; message: AssistantMessage }
-  | { type: "error"; message: string; messages?: AssistantMessage[] }
-  | { type: "done"; messages: AssistantMessage[]; reply: string };
+  | { seq: number; type: "text"; text: string }
+  | { seq: number; type: "tool"; id: string; name: string; input?: Record<string, unknown> }
+  | { seq: number; type: "tool_done"; id: string; name: string; ms: number; ok: boolean; preview: string }
+  | { seq: number; type: "turn"; message: AssistantMessage }
+  | { seq: number; type: "error"; message: string; messages?: AssistantMessage[] }
+  | { seq: number; type: "done"; messages: AssistantMessage[]; reply: string };
+
+/** A conversation the daemon is having, or recently had, on your behalf. */
+export interface AssistantRun {
+  id: string;
+  status: "running" | "done" | "error" | "cancelled";
+  events: number;
+  ask: string;
+  startedAt: string;
+}
 
 export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
 
@@ -357,6 +373,8 @@ export const api = {
   vaultDelete: (name: string) => post<void>(`/api/v1/vault/${encodeURIComponent(name)}`, undefined, "DELETE"),
   vaultReveal: (name: string) => post<{ name: string; value: string }>(`/api/v1/vault/${encodeURIComponent(name)}/reveal`, {}),
   assistant: () => request<AssistantConfig>("/api/v1/assistant"),
+  assistantRuns: () => request<AssistantRun[]>("/api/v1/assistant/runs"),
+  assistantRunCancel: (id: string) => post<{ ok: boolean }>(`/api/v1/assistant/runs/${id}/cancel`, {}),
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),

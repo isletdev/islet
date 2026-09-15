@@ -1,10 +1,13 @@
 package assistant
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -36,7 +39,19 @@ type Subscription struct {
 
 func (s *Subscription) Name() string { return "Claude subscription" }
 
-func (s *Subscription) Complete(ctx context.Context, system string, msgs []Message, _ []Tool) (Message, error) {
+func (s *Subscription) Complete(ctx context.Context, system string, msgs []Message, tools []Tool) (Message, error) {
+	return s.CompleteStream(ctx, system, msgs, tools, nil)
+}
+
+// CompleteStream runs the binary and reports each tool as it is used.
+//
+// Claude Code's own loop is the reason this is not like the other providers.
+// It calls Islet's tools itself, so a run that made nine calls would otherwise
+// reach the panel as a single turn several minutes later with nothing in
+// between — and on a phone, several minutes of nothing is indistinguishable
+// from a hang. `--output-format stream-json` writes one JSON object per event
+// as it happens, which is exactly the progress worth showing.
+func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs []Message, _ []Tool, obs *Observer) (Message, error) {
 	bin := s.Bin
 	if bin == "" {
 		bin = "claude"
@@ -51,7 +66,8 @@ func (s *Subscription) Complete(ctx context.Context, system string, msgs []Messa
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := []string{"--print"}
+	// --verbose is not optional here: stream-json refuses without it.
+	args := []string{"--print", "--output-format", "stream-json", "--verbose"}
 	if s.MCPConfig != "" {
 		args = append(args, "--mcp-config", s.MCPConfig)
 		// Print mode cannot ask. Claude Code prompts before using an MCP tool,
@@ -79,13 +95,24 @@ func (s *Subscription) Complete(ctx context.Context, system string, msgs []Messa
 	// The conversation goes in on stdin rather than as an argument: a prompt
 	// can be long, and an argument list has a limit that a transcript reaches.
 	cmd.Stdin = strings.NewReader(transcript(system, msgs))
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return Message{}, err
+	}
+	var errb bytes.Buffer
 	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return Message{}, fmt.Errorf("claude: %w", err)
+	}
+	answer, perr := readClaudeStream(stdout, obs)
+	werr := cmd.Wait()
+	if perr != nil && werr == nil {
+		werr = perr
+	}
+	if werr != nil {
 		msg := strings.TrimSpace(errb.String())
 		if msg == "" {
-			msg = err.Error()
+			msg = werr.Error()
 		}
 		// The most common cause by far, and the one whose fix is not obvious.
 		if strings.Contains(strings.ToLower(msg), "login") || strings.Contains(msg, "authenticate") {
@@ -93,7 +120,138 @@ func (s *Subscription) Complete(ctx context.Context, system string, msgs []Messa
 		}
 		return Message{}, fmt.Errorf("claude: %s", msg)
 	}
-	return Message{Role: RoleAssistant, Text: strings.TrimSpace(out.String())}, nil
+	if strings.TrimSpace(answer) == "" {
+		return Message{}, errors.New("claude answered nothing; check that it is signed in on this server")
+	}
+	return Message{Role: RoleAssistant, Text: strings.TrimSpace(answer)}, nil
+}
+
+// claudeEvent is the part of one stream-json line this cares about. The format
+// carries a great deal more — token counts, costs, session ids — and reading
+// only these four shapes means a new field upstream cannot break the parse.
+type claudeEvent struct {
+	Type    string `json:"type"`
+	Message struct {
+		Content []struct {
+			Type    string          `json:"type"`
+			Text    string          `json:"text"`
+			ID      string          `json:"id"`
+			Name    string          `json:"name"`
+			Input   map[string]any  `json:"input"`
+			ToolUse string          `json:"tool_use_id"`
+			Content json.RawMessage `json:"content"`
+			IsError bool            `json:"is_error"`
+		} `json:"content"`
+	} `json:"message"`
+	Result  string `json:"result"`
+	IsError bool   `json:"is_error"`
+	Subtype string `json:"subtype"`
+}
+
+// readClaudeStream turns the binary's event stream into observer calls and
+// returns the final answer.
+func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
+	sc := bufio.NewScanner(r)
+	// A tool result can be large — a container listing, a file — and the
+	// default 64 KB limit would end the scan mid-run with an answer already
+	// half-reported.
+	sc.Buffer(make([]byte, 64<<10), 8<<20)
+	calls := map[string]ToolCall{}
+	started := map[string]time.Time{}
+	var answer string
+	var failure string
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var e claudeEvent
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue // a line this does not understand is not a reason to stop
+		}
+		switch e.Type {
+		case "assistant":
+			for _, b := range e.Message.Content {
+				switch b.Type {
+				case "text":
+					obs.text(b.Text)
+				case "tool_use":
+					c := ToolCall{ID: b.ID, Name: shortToolName(b.Name), Input: b.Input}
+					calls[b.ID] = c
+					started[b.ID] = time.Now()
+					obs.toolStart(c)
+				}
+			}
+		case "user":
+			for _, b := range e.Message.Content {
+				if b.Type != "tool_result" {
+					continue
+				}
+				c, ok := calls[b.ToolUse]
+				if !ok {
+					c = ToolCall{ID: b.ToolUse, Name: "tool"}
+				}
+				obs.toolEnd(c, ToolResult{CallID: b.ToolUse, Content: resultText(b.Content), IsError: b.IsError}, time.Since(started[b.ToolUse]))
+				delete(calls, b.ToolUse)
+				delete(started, b.ToolUse)
+			}
+		case "result":
+			answer = e.Result
+			if e.IsError {
+				failure = e.Result
+				if strings.TrimSpace(failure) == "" {
+					failure = e.Subtype
+				}
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return answer, err
+	}
+	if failure != "" {
+		return "", errors.New(failure)
+	}
+	return answer, nil
+}
+
+// shortToolName drops the MCP prefix, so the panel shows list_domains rather
+// than mcp__islet__list_domains. A built-in tool has no prefix and is left as
+// it is.
+func shortToolName(name string) string {
+	if rest, ok := strings.CutPrefix(name, "mcp__"); ok {
+		if _, tool, ok := strings.Cut(rest, "__"); ok && tool != "" {
+			return tool
+		}
+	}
+	return name
+}
+
+// resultText pulls readable text out of a tool result, which the format gives
+// either as a string or as a list of content blocks.
+func resultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err == nil {
+		var out []string
+		for _, b := range blocks {
+			if b.Text != "" {
+				out = append(out, b.Text)
+			}
+		}
+		if len(out) > 0 {
+			return strings.Join(out, "\n")
+		}
+	}
+	return string(raw)
 }
 
 // mcpServerNames reads the server names out of an MCP configuration and

@@ -299,7 +299,10 @@ func ScopeAllows(scopes, method, path string) bool {
 	// assistant cannot exceed the scopes of whoever asked: it runs every tool
 	// through the same gate a direct call passes. Configuring it — which means
 	// setting an API key — is configuration.
-	case path == "/api/v1/assistant/chat":
+	// Watching or stopping a run is the same authority as starting one: a run
+	// belongs to the person who asked for it, and the handler checks that
+	// before it shows a transcript to anyone.
+	case path == "/api/v1/assistant/chat" || strings.HasPrefix(path, "/api/v1/assistant/runs"):
 		return has("read")
 	case strings.HasPrefix(path, "/api/v1/assistant"):
 		if read {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // stub captures what was sent and replies with what it is told to.
@@ -199,7 +200,7 @@ func TestAnthropicNeedsAKey(t *testing.T) {
 func TestSubscriptionRunsTheBinaryAndReturnsItsOutput(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\ncat > " + filepath.Join(dir, "stdin.txt") + "\necho \"$@\" > " + filepath.Join(dir, "args.txt") + "\necho 'Two domains are configured.'\n"
+	script := "#!/bin/sh\ncat > " + filepath.Join(dir, "stdin.txt") + "\necho \"$@\" > " + filepath.Join(dir, "args.txt") + "\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Two domains are configured.\"}'\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ func TestSubscriptionRunsTheBinaryAndReturnsItsOutput(t *testing.T) {
 	}
 
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
-	for _, want := range []string{"--print", "--mcp-config", "/etc/islet/mcp.json", "--model", "claude-opus-5"} {
+	for _, want := range []string{"--print", "--output-format stream-json", "--verbose", "--mcp-config", "/etc/islet/mcp.json", "--model", "claude-opus-5"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)
 		}
@@ -263,7 +264,7 @@ func TestSubscriptionSaysWhenClaudeIsMissing(t *testing.T) {
 func TestSubscriptionGrantsTheMCPServersInItsConfig(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho ok\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho '{\"type\":\"result\",\"result\":\"ok\"}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(dir, "mcp.json")
@@ -299,7 +300,7 @@ func TestSubscriptionGrantsTheMCPServersInItsConfig(t *testing.T) {
 func TestSubscriptionGrantsNothingWithoutAReadableConfig(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "claude")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho ok\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho '{\"type\":\"result\",\"result\":\"ok\"}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	p := &Subscription{Bin: bin, MCPConfig: filepath.Join(dir, "does-not-exist.json")}
@@ -309,5 +310,110 @@ func TestSubscriptionGrantsNothingWithoutAReadableConfig(t *testing.T) {
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
 	if strings.Contains(string(args), "--allowed-tools") {
 		t.Errorf("nothing should be granted from an unreadable config: %q", args)
+	}
+}
+
+// Claude Code runs its own tool loop, so without reading its event stream a run
+// that made nine calls reaches the panel as one turn several minutes later with
+// nothing in between — and on a phone, several minutes of nothing looks exactly
+// like a hang. These are the shapes the real binary emits, taken from a
+// recorded run of `claude --print --output-format stream-json --verbose`.
+func TestSubscriptionReportsEachToolAsItIsUsed(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	lines := []string{
+		`{"type":"system","subtype":"init","session_id":"s1"}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"I will look at the domains."}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__islet__list_domains","input":{"limit":10}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"[{\"host\":\"a.example.com\"}]"}]}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__islet__create_domain","input":{"host":"b.example.com"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"scopes do not cover domains"}]}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"One domain, and I could not add the second."}`,
+	}
+	script := "#!/bin/sh\ncat >/dev/null\n"
+	for _, l := range lines {
+		script += "echo '" + l + "'\n"
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var events []string
+	obs := &Observer{
+		Text:      func(s string) { events = append(events, "text:"+s) },
+		ToolStart: func(c ToolCall) { events = append(events, "start:"+c.Name) },
+		ToolEnd: func(c ToolCall, r ToolResult, d time.Duration) {
+			state := "ok"
+			if r.IsError {
+				state = "failed"
+			}
+			events = append(events, "end:"+c.Name+":"+state)
+		},
+	}
+	p := &Subscription{Bin: bin}
+	msg, err := p.CompleteStream(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil, obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Text != "One domain, and I could not add the second." {
+		t.Errorf("answer %q", msg.Text)
+	}
+	want := []string{
+		"text:I will look at the domains.",
+		// The MCP prefix is dropped: nobody watching needs to read
+		// mcp__islet__list_domains to know what is happening.
+		"start:list_domains",
+		"end:list_domains:ok",
+		"start:create_domain",
+		// A refused tool is reported as refused, not hidden. It is the most
+		// useful thing on the screen when it happens.
+		"end:create_domain:failed",
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events:\n%v\nwant:\n%v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Errorf("event %d = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
+// A failed run says why. The binary reports its own failures in the result
+// line rather than on stderr, so an exit code of zero can still be a failure.
+func TestSubscriptionReportsAFailureFromTheResultLine(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\ncat >/dev/null\necho '{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"is_error\":true,\"result\":\"reached the turn limit\"}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Subscription{Bin: bin}
+	_, err := p.CompleteStream(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "turn limit") {
+		t.Fatalf("want the failure from the result line, got %v", err)
+	}
+}
+
+// A line this does not understand — a new event type, a partial-message chunk —
+// must not end the parse. The answer is still in the stream behind it.
+func TestSubscriptionIgnoresEventsItDoesNotKnow(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\ncat >/dev/null\n" +
+		"echo '{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\"}}'\n" +
+		"echo 'not json at all'\n" +
+		"echo '{\"type\":\"rate_limit_event\"}'\n" +
+		"echo '{\"type\":\"result\",\"result\":\"done anyway\"}'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Subscription{Bin: bin}
+	msg, err := p.CompleteStream(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Text != "done anyway" {
+		t.Errorf("answer %q", msg.Text)
 	}
 }

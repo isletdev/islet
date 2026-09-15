@@ -160,7 +160,7 @@ func TestRunStreamReportsEachTurnWhileTheRunIsStillGoing(t *testing.T) {
 	var atToolTime int
 	out, err := RunStream(context.Background(), p, "", []Message{{Role: RoleUser, Text: "deploy it"}}, nil,
 		func(context.Context, ToolCall) (string, error) { atToolTime = len(seen); return "ok", nil }, 10,
-		func(m Message) { seen = append(seen, m) })
+		&Observer{Turn: func(m Message) { seen = append(seen, m) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestRunStreamReportsTurnsBeforeAFailure(t *testing.T) {
 	p2 := &failAfter{inner: p, after: 1}
 	_, err := RunStream(context.Background(), p2, "", []Message{{Role: RoleUser, Text: "list them"}}, nil,
 		func(context.Context, ToolCall) (string, error) { return "[]", nil }, 10,
-		func(m Message) { seen = append(seen, m) })
+		&Observer{Turn: func(m Message) { seen = append(seen, m) }})
 	if err == nil {
 		t.Fatal("want the provider error")
 	}

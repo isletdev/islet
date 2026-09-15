@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,7 +225,14 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// handleAssistantChat answers one question, running tools as it goes.
+// handleAssistantChat starts a run and streams it.
+//
+// The run does not belong to this request. A phone that locks its screen, an
+// app sent to the background or a tab swiped away all drop the connection, and
+// while the loop was bound to the request that meant the work stopped — halfway
+// through a deploy, with nothing kept. Now the connection closing ends only the
+// streaming; the run carries on, and /api/v1/assistant/runs/{id} picks it up
+// again from wherever the client got to.
 func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Messages []assistant.Message `json:"messages"`
@@ -243,20 +251,114 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "not_configured", Message: err.Error()})
 		return
 	}
+	u := userFrom(r.Context())
 	actor, scopes, role := scopesForRequest(r.Context())
-	exec := s.assistantExecutor(r.Context(), actor, scopes, role)
 
-	if !acceptsStream(r) || !streamAssistantRun(r.Context(), w, p, req.Messages, s.assistantTools(), exec, req.MaxSteps) {
-		// Either the client cannot read a stream or the response writer cannot
-		// flush, so nothing would reach it until the end anyway. Answer the old
-		// way rather than pretend.
-		out, err := assistant.Run(r.Context(), p, assistantSystem, req.Messages, s.assistantTools(), exec, req.MaxSteps)
+	// The values of the request context — who is asking, and under which token
+	// — are what every tool call is checked against, so they have to travel
+	// with the run. Its cancellation must not: that is the thing this exists to
+	// survive. WithoutCancel keeps the first and drops the second.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	// A ceiling, so a run that never finishes is not immortal.
+	runCtx, cancelTimeout := context.WithTimeout(runCtx, assistantRunCeiling)
+
+	rn := s.runs.start(u.Username, lastQuestion(req.Messages), cancel)
+	exec := s.assistantExecutor(runCtx, actor, scopes, role)
+	tools := s.assistantTools()
+	// The question travels in the first event so a client that reattaches after
+	// a reload — a phone reopening the panel — can show what was asked without
+	// waiting for the run to finish and hand over the whole transcript.
+	rn.add("start", map[string]any{"runId": rn.ID, "tools": len(tools), "ask": rn.Ask})
+
+	go func() {
+		defer cancelTimeout()
+		defer cancel()
+		out, err := assistant.RunStream(runCtx, p, assistantSystem, req.Messages, tools, exec, req.MaxSteps, rn.observer())
+		switch {
+		case err != nil && runCtx.Err() != nil && rn.cancelled():
+			rn.add("error", map[string]any{"message": "stopped", "messages": out})
+			rn.finish("cancelled")
+		case err != nil:
+			rn.add("error", map[string]any{"message": err.Error(), "messages": out})
+			rn.finish("error")
+		default:
+			rn.add("done", map[string]any{"messages": out, "reply": assistant.Text(out)})
+			rn.finish("done")
+		}
+	}()
+
+	if !acceptsStream(r) {
+		// An older client reads the whole body at once, so it waits for the
+		// run and gets one document — the shape it has always parsed.
+		out, err := rn.wait(r.Context())
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "provider", "message": err.Error(), "messages": out})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out)})
+		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out), "runId": rn.ID})
+		return
 	}
+	streamRun(r.Context(), w, rn, 0)
+}
+
+// handleAssistantRun reattaches to a run in progress, or reads a finished one.
+//
+// `from` is the sequence number the client already has, so a phone that comes
+// back after five minutes is given what it missed and then follows along, with
+// nothing repeated and nothing dropped.
+func (s *Server) handleAssistantRun(w http.ResponseWriter, r *http.Request) {
+	rn := s.runs.get(r.PathValue("id"))
+	if rn == nil || rn.User != userFrom(r.Context()).Username {
+		// A run belongs to whoever started it. Another admin cannot read one,
+		// because a transcript carries whatever the tools returned.
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such run; it may have finished before the daemon last restarted"})
+		return
+	}
+	from := 0
+	if v := r.URL.Query().Get("from"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "from must be a sequence number"})
+			return
+		}
+		from = n
+	}
+	streamRun(r.Context(), w, rn, from)
+}
+
+// handleAssistantRuns lists this person's recent runs, so a client that lost
+// its connection can find what it was watching.
+func (s *Server) handleAssistantRuns(w http.ResponseWriter, r *http.Request) {
+	out := []map[string]any{}
+	for _, rn := range s.runs.list(userFrom(r.Context()).Username) {
+		status, events := rn.state()
+		out = append(out, map[string]any{
+			"id": rn.ID, "status": status, "events": events,
+			"ask": rn.Ask, "startedAt": rn.Started.UTC().Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleAssistantRunCancel stops a run.
+func (s *Server) handleAssistantRunCancel(w http.ResponseWriter, r *http.Request) {
+	rn := s.runs.get(r.PathValue("id"))
+	if rn == nil || rn.User != userFrom(r.Context()).Username {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such run"})
+		return
+	}
+	rn.stop()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// lastQuestion is what the person asked, for a list they are choosing from.
+func lastQuestion(msgs []assistant.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == assistant.RoleUser && strings.TrimSpace(msgs[i].Text) != "" {
+			return preview(msgs[i].Text)
+		}
+	}
+	return ""
 }
 
 // acceptsStream reports whether the caller can read newline-delimited JSON.
@@ -284,6 +386,11 @@ func acceptsStream(r *http.Request) bool {
 	return true
 }
 
+// assistantRunCeiling is how long a run may take before it is abandoned. Long,
+// because a deploy with a cold build genuinely takes a while; finite, because
+// nothing should run on this server forever without somebody having asked.
+const assistantRunCeiling = 30 * time.Minute
+
 // streamAssistantRun runs the loop and writes it out as newline-delimited JSON,
 // one object per line. It reports false, having written nothing, when the
 // response writer cannot flush.
@@ -294,10 +401,13 @@ func acceptsStream(r *http.Request) bool {
 // then replying means a 524 on exactly the requests worth making. Bytes moving
 // keep the connection alive, and they happen to be the progress somebody
 // waiting wants to see anyway.
-func streamAssistantRun(ctx context.Context, w http.ResponseWriter, p assistant.Provider, msgs []assistant.Message, tools []assistant.Tool, exec assistant.Executor, maxSteps int) bool {
+func streamRun(ctx context.Context, w http.ResponseWriter, rn *run, from int) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return false
+		// Nothing can be streamed to this writer, and the run is already going,
+		// so say where to find it rather than block.
+		writeJSON(w, http.StatusOK, map[string]any{"runId": rn.ID, "streaming": false})
+		return
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	// Nothing between here and the client may buffer this, or the point is
@@ -306,54 +416,40 @@ func streamAssistantRun(ctx context.Context, w http.ResponseWriter, p assistant.
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(w)
-	send := func(v any) {
-		_ = enc.Encode(v)
+	send := func(v any) bool {
+		if err := enc.Encode(v); err != nil {
+			return false
+		}
 		flusher.Flush()
+		return true
 	}
-	// A first line before any model call, so the connection is established and
-	// the client knows it was heard even while the first turn is being thought
-	// about.
-	send(map[string]any{"type": "start", "tools": len(tools)})
-
-	// The loop runs elsewhere and reports through a channel, so that every
-	// write to the response happens on this goroutine and a heartbeat can share
-	// it. A turn is not enough on its own: one tool call can be a deploy that
-	// builds for five minutes, and no bytes move for the whole of it.
-	events := make(chan any, 8)
-	post := func(v any) {
-		select {
-		case events <- v:
-		case <-ctx.Done():
-		}
-	}
-	go func() {
-		defer close(events)
-		out, err := assistant.RunStream(ctx, p, assistantSystem, msgs, tools, exec, maxSteps,
-			func(m assistant.Message) { post(map[string]any{"type": "turn", "message": m}) })
-		if err != nil {
-			// The status is already 200 by now, so the failure travels in the
-			// stream rather than in a code. The transcript so far goes with it:
-			// a run that failed on the third tool call is more useful read than
-			// discarded.
-			post(map[string]any{"type": "error", "message": err.Error(), "messages": out})
-			return
-		}
-		post(map[string]any{"type": "done", "messages": out, "reply": assistant.Text(out)})
-	}()
-
 	tick := time.NewTicker(assistantHeartbeat)
 	defer tick.Stop()
+	seq := from
 	for {
-		select {
-		case e, ok := <-events:
-			if !ok {
-				return true
+		events, changed, running := rn.since(seq)
+		for _, e := range events {
+			if !send(e) {
+				return
 			}
-			send(e)
+			seq = e.Seq + 1
+		}
+		if !running {
+			// Everything a finished run will ever have said has been sent.
+			return
+		}
+		select {
+		case <-changed:
 		case <-tick.C:
-			send(map[string]any{"type": "ping"})
+			// A single tool call can be a deploy that builds for five minutes,
+			// and nothing else has anything to say while it does. The proxy in
+			// front counts silence, not progress.
+			if !send(map[string]any{"type": "ping"}) {
+				return
+			}
 		case <-ctx.Done():
-			return true
+			// The client went away. The run does not care.
+			return
 		}
 	}
 }

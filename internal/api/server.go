@@ -104,6 +104,10 @@ type Server struct {
 	// endpoint through the same per-route middleware a request does — the
 	// auth, role and audit that each handler is already wrapped in — rather
 	// than round-tripping over the network to itself.
+	// runs holds the assistant conversations in progress. They outlive the
+	// requests that started them, because the phone that asked for one closes
+	// its connection every time the screen locks.
+	runs    *runs
 	routes  *http.ServeMux
 	ui      http.Handler
 	log     *slog.Logger
@@ -112,7 +116,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns()}
 	// The SQL client costs a map and a ticker until somebody opens a
 	// connection, which is the whole argument for it living in the daemon.
 	if s.store != nil && s.keys != nil {
@@ -185,6 +189,11 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/assistant", s.requireAuth(s.handleAssistantConfig))
 	mux.HandleFunc("POST /api/v1/assistant", requireJSON(s.requireAuth(s.handleAssistantConfig)))
 	mux.HandleFunc("POST /api/v1/assistant/chat", requireJSON(s.requireAuth(s.handleAssistantChat)))
+	// A run outlives the request that started it, so it has an address of its
+	// own to be picked up at.
+	mux.HandleFunc("GET /api/v1/assistant/runs", s.requireAuth(s.handleAssistantRuns))
+	mux.HandleFunc("GET /api/v1/assistant/runs/{id}", s.requireAuth(s.handleAssistantRun))
+	mux.HandleFunc("POST /api/v1/assistant/runs/{id}/cancel", s.requireAuth(s.handleAssistantRunCancel))
 	mux.HandleFunc("GET /api/v1/mcp", s.requireAuth(s.handleMCPSetting))
 	mux.HandleFunc("GET /api/v1/report/weekly", s.requireAuth(s.handleReportSetting))
 	mux.HandleFunc("POST /api/v1/report/weekly", requireJSON(s.requireAuth(s.handleReportSetting)))
