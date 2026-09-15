@@ -144,3 +144,70 @@ func TestNoProviderIsAClearError(t *testing.T) {
 		t.Errorf("want a clear error, got %v", err)
 	}
 }
+
+// The observer exists so a caller can put a turn on somebody's screen while the
+// run is still going. A version that collected the turns and replayed them at
+// the end would pass a test that only compared the final slice, and would still
+// leave a proxy in front of the panel waiting long enough to give up — which is
+// the bug this was written for. So the check is about *when*: by the time a tool
+// runs, the turn that asked for it must already have been reported.
+func TestRunStreamReportsEachTurnWhileTheRunIsStillGoing(t *testing.T) {
+	p := &fake{turns: []Message{
+		{Role: RoleAssistant, Calls: []ToolCall{{ID: "a", Name: "deploy_app"}}},
+		{Role: RoleAssistant, Text: "Deployed."},
+	}}
+	var seen []Message
+	var atToolTime int
+	out, err := RunStream(context.Background(), p, "", []Message{{Role: RoleUser, Text: "deploy it"}}, nil,
+		func(context.Context, ToolCall) (string, error) { atToolTime = len(seen); return "ok", nil }, 10,
+		func(m Message) { seen = append(seen, m) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if atToolTime != 1 {
+		t.Errorf("turns reported before the tool ran = %d, want 1: the caller learns nothing until the end", atToolTime)
+	}
+	// Every turn the run produced, in the order it produced them: the caller
+	// can append them and end up with the same transcript Run returns.
+	if len(seen) != len(out)-1 {
+		t.Fatalf("reported %d turns, run produced %d (one of which is the question)", len(seen), len(out))
+	}
+	for i, m := range seen {
+		if want := out[i+1]; m.Text != want.Text || len(m.Calls) != len(want.Calls) || len(m.Results) != len(want.Results) {
+			t.Errorf("turn %d reported as %+v, transcript has %+v", i, m, want)
+		}
+	}
+}
+
+// A run that fails partway still has to have reported what it got through, or
+// the panel shows nothing at all for a conversation that did real work.
+func TestRunStreamReportsTurnsBeforeAFailure(t *testing.T) {
+	p := &fake{turns: []Message{{Role: RoleAssistant, Calls: []ToolCall{{ID: "a", Name: "list_apps"}}}}, err: nil}
+	var seen []Message
+	// The first call succeeds, the second fails: the provider breaking mid-run.
+	p2 := &failAfter{inner: p, after: 1}
+	_, err := RunStream(context.Background(), p2, "", []Message{{Role: RoleUser, Text: "list them"}}, nil,
+		func(context.Context, ToolCall) (string, error) { return "[]", nil }, 10,
+		func(m Message) { seen = append(seen, m) })
+	if err == nil {
+		t.Fatal("want the provider error")
+	}
+	if len(seen) == 0 {
+		t.Error("nothing was reported, so a failed run shows an empty screen")
+	}
+}
+
+type failAfter struct {
+	inner *fake
+	after int
+	n     int
+}
+
+func (f *failAfter) Name() string { return "failAfter" }
+func (f *failAfter) Complete(ctx context.Context, sys string, msgs []Message, tools []Tool) (Message, error) {
+	f.n++
+	if f.n > f.after {
+		return Message{}, errors.New("provider went away")
+	}
+	return f.inner.Complete(ctx, sys, msgs, tools)
+}

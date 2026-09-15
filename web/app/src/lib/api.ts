@@ -188,6 +188,18 @@ export interface AssistantMessage {
   results?: AssistantToolResult[];
 }
 
+/**
+ * One line of an assistant answer. The endpoint streams these rather than
+ * replying once at the end: a conversation that deploys something runs for
+ * minutes, and a proxy in front of the panel would time the request out first.
+ */
+export type AssistantEvent =
+  | { type: "start"; tools: number }
+  | { type: "ping" }
+  | { type: "turn"; message: AssistantMessage }
+  | { type: "error"; message: string; messages?: AssistantMessage[] }
+  | { type: "done"; messages: AssistantMessage[]; reply: string };
+
 export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
 
 export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
@@ -346,8 +358,6 @@ export const api = {
   vaultReveal: (name: string) => post<{ name: string; value: string }>(`/api/v1/vault/${encodeURIComponent(name)}/reveal`, {}),
   assistant: () => request<AssistantConfig>("/api/v1/assistant"),
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
-  assistantChat: (b: { messages: AssistantMessage[]; maxSteps?: number }) =>
-    post<{ messages: AssistantMessage[]; reply: string }>("/api/v1/assistant/chat", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),

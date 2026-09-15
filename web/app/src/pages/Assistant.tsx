@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, RequestError, type AssistantConfig, type AssistantMessage } from "@/lib/api";
+import { api, RequestError, type AssistantConfig, type AssistantEvent, type AssistantMessage } from "@/lib/api";
+import { postNDJSON } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Input } from "@/components/ui";
 
-function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
+function err(e: unknown) {
+  if (e instanceof RequestError) return e.message;
+  return e instanceof Error ? e.message : String(e);
+}
 
 /**
  * Ask the server to do something, in words.
@@ -24,24 +28,60 @@ export default function Assistant() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const foot = useRef<HTMLDivElement>(null);
+  const abort = useRef<AbortController | null>(null);
 
   const load = useCallback(() => { void api.assistant().then(setCfg).catch(() => setCfg(null)); }, []);
   useEffect(() => { load(); }, [load]);
+  // Leaving the page ends the request; the loop stops with it, server-side.
+  useEffect(() => () => abort.current?.abort(), []);
   // A new turn belongs on screen without being scrolled to.
   useEffect(() => { foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
 
+  // The answer arrives as it is produced, one turn at a time. Waiting for the
+  // whole loop and rendering it at the end is what the endpoint used to do, and
+  // a request that asks for a deploy runs for minutes — long enough for a proxy
+  // in front of the panel to give up on the origin and answer 524 instead.
   const ask = async (e: FormEvent) => {
     e.preventDefault();
     const q = text.trim();
     if (!q || busy) return;
     const next: AssistantMessage[] = [...msgs, { role: "user", text: q }];
     setMsgs(next); setText(""); setBusy(true); setError(null);
+    const ac = new AbortController();
+    abort.current = ac;
+    const live = [...next];
+    let finished = false;
     try {
-      const r = await api.assistantChat({ messages: next });
-      setMsgs(r.messages);
+      await postNDJSON<AssistantEvent>("/api/v1/assistant/chat", (ev) => {
+        switch (ev.type) {
+          case "turn":
+            live.push(ev.message);
+            setMsgs([...live]);
+            break;
+          case "done":
+            finished = true;
+            setMsgs(ev.messages);
+            break;
+          case "error":
+            // The transcript comes with the failure: a run that got three tools
+            // in before the provider broke is worth reading, not discarding.
+            finished = true;
+            if (ev.messages?.length) setMsgs(ev.messages);
+            setError(ev.message);
+            break;
+          default:
+            // start and ping say only that the connection is alive.
+            break;
+        }
+      }, { messages: next }, ac.signal);
+      // Ending without a closing line means the connection was cut, not that
+      // the assistant was done. Reporting that as success is how a run killed
+      // by a daemon restart used to look finished.
+      if (!finished && !ac.signal.aborted) setError("the connection closed before the assistant finished");
     } catch (e2) {
-      setError(err(e2));
+      if (!ac.signal.aborted) setError(err(e2));
     } finally {
+      abort.current = null;
       setBusy(false);
     }
   };
@@ -99,9 +139,13 @@ export default function Assistant() {
           disabled={!ready || busy}
           aria-label="Ask the assistant"
         />
-        <Button type="submit" className="h-9 text-xs" disabled={!ready || busy || !text.trim()}>
-          {busy ? "Working…" : "Ask"}
-        </Button>
+        {busy ? (
+          <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => abort.current?.abort()}>
+            Stop
+          </Button>
+        ) : (
+          <Button type="submit" className="h-9 text-xs" disabled={!ready || !text.trim()}>Ask</Button>
+        )}
       </form>
       {msgs.length > 0 && (
         <button type="button" onClick={() => { setMsgs([]); setError(null); }} className="mt-2 self-start text-xs text-ink-muted underline hover:text-ink">

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/isletdev/islet/internal/assistant"
 	"github.com/isletdev/islet/pkg/api"
@@ -26,6 +28,12 @@ mean two things — particularly when it is destructive.
 Some tools will be refused: the token you are acting under is scoped, and the
 refusal names the scope that would be needed. Do not try to work around it; say
 which scope is missing so the person can decide whether to grant it.`
+
+// assistantHeartbeat is how often an idle stream sends a line. It has to be
+// comfortably under the shortest idle timeout in front of the panel —
+// Cloudflare's origin timeout is 100 seconds — because a single tool call can
+// be a build that takes minutes, and during it nothing else has anything to say.
+var assistantHeartbeat = 20 * time.Second
 
 // assistantTools presents the MCP tool set to a model. It is the same set the
 // agent over JSON-RPC sees — one definition, so the panel's assistant and an
@@ -236,15 +244,90 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, scopes, role := scopesForRequest(r.Context())
-	out, err := assistant.Run(r.Context(), p, assistantSystem, req.Messages,
-		s.assistantTools(), s.assistantExecutor(r.Context(), actor, scopes, role), req.MaxSteps)
-	if err != nil {
-		// The transcript so far is returned with the error: a run that failed
-		// on the third tool call is more useful read than discarded.
-		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error": "provider", "message": err.Error(), "messages": out,
-		})
-		return
+	exec := s.assistantExecutor(r.Context(), actor, scopes, role)
+
+	if !streamAssistantRun(r.Context(), w, p, req.Messages, s.assistantTools(), exec, req.MaxSteps) {
+		// The response writer cannot flush, so nothing would reach the client
+		// until the end anyway. Answer the old way rather than pretend.
+		out, err := assistant.Run(r.Context(), p, assistantSystem, req.Messages, s.assistantTools(), exec, req.MaxSteps)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "provider", "message": err.Error(), "messages": out})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out)})
+}
+
+// streamAssistantRun runs the loop and writes it out as newline-delimited JSON,
+// one object per line. It reports false, having written nothing, when the
+// response writer cannot flush.
+//
+// Streaming is not for elegance: a proxy in front of the panel gives the origin
+// a fixed time to respond — Cloudflare's is 100 seconds — and a conversation
+// that deploys something takes several minutes. Waiting for the whole loop and
+// then replying means a 524 on exactly the requests worth making. Bytes moving
+// keep the connection alive, and they happen to be the progress somebody
+// waiting wants to see anyway.
+func streamAssistantRun(ctx context.Context, w http.ResponseWriter, p assistant.Provider, msgs []assistant.Message, tools []assistant.Tool, exec assistant.Executor, maxSteps int) bool {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	// Nothing between here and the client may buffer this, or the point is
+	// lost and the proxy times out with the whole reply sitting in a buffer.
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	send := func(v any) {
+		_ = enc.Encode(v)
+		flusher.Flush()
+	}
+	// A first line before any model call, so the connection is established and
+	// the client knows it was heard even while the first turn is being thought
+	// about.
+	send(map[string]any{"type": "start", "tools": len(tools)})
+
+	// The loop runs elsewhere and reports through a channel, so that every
+	// write to the response happens on this goroutine and a heartbeat can share
+	// it. A turn is not enough on its own: one tool call can be a deploy that
+	// builds for five minutes, and no bytes move for the whole of it.
+	events := make(chan any, 8)
+	post := func(v any) {
+		select {
+		case events <- v:
+		case <-ctx.Done():
+		}
+	}
+	go func() {
+		defer close(events)
+		out, err := assistant.RunStream(ctx, p, assistantSystem, msgs, tools, exec, maxSteps,
+			func(m assistant.Message) { post(map[string]any{"type": "turn", "message": m}) })
+		if err != nil {
+			// The status is already 200 by now, so the failure travels in the
+			// stream rather than in a code. The transcript so far goes with it:
+			// a run that failed on the third tool call is more useful read than
+			// discarded.
+			post(map[string]any{"type": "error", "message": err.Error(), "messages": out})
+			return
+		}
+		post(map[string]any{"type": "done", "messages": out, "reply": assistant.Text(out)})
+	}()
+
+	tick := time.NewTicker(assistantHeartbeat)
+	defer tick.Stop()
+	for {
+		select {
+		case e, ok := <-events:
+			if !ok {
+				return true
+			}
+			send(e)
+		case <-tick.C:
+			send(map[string]any{"type": "ping"})
+		case <-ctx.Done():
+			return true
+		}
+	}
 }

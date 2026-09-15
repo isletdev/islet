@@ -49,3 +49,40 @@ export async function postStream(path: string, onLine: (l: string) => void, body
   if (failed) throw new Error(failed);
   if (!ended && !signal?.aborted) throw new Error("the connection closed before the command finished");
 }
+
+/**
+ * POST an action whose response is newline-delimited JSON, one object per line.
+ *
+ * Used where a reply takes minutes to produce and the person should see it
+ * arrive: a proxy in front of the panel gives the origin a fixed window to
+ * respond — Cloudflare's is 100 seconds — so a request that answers only at the
+ * end fails as a 524 no matter how well it went.
+ */
+export async function postNDJSON<T>(path: string, onEvent: (e: T) => void, body?: unknown, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(apiPath(path), { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson, application/json" }, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body), signal });
+  if (!res.ok || !res.body) {
+    let msg = res.statusText;
+    try { msg = ((await res.json()) as { message: string }).message; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const reader = res.body.getReader();
+  signal?.addEventListener("abort", () => { void reader.cancel(); });
+  const dec = new TextDecoder();
+  let buf = "";
+  const take = (line: string) => {
+    const s = line.trim();
+    if (s) onEvent(JSON.parse(s) as T);
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i: number;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      take(buf.slice(0, i));
+      buf = buf.slice(i + 1);
+    }
+  }
+  // A last line without its newline is still a line.
+  take(buf + dec.decode());
+}

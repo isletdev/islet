@@ -76,6 +76,23 @@ type Executor func(ctx context.Context, call ToolCall) (string, error)
 // same thing indefinitely; stopping with an explanation is better than either
 // looping or pretending the answer is complete.
 func Run(ctx context.Context, p Provider, system string, msgs []Message, tools []Tool, exec Executor, maxSteps int) ([]Message, error) {
+	return RunStream(ctx, p, system, msgs, tools, exec, maxSteps, nil)
+}
+
+// RunStream is Run with an observer called as each turn completes.
+//
+// It exists because the whole loop can take minutes — a deploy is several tool
+// calls and a build — and anything watching needs to know it is still working.
+// A proxy in front of the panel is the sharper reason: Cloudflare gives an
+// origin 100 seconds to respond and then answers 524, so a request that waits
+// for the whole conversation is a request that fails on exactly the tasks
+// worth asking for. Emitting each turn as it happens keeps bytes moving.
+func RunStream(ctx context.Context, p Provider, system string, msgs []Message, tools []Tool, exec Executor, maxSteps int, on func(Message)) ([]Message, error) {
+	emit := func(m Message) {
+		if on != nil {
+			on(m)
+		}
+	}
 	if p == nil {
 		return msgs, errors.New("no assistant provider is configured")
 	}
@@ -88,6 +105,7 @@ func Run(ctx context.Context, p Provider, system string, msgs []Message, tools [
 			return msgs, err
 		}
 		msgs = append(msgs, reply)
+		emit(reply)
 		if len(reply.Calls) == 0 {
 			return msgs, nil
 		}
@@ -104,12 +122,15 @@ func Run(ctx context.Context, p Provider, system string, msgs []Message, tools [
 			}
 			results = append(results, ToolResult{CallID: c.ID, Content: out})
 		}
-		msgs = append(msgs, Message{Role: RoleUser, Results: results})
+		done := Message{Role: RoleUser, Results: results}
+		msgs = append(msgs, done)
+		emit(done)
 	}
 	msgs = append(msgs, Message{
 		Role: RoleAssistant,
 		Text: fmt.Sprintf("I stopped after %d rounds of tool calls without finishing. Ask me to continue, or narrow the task.", maxSteps),
 	})
+	emit(msgs[len(msgs)-1])
 	return msgs, nil
 }
 
