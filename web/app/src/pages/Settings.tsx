@@ -479,6 +479,14 @@ function AssistantCard() {
         <Button type="submit" className="h-9 text-xs">Save</Button>
         <p className="text-xs text-ink-muted sm:col-span-3">
           {c.tools} tools are available to it. A subscription runs Claude Code on this server and is bounded by the token in its MCP configuration, not by who is asking.
+          {c.provider === "subscription" && (
+            <>
+              {" "}That token is the only fence around it: Claude Code&apos;s own tools are denied, so everything it can do,
+              it does through Islet under those scopes, and every call is in the audit log. A token with every scope means
+              an assistant with every scope. Issue a narrower one under API tokens below if that is more authority than
+              you meant to hand it.
+            </>
+          )}
         </p>
         {msg && <p className="text-sm text-ink-muted sm:col-span-3">{msg}</p>}
       </form>

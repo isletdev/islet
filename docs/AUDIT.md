@@ -58,6 +58,25 @@ Carried by **v0.18.1**:
   alone: it was not what the deprecation warning named, and a release that
   cannot publish is worse than a warning in a log.
 
+Carried by **v0.18.2**:
+
+- **9. The lint warnings, read one at a time.** Twenty-nine `set-state-in-effect`
+  and one `react(purity)`. Twenty-eight of the twenty-nine are the rule firing on
+  code that is doing exactly what the rule's own help text allows: clearing a
+  view's state when the thing being viewed changes, and starting the stream or
+  fetch that fills it again. Rewriting those would make them worse. The one that
+  was a real bug — a ten-second poll dragging the selected agent tab back to the
+  first — was found by hand and fixed in v0.17.2.
+  The purity warning was real in a quieter way: `Date.now()` was read while
+  rendering the domains table, so a certificate could cross the fourteen-day
+  "expires soon" line and keep its old colour until something unrelated caused a
+  re-render. The clock ticks once a minute of its own accord now.
+- **10 (part).** The assistant's settings say what its token actually bounds:
+  Claude Code's own tools are denied, so everything it can do it does through
+  Islet under those scopes and into the audit log — and a token with every scope
+  is an assistant with every scope.
+
+
 ## ~~1.~~ (done) The command log is 61% polling noise — and every row is a process
 
 `commands` holds 8,681 rows on this server, three days old. What is in them:
@@ -152,7 +171,7 @@ Neither runs on a push, so neither will catch the change that breaks them.
 
 **Do:** wire the ones that need nothing but a daemon into the pipeline.
 
-## 9. Twenty-nine `set-state-in-effect` warnings
+## ~~9.~~ (reviewed) Twenty-nine `set-state-in-effect` warnings
 
 Each is a render that schedules another render. Most are harmless; at least one
 is a real bug of the kind already found by hand this week (a poll resetting a
@@ -167,6 +186,5 @@ it was not asked to do.
 - ~~CI logs a Node 20 deprecation on every run.~~ Bumped in v0.18.1.
 - `islet.dev` docs site and the `isletdev/catalog` repository are both 404.
 - The VPS e2e workflow has never run: it skips itself without `HCLOUD_TOKEN`.
-- The assistant's MCP token on this server carries `*`. That is the operator's
-  choice, but it is worth stating in the panel where the token is made, because
-  it is the only fence around what the assistant can do.
+- ~~The assistant's MCP token carries `*` and the panel does not say what that
+  means.~~ Said in v0.18.2. Narrowing the token itself is the operator's call.

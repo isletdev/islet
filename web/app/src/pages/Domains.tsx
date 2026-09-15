@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { pollInterval } from "@/lib/poll";
 import { api, RequestError, type Container, type Domain, type DomainLocation, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
@@ -104,6 +105,11 @@ export default function Domains() {
   const [editing, setEditing] = useState<Domain | null>(null);
   const [dns, setDns] = useState<Record<string, DNSCheck>>({});
   const [msg, setMsg] = useState<string | null>(null);
+  // "Expires soon" is a comparison against the clock, and reading the clock
+  // while rendering makes the answer depend on when React last re-rendered —
+  // a certificate could cross the fourteen-day line and keep its colour until
+  // something unrelated happened. It ticks on its own instead.
+  const [now, setNow] = useState(() => Date.now());
   const [err, setErr] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -135,6 +141,9 @@ export default function Domains() {
     } catch (e) { setErr(e instanceof RequestError ? e.message : String(e)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  // Once a minute is plenty for a fourteen-day threshold, and it costs one
+  // render on a page nobody is interacting with.
+  useEffect(() => pollInterval(() => setNow(Date.now()), 60000), []);
 
   const checkDns = async (d: Domain) => {
     try { const r = await api.domainDns(d.id); setDns((m) => ({ ...m, [d.id]: r })); } catch { /* ignore */ }
@@ -299,7 +308,7 @@ export default function Domains() {
                   <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="-my-1 inline-block py-1 font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
                   <td className="py-2 font-mono text-xs text-ink-muted">{d.targetType === "container" ? `${d.target}:${d.port}` : d.targetType === "panel" ? "Islet panel" : d.target}</td>
                   <td className="py-2 text-xs"><DnsCell check={c} /></td>
-                  <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - Date.now() < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {dmy(cert.notAfter)}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
+                  <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - now < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {dmy(cert.notAfter)}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
                   <td className="py-2 pr-4 whitespace-nowrap">
                     {/* Icons rather than three words per row: the labels
                         repeated down the table and pushed everything else
