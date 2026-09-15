@@ -75,6 +75,16 @@ type Service struct {
 	// a server on one socket is not a theoretical problem: it segfaulted tmux
 	// 3.2a on this machine and left a half-started unit holding the name.
 	serverMu sync.Mutex
+
+	// Where `claude` is, and when that was last asked. It is asked on every
+	// list and every poll, and the answer changes when somebody installs it.
+	claudeMu     sync.Mutex
+	claudeCached string
+	claudeAt     time.Time
+
+	// When the tmux server last refused to start, so a host where it cannot is
+	// not asked again on every request. Guarded by serverMu.
+	lastStartFailed time.Time
 }
 
 // New builds the service. dataDir is the daemon's data directory; per-workspace
@@ -112,7 +122,7 @@ func SessionName(id string) string { return "islet-ws-" + id }
 
 // HasTmux reports whether the host can run any of this.
 func (s *Service) HasTmux(ctx context.Context) bool {
-	_, err := s.run.Run(ctx, "system", "tmux", "-V")
+	_, err := s.run.Read(ctx, "tmux", "-V")
 	return err == nil
 }
 
@@ -136,7 +146,36 @@ func (s *Service) ClaudePath(ctx context.Context) string {
 	if s.run == nil {
 		return "" // no runner: a unit test, not a server
 	}
-	if out, err := s.run.Run(ctx, "system", "sh", "-c", "command -v claude 2>/dev/null"); err == nil {
+	// Cached, because this is asked on every workspace list and every poll —
+	// 1,219 lookups in three days on this server — for an answer that changes
+	// when somebody installs or removes a binary. A minute is short enough that
+	// installing Claude Code from the panel shows up while the person is still
+	// looking at the page, and long enough that a page left open stops shelling
+	// out every ten seconds.
+	s.claudeMu.Lock()
+	if time.Since(s.claudeAt) < time.Minute {
+		p := s.claudeCached
+		s.claudeMu.Unlock()
+		return p
+	}
+	s.claudeMu.Unlock()
+	found := s.findClaude(ctx)
+	s.claudeMu.Lock()
+	s.claudeCached, s.claudeAt = found, time.Now()
+	s.claudeMu.Unlock()
+	return found
+}
+
+// ForgetClaudePath drops the cached lookup, for the moment after an install
+// when the answer has deliberately just changed.
+func (s *Service) ForgetClaudePath() {
+	s.claudeMu.Lock()
+	s.claudeAt = time.Time{}
+	s.claudeMu.Unlock()
+}
+
+func (s *Service) findClaude(ctx context.Context) string {
+	if out, err := s.run.Read(ctx, "sh", "-c", "command -v claude 2>/dev/null"); err == nil {
 		if p := strings.TrimSpace(out.Stdout); p != "" {
 			return p
 		}
@@ -166,6 +205,10 @@ func (s *Service) InstallClaude(ctx context.Context, actor string) (rc interface
 	Read([]byte) (int, error)
 	Close() error
 }, wait func() error, err error) {
+	// The lookup is cached for a minute; installing is exactly the moment that
+	// cache is wrong, so it is dropped as the install starts rather than a
+	// minute after it finishes.
+	s.ForgetClaudePath()
 	return s.run.Stream(ctx, actor, "sh", "-c",
 		"curl -fsSL https://claude.ai/install.sh | bash "+
 			"|| npm install -g @anthropic-ai/claude-code")
@@ -203,6 +246,30 @@ func (s *Service) launch(ctx context.Context, w *Workspace) string {
 	return cmd
 }
 
+// tmuxRead asks tmux something without writing the question down.
+//
+// The command drawer answers "what has this panel done to my server", and on a
+// machine that has been up for three days, five thousand of its eight thousand
+// rows were this page asking tmux what it was doing every ten seconds. The
+// change is in the drawer's favour, not against it: what somebody actually did
+// is no longer underneath four thousand `display-message`s.
+//
+// Only commands that observe belong here. new-session, kill-session, send-keys,
+// kill-window and set-option all go through tmux above and are recorded, which
+// is the line worth keeping: anything that can alter the machine is written
+// down, always.
+func (s *Service) tmuxRead(ctx context.Context, args ...string) (string, error) {
+	// No ensureServer. Asking what is running must not start anything: a server
+	// with workspaces but nothing attached has no tmux server — tmux exits when
+	// its last session ends — so every poll of the page was starting one, three
+	// systemd commands at a time, ten seconds apart, forever. Measured: ten
+	// polls wrote thirty rows of systemctl. A read against a server that is not
+	// there fails, and every caller here already reads that as "nothing is
+	// running", which is true.
+	res, err := s.run.Read(ctx, "tmux", append([]string{"-S", s.sock}, args...)...)
+	return strings.TrimSpace(res.Stdout), err
+}
+
 func (s *Service) tmux(ctx context.Context, actor string, args ...string) (string, error) {
 	// The server has to exist before any client command runs, or that command
 	// starts one here, inside isletd, which is the thing being avoided. See
@@ -216,7 +283,7 @@ func (s *Service) tmux(ctx context.Context, actor string, args ...string) (strin
 
 // running reports whether the session exists, and when it started.
 func (s *Service) running(ctx context.Context, id string) (bool, string) {
-	out, err := s.tmux(ctx, "system", "display-message", "-p", "-t", SessionName(id), "#{session_created}")
+	out, err := s.tmuxRead(ctx, "display-message", "-p", "-t", SessionName(id), "#{session_created}")
 	if err != nil || out == "" {
 		return false, ""
 	}
@@ -316,7 +383,7 @@ func (s *Service) History(ctx context.Context, actor, id string, lines int) (str
 	if lines <= 0 || lines > 20000 {
 		lines = 5000
 	}
-	return s.tmux(ctx, actor, "capture-pane", "-p", "-S", "-"+fmt.Sprint(lines), "-t", SessionName(id))
+	return s.tmuxRead(ctx, "capture-pane", "-p", "-S", "-"+fmt.Sprint(lines), "-t", SessionName(id))
 }
 
 // Touch records that somebody attached, so the list can say how long a
@@ -496,7 +563,7 @@ func (s *Service) EnsureRestartSafe(ctx context.Context) {
 // Restarting the tmux server fixes it, and that ends the work, so it is said
 // rather than done.
 func (s *Service) Stranded(ctx context.Context) bool {
-	out, err := s.tmux(ctx, "system", "display-message", "-p", "#{pid}")
+	out, err := s.tmuxRead(ctx, "display-message", "-p", "#{pid}")
 	if err != nil || strings.TrimSpace(out) == "" {
 		return false
 	}

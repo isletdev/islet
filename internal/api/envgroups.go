@@ -88,7 +88,7 @@ func (s *Server) handleEnvGroupSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct{ Name, Env string }
-	if err := decode(r, &req); err != nil {
+	if err := decodeLarge(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}

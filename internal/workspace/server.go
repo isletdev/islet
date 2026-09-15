@@ -84,6 +84,13 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	if s.serverUp() {
 		return // someone else won the race and started it
 	}
+	// A start that just failed is not retried on the next request. Without
+	// this, a host where the server cannot start — no systemd, a broken tmux,
+	// a full disk — runs the whole recovery sequence for every action, which is
+	// three processes each time and a command log made of nothing else.
+	if time.Since(s.lastStartFailed) < startRetryAfter {
+		return
+	}
 	if s.stale() {
 		_ = os.Remove(s.sock)
 	}
@@ -126,6 +133,7 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 		"--setenv=HOME="+home,
 		tmuxPath, "-S", s.sock, "start-server", ";", "set", "-s", "exit-empty", "off")
 	if err != nil {
+		s.lastStartFailed = time.Now()
 		s.log.Warn("workspaces: could not start the tmux server under systemd; the next command will start one here instead",
 			"err", err, "output", strings.TrimSpace(out.Stdout+out.Stderr))
 		return
@@ -137,5 +145,11 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	s.lastStartFailed = time.Now()
 	s.log.Warn("workspaces: the tmux server did not come up on the socket", "socket", s.sock, "unit", unit)
 }
+
+// How long to leave a failed start alone. Long enough that a broken host is not
+// running three processes per request, short enough that fixing it shows up
+// while somebody is still looking at the page.
+const startRetryAfter = 30 * time.Second

@@ -117,7 +117,7 @@ func (s *Service) windowState(ctx context.Context, wsID string) map[string]strin
 	// letters, digits and dashes and a pane command is one word, so there is
 	// nothing here that needs protecting from a split - and one less character to
 	// lose between Go, the exec call and tmux's own format parser.
-	out, err := s.tmux(ctx, "system", "list-windows", "-t", SessionName(wsID),
+	out, err := s.tmuxRead(ctx, "list-windows", "-t", SessionName(wsID),
 		"-F", "#{window_name} #{pane_current_command}")
 	if err != nil {
 		// Not an error worth surfacing: a session that is not running has no
@@ -304,7 +304,7 @@ func (s *Service) AgentHistory(ctx context.Context, actor, wsID, id string, line
 	if lines <= 0 || lines > 20000 {
 		lines = 5000
 	}
-	return s.tmux(ctx, actor, "capture-pane", "-p", "-S", "-"+fmt.Sprint(lines), "-t", target(wsID, a.Name))
+	return s.tmuxRead(ctx, "capture-pane", "-p", "-S", "-"+fmt.Sprint(lines), "-t", target(wsID, a.Name))
 }
 
 // ---- storage --------------------------------------------------------------

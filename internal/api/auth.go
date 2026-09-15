@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -157,10 +158,32 @@ func requireJSON(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func decode(r *http.Request, v any) error {
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 64<<10))
+// decode reads a JSON body, with a ceiling on how much of it.
+//
+// 64 KB is right for a form and wrong for anything carrying a document. Saving
+// a 90 KB file from the editor failed with "bad_json: http: request body too
+// large" — a size limit reported as a syntax error, on a feature whose whole
+// job is editing files. decodeLarge is for the routes that legitimately carry
+// one, and the message says what the limit is either way.
+func decode(r *http.Request, v any) error { return decodeLimit(r, v, 64<<10) }
+
+// decodeLarge is for a body that is a document: a file being saved, a Compose
+// project, an environment group. Still bounded — this is a 1 GB server and the
+// body is read into memory — but bounded where a real file stops rather than
+// where a form does.
+func decodeLarge(r *http.Request, v any) error { return decodeLimit(r, v, 8<<20) }
+
+func decodeLimit(r *http.Request, v any, max int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, max))
 	dec.DisallowUnknownFields()
-	return dec.Decode(v)
+	if err := dec.Decode(v); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return fmt.Errorf("that is larger than %d KB, which is the most this endpoint accepts", max>>10)
+		}
+		return err
+	}
+	return nil
 }
 
 func clientIP(r *http.Request) string {

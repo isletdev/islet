@@ -191,7 +191,17 @@ func httpClient() *http.Client {
 
 func status() error {
 	client := httpClient()
-	resp, err := client.Get(daemonURL() + "/api/v1/health")
+	req, err := http.NewRequest("GET", daemonURL()+"/api/v1/health", nil)
+	if err != nil {
+		return err
+	}
+	// Health tells a stranger only that the daemon is up. Over the socket this
+	// is already somebody; over a URL it needs the saved token to be told which
+	// daemon it reached.
+	if cfg, err := loadConfig(); err == nil && cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("isletd not reachable at %s: %w", daemonURL(), err)
 	}
@@ -199,6 +209,11 @@ func status() error {
 	var h api.Health
 	if err := json.NewDecoder(resp.Body).Decode(&h); err != nil {
 		return fmt.Errorf("bad response: %w", err)
+	}
+	if h.Version == "" {
+		// Reachable, but this caller is nobody in particular.
+		fmt.Printf("isletd reachable at %s  status=%s  (sign in with `islet login` for version and host)\n", daemonURL(), h.Status)
+		return nil
 	}
 	fmt.Printf("isletd %s  status=%s  host=%s  up=%s  server=%s\n",
 		h.Version, h.Status, h.Hostname, (time.Duration(h.UptimeSeconds) * time.Second).String(), h.ServerID[:8])

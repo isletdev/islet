@@ -2287,3 +2287,44 @@ Checked by asking the browser rather than by looking: with the form open, the
 element painted at each corner of the panel is the modal, and after scrolling to
 the end on a 390px screen the Save button is both visible and the topmost thing
 at its own centre.
+
+## 2026-09-15 — What a panel does when nobody is asking it anything
+An audit of the whole platform, measured rather than read. The first four
+findings were all the same shape: work happening on a timer that nobody wanted.
+
+The command drawer answers "what has this panel run on my server". On this
+machine it held 8,681 rows over three days, of which 5,300 were the workspaces
+page asking tmux what it was doing every ten seconds and 1,200 were looking up
+where `claude` lives — an answer that changes about once a month. What somebody
+had actually changed was underneath all of it.
+
+So `cmdrun.Read` runs a command without recording it, and the line is drawn at
+whether the command can alter anything: `tmux list-windows` and `command -v` go
+through it, `new-session`, `send-keys` and `kill-session` do not. It is a small
+door and worth keeping small.
+
+Silencing the reads then exposed something worse. Every read was calling
+`ensureServer`, and tmux exits when its last session ends — so a server with
+workspaces configured and nothing attached ran `systemctl stop`, `systemctl
+reset-failed` and `systemd-run` on every poll, three processes every ten
+seconds, for as long as the page was open. Ten polls wrote thirty rows of it.
+Reads start nothing now, and a failed start is left alone for thirty seconds
+instead of retried on every request. Ten polls write nothing at all.
+
+Two tables grew with no ceiling: 3,600 commands and 700 audit rows a day, which
+is 1.3 million and 250,000 a year in a database whose point is to be small
+enough to back up in a moment. `metrics_samples` had been pruned since it was
+written; these had not. They get different retentions because they answer
+different questions — a fortnight for "what has this been running", a year for
+"who did what" — and a row ceiling as well as an age, because an age limit does
+not notice a loop that writes a fortnight's worth in an hour.
+
+Checking the catalog for newer images asked a registry per image, one after
+another, on every visit to the page: 4.8 seconds for two apps, twenty for ten.
+Together, six at a time, under a deadline, and remembered for fifteen minutes.
+
+The other two are not about timers. A file over 64 KB could not be saved from
+the editor, because one decoder capped every body in the panel at a size chosen
+for a form — reported, to add injury, as `bad_json`. And `/api/v1/health` told
+anyone on the internet the version, the commit, the hostname and the server id;
+the version is what a stranger matches against a list of known holes.

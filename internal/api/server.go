@@ -111,11 +111,14 @@ type Server struct {
 	runs *runs
 	// chats is where those conversations are kept afterwards, so one started on
 	// a laptop can be opened on a phone.
-	chats   *assistant.Chats
-	routes  *http.ServeMux
-	ui      http.Handler
-	log     *slog.Logger
-	started time.Time
+	chats *assistant.Chats
+	// updateCache remembers which catalog apps have a newer image, because
+	// finding out asks a registry per image and the page asks on every visit.
+	updateCache updateCheck
+	routes      *http.ServeMux
+	ui          http.Handler
+	log         *slog.Logger
+	started     time.Time
 }
 
 // New builds the HTTP handler for the daemon.
@@ -484,16 +487,27 @@ func New(d Deps) http.Handler {
 	return s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
 }
 
+// handleHealth says whether the daemon is up, and — to somebody who has signed
+// in — which daemon it is.
+//
+// It answers without authentication because that is what a health check is for:
+// a load balancer, a monitor, `islet status` against a socket. What it used to
+// answer without authentication was the version, the commit, the hostname and
+// the server id, to anyone on the internet who asked. The version and commit
+// are what a stranger matches against a list of known holes; the rest is free
+// reconnaissance for no benefit to anyone entitled to it.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Health{
-		Status:        "ok",
-		Version:       version.Version,
-		Commit:        version.Commit,
-		ServerID:      s.store.ServerID,
-		Hostname:      s.store.Hostname,
-		UptimeSeconds: int64(time.Since(s.started).Seconds()),
-		Time:          time.Now().UTC(),
-	})
+	h := api.Health{Status: "ok", Time: time.Now().UTC()}
+	// A session, a token, or the local socket — the three ways of being someone
+	// here rather than anyone.
+	if local, _ := r.Context().Value(ctxLocal).(bool); local || userFrom(r.Context()) != nil {
+		h.Version = version.Version
+		h.Commit = version.Commit
+		h.ServerID = s.store.ServerID
+		h.Hostname = s.store.Hostname
+		h.UptimeSeconds = int64(time.Since(s.started).Seconds())
+	}
+	writeJSON(w, http.StatusOK, h)
 }
 
 func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {

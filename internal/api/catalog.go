@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/isletdev/islet/internal/catalog"
 	"github.com/isletdev/islet/pkg/api"
@@ -79,33 +81,106 @@ func (s *Server) handleInstalledUpdates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	actor := userFrom(r.Context()).Username
-	out := map[string][]string{}
+	if cached, ok := s.updateCache.get(); ok {
+		writeJSON(w, http.StatusOK, cached)
+		return
+	}
+
+	// Every image asks a registry whether there is something newer, and a
+	// registry over the internet is the slow part. Serially, two apps on the
+	// development server took 4.8 seconds and ten would have taken twenty —
+	// with the page waiting on all of it. They are asked together now, with a
+	// ceiling on how many at once so a server with forty images does not open
+	// forty connections, and with a deadline of its own so a registry that
+	// hangs delays the answer rather than holding the request open.
+	type job struct{ app, image string }
+	var jobs []job
 	for _, it := range list {
 		compose, _, err := s.docker.ReadStack(it.Name)
 		if err != nil {
 			continue
 		}
 		for _, img := range composeImages(compose) {
-			local, err := s.runner.Run(r.Context(), actor, "docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", img)
+			jobs = append(jobs, job{it.Name, img})
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), updateCheckTimeout)
+	defer cancel()
+	var (
+		mu  sync.Mutex
+		out = map[string][]string{}
+		wg  sync.WaitGroup
+	)
+	gate := make(chan struct{}, 6)
+	for _, j := range jobs {
+		wg.Add(1)
+		go func(j job) {
+			defer wg.Done()
+			gate <- struct{}{}
+			defer func() { <-gate }()
+			local, err := s.runner.Run(ctx, actor, "docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", j.image)
 			if err != nil {
-				continue
+				return
 			}
 			// `{{json .Manifest.Digest}}` rather than `{{.Manifest.Digest}}`:
 			// buildx ignores the plain template and prints its whole human
 			// report instead, which never equals a digest, so every app
 			// claimed an update was waiting for it forever.
-			remote, err := s.runner.Run(r.Context(), actor, "docker", "buildx", "imagetools", "inspect", "--format", "{{json .Manifest.Digest}}", img)
+			remote, err := s.runner.Run(ctx, actor, "docker", "buildx", "imagetools", "inspect", "--format", "{{json .Manifest.Digest}}", j.image)
 			if err != nil {
-				continue
+				return
 			}
-			ld := digestOf(local.Stdout)
-			rd := digestOf(remote.Stdout)
-			if rd != "" && ld != "" && rd != ld {
-				out[it.Name] = append(out[it.Name], img)
+			ld, rd := digestOf(local.Stdout), digestOf(remote.Stdout)
+			if rd == "" || ld == "" || rd == ld {
+				return
 			}
-		}
+			mu.Lock()
+			out[j.app] = append(out[j.app], j.image)
+			mu.Unlock()
+		}(j)
 	}
+	wg.Wait()
+	s.updateCache.put(out)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// How long the whole check may take, and how long its answer is good for.
+//
+// Images are not published minute by minute, and this runs whenever somebody
+// opens the page: without a memory it asked every registry again each time the
+// tab was refreshed.
+const (
+	updateCheckTimeout = 25 * time.Second
+	updateCacheFor     = 15 * time.Minute
+)
+
+// updateCheck remembers the last answer.
+type updateCheck struct {
+	mu   sync.Mutex
+	at   time.Time
+	last map[string][]string
+}
+
+func (u *updateCheck) get() (map[string][]string, bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.last == nil || time.Since(u.at) > updateCacheFor {
+		return nil, false
+	}
+	// A copy: the caller writes it out as JSON while another request may be
+	// replacing it.
+	out := make(map[string][]string, len(u.last))
+	for k, v := range u.last {
+		out[k] = append([]string(nil), v...)
+	}
+	return out, true
+}
+
+func (u *updateCheck) put(v map[string][]string) {
+	u.mu.Lock()
+	u.last, u.at = v, time.Now()
+	u.mu.Unlock()
 }
 
 var imageLineRe = regexp.MustCompile(`(?m)^\s*image:\s*["']?([^"'\s#]+)`)

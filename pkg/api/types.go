@@ -6,13 +6,17 @@ package api
 import "time"
 
 // Health is returned by GET /api/v1/health.
+// Health answers "is this daemon up", and for somebody who has signed in, "and
+// which daemon is it". Everything but Status and Time is omitted for a caller
+// who has not: a version and a commit are what a stranger matches against a
+// list of known holes, and the hostname and server id are reconnaissance.
 type Health struct {
 	Status        string    `json:"status"`
-	Version       string    `json:"version"`
-	Commit        string    `json:"commit"`
-	ServerID      string    `json:"serverId"`
-	Hostname      string    `json:"hostname"`
-	UptimeSeconds int64     `json:"uptimeSeconds"`
+	Version       string    `json:"version,omitempty"`
+	Commit        string    `json:"commit,omitempty"`
+	ServerID      string    `json:"serverId,omitempty"`
+	Hostname      string    `json:"hostname,omitempty"`
+	UptimeSeconds int64     `json:"uptimeSeconds,omitempty"`
 	Time          time.Time `json:"time"`
 }
 

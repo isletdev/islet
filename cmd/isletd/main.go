@@ -230,6 +230,27 @@ func run() error {
 	// A reboot takes every tmux session with it. Put the workspaces back at a
 	// shell prompt, without re-running what was in them.
 	go ws.Reconcile(ctx)
+	// The two tables nothing else bounds. Once at startup, because a daemon
+	// that is restarted often would otherwise never reach the first tick, and
+	// then daily.
+	go func() {
+		housekeep := func() {
+			if err := st.Housekeep(ctx); err != nil {
+				log.Warn("housekeeping failed", "err", err)
+			}
+		}
+		housekeep()
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				housekeep()
+			}
+		}
+	}()
 	if *tlsMode != "off" {
 		cert, names, err := tlsutil.LoadOrCreate(*dataDir, st.Hostname)
 		if err != nil {

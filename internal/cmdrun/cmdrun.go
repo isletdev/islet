@@ -60,7 +60,29 @@ func (r *Runner) Run(ctx context.Context, actor string, name string, args ...str
 }
 
 // RunInput is Run with data on stdin.
+// Read runs a command that only observes, without writing it down.
+//
+// The drawer this package feeds answers one question: what has this panel done
+// to my server. Reading the answer to that question is not part of it, and on a
+// real server the reads drown everything else — three days of this machine held
+// 8,681 commands, of which 5,300 were the workspaces page asking tmux what it
+// was doing every ten seconds and 1,200 were looking up where `claude` lives.
+// What somebody actually changed was underneath all of it.
+//
+// So: anything that could alter the machine goes through Run and is recorded,
+// always. Read is for `tmux list-windows`, `command -v`, `tmux -V` — commands
+// whose only effect is to tell us something. It is a small door and it is worth
+// keeping small: if a call through here can change anything, it is in the wrong
+// place.
+func (r *Runner) Read(ctx context.Context, name string, args ...string) (Result, error) {
+	return r.exec(ctx, "", nil, false, name, args...)
+}
+
 func (r *Runner) RunInput(ctx context.Context, actor string, stdin []byte, name string, args ...string) (Result, error) {
+	return r.exec(ctx, actor, stdin, true, name, args...)
+}
+
+func (r *Runner) exec(ctx context.Context, actor string, stdin []byte, record bool, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
@@ -81,7 +103,11 @@ func (r *Runner) RunInput(ctx context.Context, actor string, stdin []byte, name 
 		res.ExitCode = -1
 		res.Stderr = err.Error()
 	}
-	r.record(ctx, actor, name, args, res)
+	if record {
+		r.record(ctx, actor, name, args, res)
+	} else {
+		r.log.Debug("read", "cmd", Display(name, args...), "exit", res.ExitCode, "ms", res.Duration.Milliseconds())
+	}
 	if res.ExitCode != 0 {
 		return res, &Error{Cmd: Display(name, args...), Result: res}
 	}
