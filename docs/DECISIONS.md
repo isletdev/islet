@@ -2262,3 +2262,28 @@ to get there. And anything already written is left alone — somebody who typed
 their own `--resume`, `--mcp-config` or `--model` meant it, and a second copy
 appended after it is at best ignored and at worst an error they cannot see,
 because the line that runs is not the line they typed.
+
+## 2026-09-15 — A form under a terminal
+Pressing "Add agent" put the form on screen with rows of the terminal showing
+through it. The form was a card appended below the page, which had been fine
+while the thing above it was another card; on the workspaces page the thing
+above it is xterm, which draws into positioned canvases inside a stacking
+context of its own, and the terminal now takes the height that is left rather
+than a fixed 60dvh — so the two met.
+
+It is a modal now, and two details make the overlap impossible rather than
+unlikely. It renders into `document.body` through a portal, so no ancestor's
+transform, filter or z-index can trap it — the usual fix of "give it a bigger
+z-index" only works until something above it creates a stacking context. And it
+sits at z-50, below the confirm and prompt dialogs at z-60, so a "delete this?"
+raised from inside a form still lands on top of the form that raised it.
+
+The rest is what a modal owes anyone using it: Escape closes, Tab stays inside,
+the first field takes focus — which also stops keystrokes going to the terminal
+underneath — and the overlay scrolls, because the agent form is taller than a
+phone and a Save button you cannot reach is the same bug in a different place.
+
+Checked by asking the browser rather than by looking: with the form open, the
+element painted at each corner of the panel is the modal, and after scrolling to
+the end on a 390px screen the Save button is both visible and the topmost thing
+at its own centre.

@@ -11,6 +11,7 @@ import { openConsole } from "./Console";
 // renders at nothing-height first, and anything that measures it then measures
 // a box that is not there yet.
 import TermView from "@/components/TermView";
+import Modal from "@/components/Modal";
 
 /**
  * A workspace is a directory and a tmux session; the agents inside it are tmux
@@ -526,7 +527,11 @@ export default function Workspaces() {
 
       {/* ---- forms ---- */}
       {editingWs && (
-        <Card title={editingWs.id ? `Edit ${editingWs.name}` : "New workspace"} description="A directory on this server, and a session that outlives the browser.">
+        <Modal
+          title={editingWs.id ? `Edit ${editingWs.name}` : "New workspace"}
+          description="A directory on this server, and a session that outlives the browser."
+          onClose={() => setEditingWs(null)}
+        >
           <form onSubmit={saveWs} className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Field label="Name" hint="Lowercase letters, digits and dashes.">
               <Input value={editingWs.name} onChange={(e) => setEditingWs({ ...editingWs, name: e.target.value })} placeholder="islet" required />
@@ -556,13 +561,15 @@ export default function Workspaces() {
               <Button type="button" variant="secondary" onClick={() => setEditingWs(null)}>Cancel</Button>
             </div>
           </form>
-        </Card>
+        </Modal>
       )}
 
       {editingAgent && ws && (
-        <Card
+        <Modal
+          wide
           title={editingAgent.id ? `Edit ${editingAgent.name}` : `New agent in ${ws.name}`}
           description="Its own window, its own conversation, the same directory as the rest of the workspace."
+          onClose={() => setEditingAgent(null)}
         >
           <form onSubmit={saveAgent} className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Field label="Name" hint="Also the tmux window name, so it reads the same over SSH.">
@@ -659,7 +666,7 @@ export default function Workspaces() {
               <Button type="button" variant="secondary" onClick={() => setEditingAgent(null)}>Cancel</Button>
             </div>
           </form>
-        </Card>
+        </Modal>
       )}
     </div>
   );
