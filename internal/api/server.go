@@ -125,6 +125,16 @@ func New(d Deps) http.Handler {
 	s.loadCookieDomain()
 	s.StartWeeklyReport(context.Background())
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
+	// A refused call is the one worth keeping: it is what a leaked token or a
+	// misdirected agent looks like, and it never reaches a handler, so nothing
+	// else would write it down.
+	s.mcp.OnRefusal(func(ctx context.Context, actor, tool, method, path, why string) {
+		target := tool
+		if method != "" {
+			target = tool + " " + method + " " + path
+		}
+		_ = s.store.Audit(ctx, actor, "mcp.refused", target, why)
+	})
 	if s.deploy != nil {
 		s.deploy.EnvGroup = s.EnvGroupLines
 	}

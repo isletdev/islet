@@ -39,11 +39,28 @@ type Tool struct {
 type Server struct {
 	tools []Tool
 	allow func(scopes, method, path string) bool
+	// refused is called when a gate turns a call away. A token probing for
+	// what it cannot do is the shape of an agent that has been pointed
+	// somewhere it should not be, or of a leaked credential being tried, and
+	// until this existed neither left any trace: the refusal happened before
+	// any tool ran, so nothing reached the audit log.
+	refused func(ctx context.Context, actor, tool, method, path, why string)
 }
 
 // New builds a server from tools and a scope check.
 func New(tools []Tool, allow func(scopes, method, path string) bool) *Server {
 	return &Server{tools: tools, allow: allow}
+}
+
+// OnRefusal registers a callback for calls a gate turned away.
+func (s *Server) OnRefusal(f func(ctx context.Context, actor, tool, method, path, why string)) {
+	s.refused = f
+}
+
+func (s *Server) deny(ctx context.Context, actor, tool, method, path, why string) {
+	if s.refused != nil {
+		s.refused(ctx, actor, tool, method, path, why)
+	}
 }
 
 type request struct {
@@ -142,18 +159,23 @@ func (s *Server) one(ctx context.Context, actor, scopes, role string, r request)
 			if t.Resolve != nil {
 				m, pth, err := t.Resolve(p.Arguments)
 				if err != nil {
+					s.deny(ctx, actor, t.Name, "", "", err.Error())
 					return okResp(r.ID, toolResult(err.Error(), true))
 				}
 				method, path = m, pth
 			}
 			if !s.allow(scopes, method, path) {
-				return okResp(r.ID, toolResult("this token's scopes do not cover "+method+" "+path+" (needs "+t.Scope+")", true))
+				why := "this token's scopes do not cover " + method + " " + path + " (needs " + t.Scope + ")"
+				s.deny(ctx, actor, t.Name, method, path, why)
+				return okResp(r.ID, toolResult(why, true))
 			}
 			// A tool that changes the server needs the role the equivalent
 			// HTTP route needs. Checking the scope alone let a viewer with a
 			// wide token of their own run a cron job, which runs as root.
 			if method != "GET" && role == "viewer" {
-				return okResp(r.ID, toolResult("viewers cannot "+method+" "+path, true))
+				why := "viewers cannot " + method + " " + path
+				s.deny(ctx, actor, t.Name, method, path, why)
+				return okResp(r.ID, toolResult(why, true))
 			}
 			cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
@@ -163,6 +185,7 @@ func (s *Server) one(ctx context.Context, actor, scopes, role string, r request)
 			}
 			return okResp(r.ID, toolResult(out, false))
 		}
+		s.deny(ctx, actor, p.Name, "", "", "no such tool")
 		return errResp(r.ID, -32602, "unknown tool "+p.Name)
 	}
 	return errResp(r.ID, -32601, "method not found: "+r.Method)

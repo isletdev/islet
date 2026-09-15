@@ -222,6 +222,17 @@ var areas = []struct{ prefix, scope string }{
 	{"/api/v1/servers", "system"},
 	{"/api/v1/fleet", "system"},
 	{"/api/v1/settings", "settings"},
+	{"/api/v1/sidebar", "settings"},
+	// Turning the MCP server on or off is configuration, and a token that
+	// could do it could switch off the thing it is talking through.
+	{"/api/v1/mcp", "settings"},
+	// The GitHub App's private key and the mail relay's credentials live
+	// behind these, so they belong with the rest of the configuration.
+	{"/api/v1/github", "settings"},
+	{"/api/v1/mail", "settings"},
+	{"/api/v1/diagnostics", "system"},
+	{"/api/v1/dns-check", "system"},
+	{"/api/v1/report", "system"},
 }
 
 // ScopeAllows reports whether a token's scopes cover a method and path.
@@ -258,9 +269,14 @@ func ScopeAllows(scopes, method, path string) bool {
 	case path == "/api/v1/notify/emit":
 		return has("notify")
 	// Everything else under notify is channel configuration, which holds
-	// webhook URLs and tokens. "notify" sends; it does not read those.
+	// webhook URLs and bot tokens. "notify" sends and does nothing else:
+	// reading the configuration is a read, and changing it is configuration,
+	// so it sits with the rest of the settings.
 	case strings.HasPrefix(path, "/api/v1/notify"):
-		return read && has("read")
+		if read {
+			return has("read")
+		}
+		return has("settings")
 	// Logs hang off many areas, so they are matched wherever they appear
 	// rather than only under their own prefix.
 	case strings.HasPrefix(path, "/api/v1/logs"), strings.Contains(path, "/logs"):

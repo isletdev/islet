@@ -317,7 +317,10 @@ func (s *Server) mcpTools() []mcp.Tool {
 				return out, nil
 			}},
 	}
-	return tools
+	// The curated set lives in mcptools.go as a table; these are the ones with
+	// handlers of their own because they answer from the daemon's state rather
+	// than from a route.
+	return append(tools, s.curatedTools()...)
 }
 
 func (s *Server) appIDByName(ctx context.Context, name string) (string, error) {

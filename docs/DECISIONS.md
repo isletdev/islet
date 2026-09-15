@@ -1543,3 +1543,43 @@ of `Settings.tsx` and fails when the two disagree, in the spirit of
 `hack/sql-split-agree.mjs`: a scope offered but unknown to the rules would grant
 nothing, and a scope the rules know but the panel never offers could not be
 given to anyone.
+
+## 2026-09-15 — Fifty-one curated tools, written as a table
+With scopes per area the routes were reachable, so the tools worth describing
+properly could be written. There are fifty-one, and they are a table rather
+than fifty-one handlers: forty handlers would be forty chances to get the
+dispatch subtly different, and a tool that is three lines is one somebody will
+add when they add an endpoint. Each is a name, a sentence, a schema and a route;
+`curated` turns it into a tool whose `Resolve` fills the path template, so the
+gates are checked against the endpoint the call will actually reach, and whose
+`Call` goes through the daemon's own router exactly as `islet_request` does.
+One way in, one place where auth, the role check and the audit entry happen.
+
+Four invariants are tested rather than trusted, and three of them failed the
+first time they ran, which is the argument for having them:
+
+- **Every tool declares the scope its route needs.** A tool claiming `read` for
+  a route needing `domains` tells the agent to ask for a token that will still
+  not work. `diagnostics` and `dns_check` failed this: the routes were in no
+  area at all, so no scope could reach them.
+- **Every authenticated route is reachable by some scope.** This is the general
+  form of the same bug and it found five more: notify's channel writes and the
+  MCP toggle were denied to every token but `*`. Channel configuration holds
+  webhook URLs and bot tokens, so it now sits with the settings — `notify`
+  still only sends — and turning the MCP server off is configuration too. Public
+  routes are exempt: a webhook carries its own signature, the heartbeat URL is
+  itself the secret, setup runs once.
+- **Tool names are unique**, because the dispatch takes the first match and a
+  duplicate would silently shadow.
+- **Every tool explains itself.** The description is the whole interface for a
+  model, and six were too thin to be useful.
+
+Refusals are now reported. A call a gate turns away never reaches a handler, so
+nothing was writing it down — and a token probing for what it cannot do is
+exactly the shape of a leaked credential or an agent pointed somewhere it should
+not be. `mcp.Server` takes an `OnRefusal` callback, the API writes it as
+`mcp.refused` with the tool, the resolved route and the reason, and the actor is
+`mcp:<user>` as with a successful call. Verified live: a token holding
+`read,deploy,domains,catalog` created a domain and read the catalog, and its
+attempts at the file API, a security fix and a workspace are all in the audit
+log beside the successes.

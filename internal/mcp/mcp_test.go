@@ -158,3 +158,58 @@ type badTarget struct{}
 func (badTarget) Error() string { return "no target: path is required" }
 
 var errBadTarget = badTarget{}
+
+// A refusal is the event worth recording: it never reaches a handler, so
+// without this nothing anywhere writes down that a token tried.
+func TestRefusalsAreReported(t *testing.T) {
+	type refusal struct{ actor, tool, method, path, why string }
+	var got []refusal
+
+	s := New([]Tool{
+		{Name: "deploy_app", Scope: "deploy", Method: "POST", Path: "/api/v1/apps",
+			Call: func(context.Context, string, map[string]any) (string, error) { return "ok", nil }},
+		{Name: "islet_request", Scope: "varies", Method: "GET", Path: "/api/v1/",
+			Resolve: func(args map[string]any) (string, string, error) {
+				if Str(args, "path") == "" {
+					return "", "", errBadTarget
+				}
+				return Str(args, "method"), Str(args, "path"), nil
+			},
+			Call: func(context.Context, string, map[string]any) (string, error) { return "ok", nil }},
+	}, scopesFor)
+	s.OnRefusal(func(_ context.Context, actor, tool, method, path, why string) {
+		got = append(got, refusal{actor, tool, method, path, why})
+	})
+
+	// Refused by scope.
+	call(t, s, "read", "admin", "deploy_app", nil)
+	// Refused by role, on a route resolved from the arguments.
+	call(t, s, "all", "viewer", "islet_request", map[string]any{"method": "POST", "path": "/api/v1/domains"})
+	// Refused because it could not work out where it was going.
+	call(t, s, "all", "admin", "islet_request", nil)
+	// A tool that does not exist: worth knowing someone asked.
+	call(t, s, "all", "admin", "no_such_tool", nil)
+	// And one that succeeds, which must not be reported.
+	call(t, s, "all", "admin", "deploy_app", nil)
+
+	if len(got) != 4 {
+		t.Fatalf("expected four refusals, got %d: %+v", len(got), got)
+	}
+	if got[0].tool != "deploy_app" || !strings.Contains(got[0].why, "scopes do not cover") {
+		t.Errorf("scope refusal not reported properly: %+v", got[0])
+	}
+	if got[1].path != "/api/v1/domains" || !strings.Contains(got[1].why, "viewers cannot") {
+		t.Errorf("role refusal should carry the resolved path: %+v", got[1])
+	}
+	if !strings.Contains(got[2].why, "no target") {
+		t.Errorf("resolve failure not reported: %+v", got[2])
+	}
+	if got[3].tool != "no_such_tool" {
+		t.Errorf("unknown tool not reported: %+v", got[3])
+	}
+	for _, r := range got {
+		if r.actor != "tester" {
+			t.Errorf("every refusal should name who made it, got %q", r.actor)
+		}
+	}
+}
