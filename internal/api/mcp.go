@@ -353,6 +353,14 @@ func (b *bufferWriter) Header() http.Header {
 }
 func (b *bufferWriter) Write(p []byte) (int, error) { return b.buf.Write(p) }
 
+// Flush does nothing, and has to exist. A handler that streams checks for
+// http.Flusher and answers "streaming unsupported" without it — which is what
+// the diagnostics tool got every time it was called, a 500 that read like a
+// broken server rather than a recorder that could not be flushed. Nothing is
+// being flushed to: the buffer is the whole response, read once the handler
+// returns.
+func (b *bufferWriter) Flush() {}
+
 // WriteHeader used to discard the status, which was harmless while every tool
 // called one handler it already understood. A tool that can reach any route has
 // to be able to tell a 200 from a 403, so the code is kept.

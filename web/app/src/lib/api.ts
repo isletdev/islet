@@ -374,7 +374,7 @@ export const api = {
   filesTail: (path: string, n = 65536) => request<{ path: string; content: string; size: number }>(`/api/v1/files/tail?path=${encodeURIComponent(path)}&bytes=${n}`),
   filesWrite: (path: string, content: string) => post<void>("/api/v1/files/write", { path, content }, "PUT"),
   filesOp: (body: Record<string, unknown>) => post<unknown>("/api/v1/files/op", body),
-  filesSearch: (root: string, q: string, content: boolean) => request<{ path: string; isDir: boolean; line?: number; text?: string }[]>(`/api/v1/files/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&content=${content ? 1 : 0}`),
+  filesSearch: (root: string, q: string, content: boolean) => request<{ path: string; isDir: boolean; line?: number; text?: string }[]>(`/api/v1/files/search?path=${encodeURIComponent(root)}&query=${encodeURIComponent(q)}&content=${content ? 1 : 0}`),
   filesUsage: (path: string) => request<{ path: string; total: number; truncated: boolean; children: { name: string; size: number; isDir: boolean }[] }>(`/api/v1/files/usage?path=${encodeURIComponent(path)}`),
   trash: () => request<TrashItem[]>("/api/v1/files/trash"),
   trashOp: (body: { op: "restore" | "purge"; id: string }) => post<unknown>("/api/v1/files/trash", body),

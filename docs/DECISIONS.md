@@ -1894,3 +1894,31 @@ The exit code is 1 whether the daemon is down or the name was wrong, so the CLI'
 own words are the only thing to read, and reading them is worth it — an agent
 told "502 docker" goes looking for a fault in Docker instead of for the right
 name.
+
+## 2026-09-15 — Calling all seventy tools found what reading them did not
+The parameter audit above was run against source. Then every tool that needs no
+arguments was called against the live panel, and the ones that take an id were
+called with real ids, which found three more — none of them visible in the
+table.
+
+`diagnostics` answered "500 streaming unsupported". Its endpoint sends
+server-sent events, and the recorder the tools call through was not an
+`http.Flusher`, so the handler refused before writing a byte. The recorder now
+has a Flush that does nothing, which is the honest implementation: the buffer is
+the whole response and it is read after the handler returns. What lands in it is
+frames, so they are unwrapped — an agent that asked for a ping should read ping
+output, not `event: line` around each line of it.
+
+`search_files` offered `path` and `query`; the handler read `root` and `q`, and
+answered "path must be absolute" about a path that was. The handler was renamed
+rather than the tool: every other route under `/api/v1/files` takes `path`, and
+the panel is the only other caller. The per-handler test that now guards this
+replaced a weaker one that only asked whether *some* handler read the name —
+which is exactly why `search_files` got through the first pass.
+
+And `content`, a boolean, was being sent as "true" where every query flag in
+this package is compared against "1", so searching inside files silently never
+happened. A JSON number large enough would have gone the same way, as "1e+07".
+
+The lesson is the one this project keeps relearning. The table reads correctly.
+Only calling it finds out.

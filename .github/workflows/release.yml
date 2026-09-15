@@ -40,6 +40,25 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/app/pnpm-lock.yaml
+      # A tag push sometimes arrives as two events. The concurrency group above
+      # serialises them, but the second run still reached goreleaser and failed
+      # uploading assets the first had already published — a red release for a
+      # release that worked, which is exactly the signal nobody can afford to
+      # learn to ignore. If the tag is already published with its assets, this
+      # run has nothing left to do.
+      - name: Already published?
+        id: state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          n=$(gh release view "${GITHUB_REF_NAME}" --json assets -q '.assets|length' 2>/dev/null || echo 0)
+          echo "assets=$n"
+          if [ "$n" -ge 5 ]; then
+            echo "::notice::${GITHUB_REF_NAME} already carries $n assets; nothing to publish."
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
       # Fail here, before anything is published, when the key is not reaching
       # the runner: a release nobody can verify is worse than no release.
       - name: Signing key present
@@ -61,6 +80,7 @@ jobs:
           fi
           echo "signing key present: 128 hex characters"
       - uses: goreleaser/goreleaser-action@v6
+        if: steps.state.outputs.done != 'true'
         with:
           version: "~> v2"
           args: release --clean
@@ -76,7 +96,9 @@ jobs:
       # Second, independent signature: keyless cosign (Sigstore) over the
       # checksums file, verifiable without any Islet key.
       - uses: sigstore/cosign-installer@v3
+        if: steps.state.outputs.done != 'true'
       - name: Sign checksums with cosign
+        if: steps.state.outputs.done != 'true'
         run: |
           cosign sign-blob --yes --bundle dist/checksums.txt.cosign.bundle dist/checksums.txt
           gh release upload "${GITHUB_REF_NAME}" dist/checksums.txt.cosign.bundle --clobber
@@ -84,6 +106,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # SLSA build provenance for the archives, attached to the repository.
       - uses: actions/attest-build-provenance@v2
+        if: steps.state.outputs.done != 'true'
         with:
           subject-path: |
             dist/*.tar.gz

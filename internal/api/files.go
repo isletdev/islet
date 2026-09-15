@@ -337,13 +337,17 @@ func (s *Server) handleFilesUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFilesSearch(w http.ResponseWriter, r *http.Request) {
-	root := r.URL.Query().Get("root")
+	// path and query, not root and q: every other route under /api/v1/files
+	// takes `path`, and a caller that has to remember which one this is will
+	// get it wrong — the search tool did, and was told "path must be absolute"
+	// about a path that was, because it arrived under a name nothing read.
+	root := r.URL.Query().Get("path")
 	if !s.filesAllowed(w, r, root, false) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	hits, err := s.files.Search(ctx, root, r.URL.Query().Get("q"), r.URL.Query().Get("content") == "1", 500)
+	hits, err := s.files.Search(ctx, root, r.URL.Query().Get("query"), r.URL.Query().Get("content") == "1", 500)
 	if err != nil {
 		fileErr(w, err)
 		return

@@ -1,9 +1,8 @@
 package api
 
 import (
-	"io/fs"
+	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -93,64 +92,112 @@ func TestEveryPlaceholderHasAnArgument(t *testing.T) {
 	}
 }
 
-// A parameter the tool advertises and no handler reads is worse than a missing
-// one: the agent fills it in, the call succeeds, and the answer is about
-// something else. Both known cases were exactly that — `diagnostics` offered
-// `kind` where the handler reads `tool`, so every call was refused; and
-// `metrics_history` offered `hours` where the handler reads `range`, so asking
-// for six hours quietly returned one.
+// A parameter the tool advertises and its handler does not read is worse than a
+// missing one: the agent fills it in, the call succeeds, and the answer is
+// about something else. Five tools shipped like this, and each failed in its
+// own way — `diagnostics` offered `kind` where the handler reads `tool`, so
+// every call was refused; `metrics_history` offered `hours` where the handler
+// reads `range`, so asking for six hours quietly returned one; `search_files`
+// offered `path` and `query` where the handler read `root` and `q`, and
+// answered "path must be absolute" about a path that was.
 //
-// So the check is crude on purpose: every name a tool offers has to be a name
-// this package reads from a query or a path, or a field pkg/api decodes from a
-// body. Source is scanned because that is where the truth is — the alternative
-// is a second table that drifts from the first.
-func TestEveryToolParameterIsOneSomethingReads(t *testing.T) {
-	read := namesTheAPIReads(t)
+// The names are read out of the handler the route actually reaches, one level
+// into the helpers it calls, because "some handler somewhere reads this name"
+// was the weaker check that let search_files through.
+func TestEveryToolParameterIsOneItsHandlerReads(t *testing.T) {
+	handlers := handlersByRoute(t)
+	reads := queryNamesByHandler(t)
 	s := &Server{}
 	for _, tool := range s.curatedTools() {
+		// A write carries a body, decoded into whatever struct the feature
+		// package already has; those names are checked by the type system when
+		// the handler is written, not here.
+		if tool.Method != http.MethodGet && tool.Method != http.MethodDelete {
+			continue
+		}
+		h := handlers[tool.Method+" "+tool.Path]
+		if h == "" {
+			continue // reached through a wrapper this cannot see; not a finding
+		}
 		props, _ := tool.InputSchema["properties"].(map[string]any)
 		for name := range props {
-			if !read[name] {
-				t.Errorf("%s offers %q, which nothing in the daemon reads", tool.Name, name)
+			if strings.Contains(tool.Path, "{"+name+"}") {
+				continue // filled into the path, not the query
+			}
+			if !reads[h][name] {
+				t.Errorf("%s offers %q, which %s never reads", tool.Name, name, h)
 			}
 		}
 	}
 }
 
-// namesTheAPIReads collects every query key, path placeholder and JSON field
-// the daemon takes in. It walks the whole module because a request body is
-// decoded into whatever struct the feature package already has — pkg/api is
-// only where the shared shapes live.
-func namesTheAPIReads(t *testing.T) map[string]bool {
+// handlersByRoute maps "METHOD /path" to the handler the router sends it to.
+func handlersByRoute(t *testing.T) map[string]string {
 	t.Helper()
-	out := map[string]bool{}
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`\.Get\("(\w+)"\)`),
-		regexp.MustCompile(`PathValue\("(\w+)"\)`),
-		regexp.MustCompile("json:\"(\\w+)"),
+	b, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, root := range []string{"../../internal", "../../pkg"} {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
-				return err
-			}
-			b, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			for _, re := range patterns {
-				for _, m := range re.FindAllSubmatch(b, -1) {
-					out[string(m[1])] = true
-				}
-			}
-			return nil
-		})
+	out := map[string]string{}
+	re := regexp.MustCompile(`mux\.HandleFunc\("([^"]+)",(.+)`)
+	name := regexp.MustCompile(`s\.(handle\w+)`)
+	for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+		if hs := name.FindAllStringSubmatch(m[2], -1); len(hs) > 0 {
+			out[m[1]] = hs[len(hs)-1][1]
+		}
+	}
+	if len(out) < 100 {
+		t.Fatalf("only %d routes parsed out of server.go; the scan is not reading what it thinks it is", len(out))
+	}
+	return out
+}
+
+// queryNamesByHandler collects the query keys each handler reads, including
+// those read by the package functions it calls — a handler that hands the
+// request to a helper is still reading them.
+func queryNamesByHandler(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+	src := ""
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(e.Name())
 		if err != nil {
 			t.Fatal(err)
 		}
+		src += string(b) + "\n"
 	}
-	if len(out) < 200 {
-		t.Fatalf("only %d names found; the scan is not reading the source it thinks it is", len(out))
+	bodies := map[string]string{}
+	fn := regexp.MustCompile(`(?s)\nfunc (?:\(s \*Server\) )?(\w+)\([^)]*\)[^{]*\{(.*?)\n\}\n`)
+	for _, m := range fn.FindAllStringSubmatch(src, -1) {
+		bodies[m[1]] += m[2]
+	}
+	get := regexp.MustCompile(`Get\("(\w+)"\)`)
+	calls := regexp.MustCompile(`(?:s\.)?(\w+)\(`)
+	out := map[string]map[string]bool{}
+	for name, body := range bodies {
+		if !strings.HasPrefix(name, "handle") {
+			continue
+		}
+		seen := map[string]bool{}
+		text := body
+		for _, c := range calls.FindAllStringSubmatch(body, -1) {
+			if inner, ok := bodies[c[1]]; ok && c[1] != name {
+				text += inner
+			}
+		}
+		for _, m := range get.FindAllStringSubmatch(text, -1) {
+			seen[m[1]] = true
+		}
+		out[name] = seen
+	}
+	if len(out) < 100 {
+		t.Fatalf("only %d handlers parsed; the scan is not reading what it thinks it is", len(out))
 	}
 	return out
 }
@@ -195,6 +242,61 @@ func TestCreateDomainOffersOnlyTargetTypesTheProxyAccepts(t *testing.T) {
 		}
 		if !ok {
 			t.Errorf("create_domain offers targetType %q, which the proxy refuses", word)
+		}
+	}
+}
+
+// The diagnostics tool answered "500 streaming unsupported" every time it was
+// called: the endpoint sends server-sent events, and the recorder the tools
+// call through was not an http.Flusher, so the handler refused before writing
+// anything. An agent reads that as a broken server.
+func TestTheRecorderCanBeFlushed(t *testing.T) {
+	var w http.ResponseWriter = &bufferWriter{}
+	if _, ok := w.(http.Flusher); !ok {
+		t.Fatal("a handler that streams will refuse to write to this")
+	}
+}
+
+// And once it can be flushed, what lands in the buffer is frames. The agent
+// asked for a ping; it should read like a ping.
+func TestSSEFramesComeBackAsTheTextTheyCarried(t *testing.T) {
+	body := "event: line\ndata: \"PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\"\n\n" +
+		"event: line\ndata: \"64 bytes from 1.1.1.1: icmp_seq=1 ttl=54 time=7.37 ms\"\n\n" +
+		"event: end\ndata: \"done\"\n\n"
+	want := "PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\n64 bytes from 1.1.1.1: icmp_seq=1 ttl=54 time=7.37 ms\ndone"
+	if got := unwrapSSE(body); got != want {
+		t.Errorf("unwrapSSE gave\n%q\nwant\n%q", got, want)
+	}
+	// A data line that is not a JSON string is passed through rather than
+	// dropped: losing output is worse than showing it raw.
+	if got := unwrapSSE("data: {\"stage\":\"build\"}\n"); got != "{\"stage\":\"build\"}" {
+		t.Errorf("raw data line became %q", got)
+	}
+	if got := unwrapSSE("nothing here\n"); got != "" {
+		t.Errorf("a body with no data lines gave %q", got)
+	}
+}
+
+// Both halves of this were silent. A boolean sent as "true" is not "1", which
+// is what every handler here compares against, so the flag was dropped without
+// a word — search_files could never search inside files. And a JSON number
+// large enough prints in exponent form, so a limit of ten million would have
+// arrived as "1e+07" and parsed as nothing.
+func TestQueryValuesAreWhatHandlersRead(t *testing.T) {
+	cases := []struct {
+		in   any
+		want string
+	}{
+		{true, "1"},
+		{false, "0"},
+		{float64(100), "100"},
+		{float64(10000000), "10000000"},
+		{float64(1.5), "1.5"},
+		{"/var/log", "/var/log"},
+	}
+	for _, c := range cases {
+		if got := queryValue(c.in); got != c.want {
+			t.Errorf("queryValue(%v) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

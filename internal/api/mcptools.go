@@ -89,6 +89,9 @@ func (s *Server) viaRouter(ctx context.Context, actor, method, path string, body
 	rec := &bufferWriter{}
 	s.routes.ServeHTTP(rec, req)
 	out := strings.TrimSpace(rec.buf.String())
+	if strings.HasPrefix(rec.Header().Get("Content-Type"), "text/event-stream") {
+		out = strings.TrimSpace(unwrapSSE(out))
+	}
 	_ = s.store.Audit(ctx, actor, "mcp.request", method+" "+path, strconv.Itoa(rec.code()))
 	if rec.code() >= 400 {
 		return "", fmt.Errorf("%s %s: %d %s", method, path, rec.code(), out)
@@ -97,6 +100,29 @@ func (s *Server) viaRouter(ctx context.Context, actor, method, path string, body
 		return "done", nil
 	}
 	return out, nil
+}
+
+// unwrapSSE turns a recorded event stream back into the text it carried.
+//
+// Several endpoints answer in server-sent events because the panel follows
+// them live. Through the recorder there is nothing live about it — the whole
+// response is already there — and the framing is noise the agent would have to
+// learn to read. Ping output should look like ping output.
+func unwrapSSE(body string) string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		data, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "data: ")
+		if !ok {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal([]byte(data), &s); err == nil {
+			out = append(out, s)
+			continue
+		}
+		out = append(out, data)
+	}
+	return strings.Join(out, "\n")
 }
 
 // curated turns a route into a tool. Resolve reports the real path rather than
@@ -124,7 +150,7 @@ func (s *Server) curated(r route) mcp.Tool {
 				if len(extra) > 0 {
 					q := url.Values{}
 					for k, v := range extra {
-						q.Set(k, fmt.Sprint(v))
+						q.Set(k, queryValue(v))
 					}
 					p += "?" + q.Encode()
 				}
@@ -133,6 +159,26 @@ func (s *Server) curated(r route) mcp.Tool {
 			return s.viaRouter(ctx, actor, r.method, p, extra)
 		},
 	}
+}
+
+// queryValue renders one argument as a query parameter.
+//
+// Two things that fmt.Sprint gets wrong here. Every handler in this package
+// that reads a query boolean compares it against "1", and "true" is not that,
+// so the flag would be dropped without a word. And a JSON number arrives as a
+// float64, which prints in exponent form once it is large enough — a limit of
+// ten million would have been sent as "1e+07".
+func queryValue(v any) string {
+	switch t := v.(type) {
+	case bool:
+		if t {
+			return "1"
+		}
+		return "0"
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
 }
 
 func str(desc string) map[string]any  { return mcp.P("string", desc) }
