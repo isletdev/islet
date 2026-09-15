@@ -218,7 +218,9 @@ func streamLines(w http.ResponseWriter, r *http.Request, rc io.ReadCloser, wait 
 	// Drain the request body first: closing a connection with unread request
 	// bytes makes the kernel send RST, and Windows clients then drop the
 	// buffered tail of the response.
-	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+	if r.Body != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+	}
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")

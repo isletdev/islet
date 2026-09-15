@@ -85,6 +85,12 @@ func (s *Server) viaRouter(ctx context.Context, actor, method, path string, body
 	}
 	if rdr != nil {
 		req.Header.Set("Content-Type", "application/json")
+	} else {
+		// NewRequest leaves Body nil for a request with no body, which is
+		// right for a client and wrong here: net/http guarantees a server
+		// handler a non-nil Body, and handlers rely on it. One that drains the
+		// request before streaming panicked on the nil.
+		req.Body = http.NoBody
 	}
 	rec := &bufferWriter{}
 	s.routes.ServeHTTP(rec, req)
