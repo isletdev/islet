@@ -1,6 +1,10 @@
 package api
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -86,4 +90,66 @@ func TestEveryPlaceholderHasAnArgument(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A parameter the tool advertises and no handler reads is worse than a missing
+// one: the agent fills it in, the call succeeds, and the answer is about
+// something else. Both known cases were exactly that — `diagnostics` offered
+// `kind` where the handler reads `tool`, so every call was refused; and
+// `metrics_history` offered `hours` where the handler reads `range`, so asking
+// for six hours quietly returned one.
+//
+// So the check is crude on purpose: every name a tool offers has to be a name
+// this package reads from a query or a path, or a field pkg/api decodes from a
+// body. Source is scanned because that is where the truth is — the alternative
+// is a second table that drifts from the first.
+func TestEveryToolParameterIsOneSomethingReads(t *testing.T) {
+	read := namesTheAPIReads(t)
+	s := &Server{}
+	for _, tool := range s.curatedTools() {
+		props, _ := tool.InputSchema["properties"].(map[string]any)
+		for name := range props {
+			if !read[name] {
+				t.Errorf("%s offers %q, which nothing in the daemon reads", tool.Name, name)
+			}
+		}
+	}
+}
+
+// namesTheAPIReads collects every query key, path placeholder and JSON field
+// the daemon takes in. It walks the whole module because a request body is
+// decoded into whatever struct the feature package already has — pkg/api is
+// only where the shared shapes live.
+func namesTheAPIReads(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`\.Get\("(\w+)"\)`),
+		regexp.MustCompile(`PathValue\("(\w+)"\)`),
+		regexp.MustCompile("json:\"(\\w+)"),
+	}
+	for _, root := range []string{"../../internal", "../../pkg"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, re := range patterns {
+				for _, m := range re.FindAllSubmatch(b, -1) {
+					out[string(m[1])] = true
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(out) < 200 {
+		t.Fatalf("only %d names found; the scan is not reading the source it thinks it is", len(out))
+	}
+	return out
 }

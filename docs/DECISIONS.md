@@ -1840,3 +1840,57 @@ file API's refusal and then read the file anyway.
 The names come from the file rather than being assumed to be "islet", so a
 configuration with a different server name works, and one that cannot be read
 grants nothing at all rather than guessing.
+
+## 2026-09-15 — Streaming was the fix for 524, and the heartbeat was the fix for streaming
+Asking the assistant to deploy an app from GitHub answered 524. The endpoint ran
+the whole tool loop and replied once, and the panel is behind Cloudflare, whose
+origin timeout is 100 seconds. Reading a config came back; doing work never did.
+
+Raising that timeout needs a paid plan, only moves the wall, and still leaves
+the person watching a spinner with no idea whether anything is happening. So the
+answer streams instead: newline-delimited JSON, one object per turn, flushed as
+it happens.
+
+Turns alone would not have fixed it. With the subscription provider the whole
+tool loop happens *inside* `claude --print`, so the daemon sees one call that
+returns at the end — a run measured at 159 seconds through Cloudflare emitted no
+turn at all until it finished. What kept it alive was the twenty-second
+heartbeat, which is why the loop runs on its own goroutine and reports through a
+channel: one writer, and a ticker that can share it. Without the heartbeat the
+streaming would have been real and useless.
+
+A stream that ends without a closing line is reported as cut off rather than as
+success, the rule the Compose log stream already follows.
+
+## 2026-09-15 — An absent field means the panel's default, everywhere
+Testing the streamed assistant turned up three tools that could not work, and
+all three were the same shape: the tool described a field nobody reads.
+
+`diagnostics` offered `kind` where the handler reads `tool`, so every call was
+refused. `metrics_history` offered `hours` where the handler reads `range`, so
+asking for six hours quietly returned one — worse than the refusal, because it
+answered. `list_files` offered `hidden`, which the listing does not have.
+
+`create_domain` was the expensive one. It offered `https` and `wwwRedirect`
+where the domain carries `tls` and `redirectWww`, and offered no `enabled` at
+all — and `Domain.Enabled` defaults to false, so a domain created through MCP
+was stored, listed, never served and never issued a certificate. "Put the panel
+on panel.example.com" is one of the example prompts on the assistant page.
+
+The fix for the last one is not in the tool table. `handleDomainSave` now
+decodes into `proxy.Domain{Enabled: true, PassHost: true}`, which is what the
+cron, uptime and backup handlers already did — "absent field means enabled" was
+the house rule and domains were the one place that had not been told. Fixing it
+at the handler fixes every client at once rather than every client separately.
+
+The test that would have caught all four is crude on purpose: every parameter a
+tool offers has to be a name the daemon reads somewhere — a query key, a path
+placeholder or a JSON tag. It scans source because that is where the truth is;
+the alternative is a second table that drifts from the first. It would reject a
+genuinely new parameter until something reads it, which is the right order.
+
+A fifth thing, found the same way: a container that does not exist answered 502.
+The exit code is 1 whether the daemon is down or the name was wrong, so the CLI's
+own words are the only thing to read, and reading them is worth it — an agent
+told "502 docker" goes looking for a fault in Docker instead of for the right
+name.

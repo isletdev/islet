@@ -25,6 +25,13 @@ func (s *Server) dockerErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "invalid name"})
 		return
 	}
+	// A container that is not there is not a broken Docker. Answering 502 for
+	// it told every client — the panel, a script, an agent through MCP — that
+	// the daemon had failed, when the only thing wrong was the name.
+	if docker.IsNotFound(err) {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such container, image, volume or network"})
+		return
+	}
 	writeJSON(w, http.StatusBadGateway, api.Error{Error: "docker", Message: err.Error()})
 }
 

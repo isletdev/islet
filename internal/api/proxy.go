@@ -329,7 +329,12 @@ func (s *Server) handleDomainSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot change domains"})
 		return
 	}
-	var d proxy.Domain
+	// An absent field takes the panel's own default, the way the cron, uptime
+	// and backup handlers already work. Without it a client that sends only
+	// what it cares about — an agent through MCP, a script — creates a domain
+	// with enabled false: stored, listed, never served and never issued a
+	// certificate, with nothing to say why.
+	d := proxy.Domain{Enabled: true, PassHost: true}
 	if err := decode(r, &d); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return

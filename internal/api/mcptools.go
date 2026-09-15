@@ -151,8 +151,8 @@ func (s *Server) curatedTools() []mcp.Tool {
 				"targetType":  str("container, app, port, panel, static or redirect"),
 				"target":      str("Container name, app id, or URL, depending on targetType"),
 				"port":        num("Port on the target"),
-				"https":       flag("Issue a Let's Encrypt certificate. Default true"),
-				"wwwRedirect": flag("Also answer the www form and redirect it here"),
+				"tls":         str("letsencrypt, letsencrypt-dns, self or none. Default letsencrypt"),
+				"redirectWww": flag("Also answer the www form and redirect it here"),
 			}},
 		{"delete_domain", "Stop serving a domain and remove its route.", "domains", "DELETE", "/api/v1/domains/{id}", []string{"id"}, map[string]any{"id": str("Domain id from list_domains")}},
 		{"domain_dns", "What DNS record this domain needs and whether it resolves yet. Check this before expecting a certificate.", "read", "GET", "/api/v1/domains/{id}/dns", []string{"id"}, map[string]any{"id": str("Domain id")}},
@@ -202,7 +202,7 @@ func (s *Server) curatedTools() []mcp.Tool {
 		{"disk_usage", "What Docker is using: images, containers, volumes, build cache.", "read", "GET", "/api/v1/docker/df", nil, map[string]any{}},
 
 		// ---- files -------------------------------------------------------
-		{"list_files", "List a directory on the server.", "files", "GET", "/api/v1/files", []string{"path"}, map[string]any{"path": str("Absolute path"), "hidden": flag("Include dotfiles")}},
+		{"list_files", "List a directory on the server.", "files", "GET", "/api/v1/files", []string{"path"}, map[string]any{"path": str("Absolute path")}},
 		{"read_file", "Read a text file from the server. Returns its contents, and says so when the file is binary or too large.", "files", "GET", "/api/v1/files/read", []string{"path"}, map[string]any{"path": str("Absolute path")}},
 		{"search_files", "Search for files by name or content.", "files", "GET", "/api/v1/files/search", []string{"path", "query"},
 			map[string]any{"path": str("Directory to search"), "query": str("What to look for"), "content": flag("Search inside files as well as names")}},
@@ -247,8 +247,8 @@ func (s *Server) curatedTools() []mcp.Tool {
 			map[string]any{"name": str("UPPER_CASE_NAME, letters digits and underscores"), "value": str("The secret itself"), "description": str("What it is for")}},
 
 		// ---- the server itself --------------------------------------------------
-		{"metrics_history", "CPU, memory, disk and network over time.", "read", "GET", "/api/v1/metrics/history", nil, map[string]any{"hours": num("How far back, default 24")}},
-		{"diagnostics", "ping, traceroute, dig and a port check from this server.", "read", "GET", "/api/v1/diagnostics", nil, map[string]any{"host": str("What to test"), "kind": str("ping, traceroute, dig or port")}},
+		{"metrics_history", "CPU, memory, disk and network over time.", "read", "GET", "/api/v1/metrics/history", nil, map[string]any{"range": str("How far back: 1h, 6h, 24h or 7d. Default 1h")}},
+		{"diagnostics", "ping, traceroute, dig and a port check from this server.", "read", "GET", "/api/v1/diagnostics", []string{"host", "tool"}, map[string]any{"host": str("What to test"), "tool": str("ping, traceroute, dig or port")}},
 		{"dns_check", "Does this hostname resolve here, and to what.", "read", "GET", "/api/v1/dns-check", []string{"host"}, map[string]any{"host": str("Hostname to resolve")}},
 		{"audit_log", "What has been done on this server and by whom, newest first.", "read", "GET", "/api/v1/audit", nil, map[string]any{"limit": num("How many entries, default 100")}},
 		{"commands_run", "Every command the daemon has run, with its output, secrets removed.", "read", "GET", "/api/v1/commands", nil, map[string]any{"limit": num("How many, default 100")}},

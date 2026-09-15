@@ -26,6 +26,31 @@ var nameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,199}$`)
 // ErrBadName rejects identifiers that could be mistaken for flags.
 var ErrBadName = errors.New("invalid name")
 
+// ErrNotFound means Docker was reached and said the object is not there.
+var ErrNotFound = errors.New("no such object")
+
+// IsNotFound reports whether a failed docker command failed because what it
+// was asked about does not exist.
+//
+// It reads the CLI's own words because there is nothing else to read: the exit
+// code is 1 for everything. The distinction matters well beyond tidiness — an
+// agent asking about a container it guessed the name of was told "502 docker",
+// which says the daemon is broken, and would go looking for a fault in Docker
+// instead of for the right name.
+func IsNotFound(err error) bool {
+	var e *cmdrun.Error
+	if !errors.As(err, &e) {
+		return errors.Is(err, ErrNotFound)
+	}
+	msg := strings.ToLower(e.Result.Stderr)
+	for _, s := range []string{"no such object", "no such container", "no such image", "no such volume", "no such network", "no such service"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidName reports whether n is safe to pass to docker or systemd.
 func ValidName(n string) bool { return nameRe.MatchString(n) }
 
