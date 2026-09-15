@@ -149,3 +149,32 @@ func TestAssistantStreamCarriesAFailureInTheStream(t *testing.T) {
 		t.Fatalf("stream ended on %v, so the client cannot tell finished from cut off", last)
 	}
 }
+
+// A panel tab open across an update is still running the build that read the
+// whole reply with JSON.parse, and newline-delimited JSON fails it on the first
+// line break — "Unexpected non-whitespace character after JSON at position 28",
+// which tells the person nothing and looks like a broken assistant. That client
+// says what it can read, so it is taken at its word.
+func TestTheShapeOfTheReplyFollowsAccept(t *testing.T) {
+	cases := []struct {
+		accept string
+		stream bool
+		why    string
+	}{
+		{"", true, "a client that says nothing gets the stream, since the timeout is its problem too"},
+		{"*/*", true, "curl and every script default to this"},
+		{"application/x-ndjson, application/json", true, "the panel after the update"},
+		{"application/json", false, "the panel before it, which parses the whole body at once"},
+		{"application/json, text/plain, */*", false, "the common library default, and those parse the body at once as well"},
+		{"text/event-stream", true, "asked for a stream of some kind"},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/chat", nil)
+		if c.accept != "" {
+			r.Header.Set("Accept", c.accept)
+		}
+		if got := acceptsStream(r); got != c.stream {
+			t.Errorf("Accept: %q streams = %v, want %v — %s", c.accept, got, c.stream, c.why)
+		}
+	}
+}

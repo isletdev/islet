@@ -1944,3 +1944,31 @@ commands carry a short `-p`, and every single one is `tmux display-message -p`
 or `timedatectl show -p`. Redacting `-p` would have emptied the audit trail of
 the detail it exists for while protecting nothing the long-form conversion had
 not already covered.
+
+## 2026-09-15 — The client that was already open
+Streaming the assistant's answer fixed the 524 and broke a tab that had been
+open since before the update. That build reads the reply with `JSON.parse` over
+the whole body, so the first newline ends it: *Unexpected non-whitespace
+character after JSON at position 28* — position 28 being exactly the character
+after `{"tools":70,"type":"start"}` and the newline behind it. Nothing in that
+sentence tells the person their page is stale.
+
+Two changes, because the failure has two halves.
+
+The reply's shape now follows `Accept`. The older client says
+`application/json` and means it, so it gets one JSON document, the way it always
+did. A client that says nothing, or `*/*` — curl, a script — still gets the
+stream, since the proxy timeout is its problem too. This is ordinary content
+negotiation, and the only reason it was not there from the start is that the
+change was made from one end.
+
+And a stale tab now reloads itself. Its chunk names no longer exist on the
+server, so the next page it opens fails to import; Vite reports that, and a
+reload picks up the new `index.html`. Once per thirty seconds, because if the
+import is failing through being offline rather than out of date, reloading finds
+the cached shell and asks for the same missing chunk again.
+
+The general shape is worth keeping: a daemon that updates itself restarts under
+whoever is looking at it, so every wire format change has an old client on the
+other end for as long as that tab stays open. Version the behaviour on what the
+client asks for, not on what was deployed.

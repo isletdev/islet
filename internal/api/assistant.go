@@ -246,9 +246,10 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	actor, scopes, role := scopesForRequest(r.Context())
 	exec := s.assistantExecutor(r.Context(), actor, scopes, role)
 
-	if !streamAssistantRun(r.Context(), w, p, req.Messages, s.assistantTools(), exec, req.MaxSteps) {
-		// The response writer cannot flush, so nothing would reach the client
-		// until the end anyway. Answer the old way rather than pretend.
+	if !acceptsStream(r) || !streamAssistantRun(r.Context(), w, p, req.Messages, s.assistantTools(), exec, req.MaxSteps) {
+		// Either the client cannot read a stream or the response writer cannot
+		// flush, so nothing would reach it until the end anyway. Answer the old
+		// way rather than pretend.
 		out, err := assistant.Run(r.Context(), p, assistantSystem, req.Messages, s.assistantTools(), exec, req.MaxSteps)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "provider", "message": err.Error(), "messages": out})
@@ -256,6 +257,31 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"messages": out, "reply": assistant.Text(out)})
 	}
+}
+
+// acceptsStream reports whether the caller can read newline-delimited JSON.
+//
+// It exists for one client in particular: a panel tab that was open when the
+// daemon was updated is still running the build that read the whole body with
+// JSON.parse, and that fails on the newline after the first line — "Unexpected
+// non-whitespace character after JSON at position 28", which names nothing a
+// person could act on. It says `Accept: application/json` and means it, so it
+// is given one JSON document.
+//
+// A client that says nothing, or */* — curl, a script — gets the stream, since
+// the timeout the stream exists for is theirs too.
+func acceptsStream(r *http.Request) bool {
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	switch {
+	case accept == "":
+		return true
+	case strings.Contains(accept, "application/x-ndjson"):
+		return true
+	case strings.Contains(accept, "application/json"):
+		// Asked for JSON and never mentioned the stream: an older client.
+		return false
+	}
+	return true
 }
 
 // streamAssistantRun runs the loop and writes it out as newline-delimited JSON,
