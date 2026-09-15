@@ -108,3 +108,47 @@ func TestRedactSingleArgument(t *testing.T) {
 		}
 	}
 }
+
+// Creating a Mongo database sends the whole script as one argument, and the new
+// user's password sits inside it. Neither the NAME=value rule nor the flag rule
+// can see it there, so it reached the audit table and the command drawer in
+// full — the exact failure the comment above Redact says this package prevents.
+func TestASecretQuotedInsideAnArgumentIsRemoved(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{
+			`db.getSiblingDB("shop").createUser({user: "shop", pwd: "hunter2", roles: []})`,
+			`db.getSiblingDB("shop").createUser({user: "shop", pwd: "<redacted>", roles: []})`,
+		},
+		{`{"token":"glpat-abc123"}`, `{"token":"<redacted>"}`},
+		{`{password: 'hunter2'}`, `{password: '<redacted>'}`},
+		// An argument that is itself NAME=value is already handled, and that
+		// rule wins: the whole value goes, quotes and all.
+		{`password = 'hunter2'`, `password =<redacted>`},
+		// A word that merely starts with one of the names is not one of them.
+		{`{"passthrough":"keep"}`, `{"passthrough":"keep"}`},
+		{`{"tokenizer":"bpe"}`, `{"tokenizer":"bpe"}`},
+		// Unquoted prose is left alone: redacting it would eat the sentence and
+		// protect nothing, since there is no value there to protect.
+		{`echo the password was reset`, `echo the password was reset`},
+	}
+	for _, c := range cases {
+		if got := Redact(c.in); got != c.want {
+			t.Errorf("Redact(%q)\n  = %q\n want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// And the whole command line, as the drawer shows it.
+func TestTheMongoCreateUserCommandCarriesNoPassword(t *testing.T) {
+	js := `db.getSiblingDB("shop").createUser({user: "shop", pwd: "hunter2", roles: [{role: "readWrite", db: "shop"}]})`
+	got := Display("docker", "exec", "-i", "mongo-1", "mongosh", "--quiet", "--username", "root", "--password", "rootsecret", "--authenticationDatabase", "admin", "--eval", js)
+	for _, secret := range []string{"hunter2", "rootsecret"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("%s survived into the command log:\n%s", secret, got)
+		}
+	}
+	// It still has to read as the command it was.
+	if !strings.Contains(got, "createUser") || !strings.Contains(got, "mongosh") {
+		t.Errorf("the command is no longer legible:\n%s", got)
+	}
+}

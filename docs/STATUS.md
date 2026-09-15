@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `aa06328`, tagged `v0.11.4`, 2026-09-14. 106 commits, 43 tags, CI green on `main`.
+**Head:** `53cf249`, tagged `v0.14.6`, 2026-09-15. 127 commits, 53 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.11.4
+## Shipped since the plan ran out — v0.6.0 to v0.14.6
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -58,6 +58,16 @@ recent history, because it is the half that was found rather than designed.
 | v0.11.2 | `4cfcf22` | Pressing Fix on "Docker cannot bypass the firewall" did nothing, three times, and reported success each time: the ufw-docker snippet was written to `/etc/ufw/after.rules` and then `ufw --force reset`, the first command in the list that followed, restored the file from the package. The evidence was three `after.rules.<timestamp>` backups each carrying the snippet beside a live file that did not |
 | v0.11.3 | `9482368` | tmux starts a server as a child of whoever runs the first client command, so running every command from isletd put the server in isletd's control group and mount namespace — which is why the daemon's unit settings decided its fate at all. `systemd-run` hands it to PID 1 in a transient unit instead, making it a sibling rather than a child |
 | v0.11.4 | `aa06328` | The above, serialised. `ensureServer` had no lock, four calls landed inside 121 ms, and two tmux processes racing to create a server on one socket segfaulted tmux 3.2a; the half-started unit then kept its name, so every retry failed with "already exists" and fell back to the placement being replaced. Correct and unreachable |
+
+| v0.12.0 | `c29603a` | **The assistant, and full MCP coverage under it.** A write scope per area so a token can be trusted with less than everything; one checked tool that reaches any endpoint the token allows; fifty-one curated tools on top of it, each recording what was refused and why; and a panel page that takes a question in words and acts on it with the asker's authority and nothing more |
+| v0.13.0 | `996c728` | **The vault.** A secret stored once under a name, referred to as `@vault:NAME` everywhere a value is taken, revealed by nothing — not even a token with every scope |
+| v0.14.0 | `9e41d9a` | An OpenID Connect provider in the catalog, verified by running the image rather than by reading its README. And two fixed paths that two daemons on one host were sharing: the socket under `/run` and the tmux unit name, which is how a development daemon took the installed one's socket |
+| v0.14.1 | `2028fdc` | The assistant on a Claude subscription answered every question the same way, because Claude Code prompts before using an MCP tool and `--print` has no terminal to prompt on. `--allowed-tools`, naming the MCP servers in the configuration and nothing else — not Bash, not editing, not `bypassPermissions` |
+| v0.14.2 | `1eada79` | Asking the assistant to deploy from GitHub answered **524**. The endpoint ran the whole tool loop and replied at the end; Cloudflare gives an origin 100 seconds. The answer streams now, one line per turn, with a twenty-second heartbeat — which is the part that mattered, since the subscription provider runs its whole loop inside one call and emits nothing until it is done. Measured at 159 s through Cloudflare, where it used to fail at 100 |
+| v0.14.3 | `f02a002` | Four tools that described a field nothing reads: `diagnostics` offered `kind` for `tool`, `metrics_history` offered `hours` for `range` — so six hours quietly returned one — `list_files` offered a `hidden` that does not exist, and `create_domain` offered `https`/`wwwRedirect` for `tls`/`redirectWww`. And the expensive one: `Domain.Enabled` defaults false, so a domain created through the API was stored, listed, never served and never issued a certificate. Now defaulted at the handler, as cron, uptime and backups already did |
+| v0.14.4 | `03d170c` | `create_domain` named six target types; the proxy takes three. An agent asked to put an app on a domain picks "app", which was refused every time |
+| v0.14.5 | `735cafa` | What calling all seventy tools found that reading them did not. `diagnostics` answered "500 streaming unsupported" — its endpoint sends SSE and the recorder tools call through was not an `http.Flusher`; `search_files` offered `path`/`query` where the handler read `root`/`q`; and `content`, a boolean, was sent as "true" where every query flag here is compared against "1", so search-inside-files was a switch connected to nothing |
+| v0.14.6 | `53cf249` | Making the recorder flushable let the diagnostics tool past the refusal and into a panic: `streamLines` drains the request body, and a request assembled in process has none. Fixed at both ends — the synthetic request carries `http.NoBody`, and the helper every streaming endpoint funnels through no longer takes the daemon's handler down on a nil |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
@@ -113,40 +123,43 @@ All five are blocked on something outside the code. Verified on the date above:
 4. **Docs site.** `isletdev.github.io/islet` returns 404 and the `docs` workflow's last two runs were skipped — it needs Pages enabled and the repository variable `DOCS_SITE=true`. The 15 recipes it would publish are written. Screencasts for the top five flows: not started.
 5. **Load test on a 1 vCPU / 2 GB box.** `hack/loadtest.sh` exists, and on the dev box container and stack lists went from 2–3 s to under 200 ms with 38 containers. The small-box numbers are the ones that matter and have not been taken.
 
-### Known defect: secrets reach the audit log
+### Closed: secrets reaching the audit log
 
-`cmdrun.Redact` removes a value in two shapes, `NAME=value` where the name looks
-secret, and credentials inside a `scheme://user:pass@` URL. Every command the
-daemon runs goes through `Display`, which calls it, and the result is stored in
-the audit table and shown in the command-transparency drawer. The comment above
-it is explicit about why: "Without this the drawer hands out the password
-protecting the backups."
+This section used to describe a live defect — `mysql -phunter2`, `mongosh -p
+hunter2` and `gitlab-runner --token abc` all passing through `cmdrun.Display`
+untouched and into the audit table and the command-transparency drawer. It is
+closed, in two parts, and worth recording how because the second part was still
+open when the first was declared done.
 
-It does not cover the two commonest flag shapes, and three call sites use them:
+The call sites were converted to long forms (`--password=`, `--password X`,
+`--token X`), which `Redact` and the flag rule already cover. Short flags are
+deliberately *not* matched, and the comment above `secretFlag` says why: `-p` is
+a password to mysql, a published port to `docker run`, a project to `docker
+compose` and a property to `timedatectl`. The live command log bears that out —
+133 of the last 400 commands carry a short `-p`, and every one of them is a
+`tmux display-message -p` or a `timedatectl show -p`. A blanket rule would have
+emptied the audit trail of the detail it exists for.
 
-    internal/db/db.go:273,613,698    mysql / mysqldump  "-p" + inst.RootPass
-    internal/db/db.go:335,378,404,460,615,700   mongo*  "-p", inst.RootPass
-    internal/runner/runner.go:414    gitlab-runner register  "--token", p.Token
+The part that was still open: creating a Mongo database sends
 
-`-phunter2` is one argument with no `=`, so it falls through untouched;
-`"-p", "hunter2"` is two arguments, neither of which matches on its own. Both
-were checked against the live shapes, not read off the source. The fix is small —
-parse a value that follows a secret-looking flag, and handle `-p<value>` — but it
-needs a table test, and `internal/cmdrun` has no test file at all, which is how a
-regex this load-bearing came to be unverified.
+    mongosh … --eval 'db.getSiblingDB("shop").createUser({user: "shop", pwd: "…"})'
+
+and the whole script is one argument, so neither rule could see the password in
+it. `Redact` now blanks a quoted value under a secret-looking key inside an
+argument — whole word only, quoted values only, so `passthrough` and prose are
+left alone. `internal/cmdrun` has a test file now, and these shapes are in it.
 
 ### Packages with no tests
 
-Fourteen of thirty-two, and the list is not the comfortable half:
+Thirteen of thirty-two, and the list is not the comfortable half:
 
     internal/backup (1369 lines)   internal/db (951)    internal/runner (596)
     internal/metrics               internal/uptime      internal/mcp
-    internal/terminal              internal/cmdrun      internal/watch
+    internal/terminal              internal/watch
     cmd/isletd  cmd/islet  internal/web  internal/version  pkg/api
 
 `internal/backup` is the one to start with: "backups that restore" is Phase 5's
-definition of done and nothing exercises it. `internal/cmdrun` is the one with a
-known defect above it.
+definition of done and nothing exercises it.
 
 ### Tests written but not wired into CI
 
@@ -178,13 +191,16 @@ described a repository of 48 commits.
 
 ### Not verified by anyone yet
 
-Two things in the newest feature have never been exercised end to end by a person:
+One thing in the workspace feature has never been exercised end to end by a
+person: **signing in to Claude Code with a subscription account inside a
+workspace.** It is listed as done because the code paths are tested.
 
-- signing in to Claude Code with a subscription account inside a workspace
-- an MCP tool call made by a real agent, landing in the audit log
-
-Both are listed as done because the code paths are tested. Neither has been used
-in anger.
+The other entry here — an MCP tool call made by a real agent, landing in the
+audit log — is settled. All seventy tools were called against the live panel on
+2026-09-15: the twenty-three that need no arguments, and the rest with real ids
+taken off the lists. Every one of them left an `mcp.request` row carrying its
+method, path and status. Five tools were broken, and only being called found
+them; see v0.14.3 to v0.14.6 above.
 
 A third, from v0.11.3: **the transient `islet-tmux` unit has never run on the
 development server.** `ensureServer` only acts when no server is listening, and
@@ -197,11 +213,11 @@ settles it.
 
 ### Smaller inconsistencies
 
-- **No commit on `main` carries a `Signed-off-by` line**, though `CONTRIBUTING.md`
-  asks every contributor for one and `dco.yml` enforces it. That workflow runs on
-  pull requests only, so direct pushes were never checked. The first outside
-  contributor would be held to a rule the history does not follow — either start
-  using `git commit -s`, or say plainly that the rule applies to pull requests.
+- **Most commits on `main` carry no `Signed-off-by` line**, though
+  `CONTRIBUTING.md` asks every contributor for one and `dco.yml` enforces it on
+  pull requests only, so direct pushes were never checked. Commits from v0.14.2
+  onward are signed off; the history before that is not, and the first outside
+  contributor would still be held to a rule most of the log does not follow.
 - **`v0.10.1` and `v0.11.1` are the same commit**, `b840722`, tagged twice. No
   harm done, but "one release per tag" reads oddly against a tag list where two
   names point at one change.
@@ -231,7 +247,9 @@ On a server Islet already manages, the installed daemon owns `0.0.0.0:9443`, so 
 development one needs another port — and `hack/layout-audit.mjs` and
 `hack/width-audit.mjs` both hardcode `127.0.0.1:9443`, which means they would
 drive the *installed* panel rather than the build under test. Worth knowing before
-either is run there.
+either is run there. Both also need a browser speaking the DevTools protocol, and
+the development server has none installed, so neither audit can be run there as
+it stands: a UI change made on that box is typechecked and linted, not measured.
 
 Working on a server that Islet manages has one advantage worth using: features can
 be exercised against the thing they manage rather than against Docker Desktop on a

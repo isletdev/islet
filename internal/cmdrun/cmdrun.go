@@ -159,6 +159,19 @@ var secretInURL = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^:/@\s]+):[^@\
 // the call sites that had one now pass the long form instead.
 var secretFlag = regexp.MustCompile(`^--(?i:[a-z0-9]+-)*(?i:pass|passwd|password|pwd|secret|token|apikey|api-key|accesskey|access-key|privatekey|private-key|credential|credentials|auth)$`)
 
+// secretInQuoted blanks a quoted value under a secret-looking key *inside* one
+// argument. Creating a Mongo database runs
+//
+//	mongosh --eval 'db.getSiblingDB("shop").createUser({user: "shop", pwd: "…"})'
+//
+// and the whole script is one argument, so neither the NAME=value rule nor the
+// flag rule sees the password in it — it reached the audit table and the
+// command drawer in full, which is the one thing this package exists to stop.
+//
+// The key must be a whole word, so "passthrough" and "tokenizer" are left
+// alone, and only a quoted value is touched, so prose survives.
+var secretInQuoted = regexp.MustCompile(`(?i)\b(pwd|pass|passwd|password|secret|token|apikey|api_key)\b(["']?\s*[:=]\s*)(["'])(?:[^"'\\]|\\.)*["']`)
+
 const redacted = "<redacted>"
 
 // Redact removes a secret value from one argument, keeping the name so the
@@ -167,7 +180,11 @@ func Redact(arg string) string {
 	if k, v, ok := strings.Cut(arg, "="); ok && v != "" && secretName.MatchString(k) {
 		return k + "=" + redacted
 	}
-	return secretInURL.ReplaceAllString(arg, "${1}:"+redacted+"@")
+	arg = secretInURL.ReplaceAllString(arg, "${1}:"+redacted+"@")
+	return secretInQuoted.ReplaceAllStringFunc(arg, func(m string) string {
+		g := secretInQuoted.FindStringSubmatch(m)
+		return g[1] + g[2] + g[3] + redacted + g[3]
+	})
 }
 
 // Display renders a command line the way a person would type it, with secret

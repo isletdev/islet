@@ -1922,3 +1922,25 @@ happened. A JSON number large enough would have gone the same way, as "1e+07".
 
 The lesson is the one this project keeps relearning. The table reads correctly.
 Only calling it finds out.
+
+## 2026-09-15 — A secret inside one argument is still a secret
+`cmdrun.Redact` knew two shapes: `NAME=value`, and credentials inside a
+`scheme://user:pass@` URL. `Display` added a third, the value after a
+secret-looking long flag. Between them they covered every call site — except
+one, which nobody had looked at because it does not look like a flag at all.
+
+Creating a Mongo database runs `mongosh --eval '…createUser({user: "shop", pwd:
+"…"})'`. The script is a single argument, so the password sits inside it where
+no rule could see it, and went to the audit table and the command drawer in
+full.
+
+The fix blanks a quoted value under a secret-looking key anywhere in an
+argument. Whole word, so `passthrough` and `tokenizer` survive; quoted value
+only, so `echo the password was reset` is left alone and nothing is protected by
+mangling prose.
+
+Short flags stay unmatched, and the live command log is why. 133 of the last 400
+commands carry a short `-p`, and every single one is `tmux display-message -p`
+or `timedatectl show -p`. Redacting `-p` would have emptied the audit trail of
+the detail it exists for while protecting nothing the long-form conversion had
+not already covered.
