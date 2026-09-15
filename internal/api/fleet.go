@@ -128,7 +128,12 @@ func (s *Server) handleServerJoinEvents(w http.ResponseWriter, r *http.Request) 
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
-	h.Set("Cache-Control", "no-cache")
+	// no-transform is the part that is not about caching: it tells a CDN or a
+	// proxy not to recompress this, and a compressor in front of a stream holds
+	// its first kilobyte back — which for a stream is however long the work
+	// takes. Traefik's own compressor is told the same thing by content type,
+	// in the middleware Islet writes for it.
+	h.Set("Cache-Control", "no-cache, no-transform")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	s.fleet.Follow(r.Context(), r.PathValue("id"), func(p fleet.Progress) {

@@ -1104,7 +1104,21 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			"customRequestHeaders": map[string]string{"X-Forwarded-Proto": "https"}}},
 		"islet-proto-http": map[string]any{"headers": map[string]any{
 			"customRequestHeaders": map[string]string{"X-Forwarded-Proto": "http"}}},
-		"islet-compress":         map[string]any{"compress": map[string]any{}},
+		// Compression, except on the content types that are streams.
+		//
+		// Traefik's compressor holds the first kilobyte back to decide whether
+		// compressing is worth it, and a stream's first kilobyte can be minutes
+		// of work away — so an endpoint that writes a line at a time reached the
+		// browser as nothing at all, then as a gateway timeout. It affected
+		// every streaming endpoint here: container logs, a Compose deploy, a
+		// ping, and the assistant, all of which exist precisely to be watched
+		// while they run.
+		//
+		// no-transform on the response says the same thing to the CDN in front,
+		// which has its own compressor and its own opinion about buffering.
+		"islet-compress": map[string]any{"compress": map[string]any{
+			"excludedContentTypes": []string{"text/event-stream", "application/x-ndjson"},
+		}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
 		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
 		"islet-forward-auth":     map[string]any{"forwardAuth": map[string]any{"address": panelURL + "/_islet/auth", "trustForwardHeader": true, "authResponseHeaders": []string{"X-Islet-User", "X-Islet-Role"}, "tls": map[string]any{"insecureSkipVerify": true}}},

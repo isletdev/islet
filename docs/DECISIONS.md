@@ -2019,3 +2019,33 @@ The MCP prefix is dropped for display — `list_domains`, not
 `mcp__islet__list_domains`. And a refused tool is shown in the colour of a
 refusal rather than hidden: it names the scope that was missing, which is the
 most useful thing on the screen when it happens.
+
+## 2026-09-15 — The compressor in front, and why curl never saw it
+The assistant streamed correctly and the browser saw nothing, then a gateway
+timeout. Both statements were true, and the difference between them was one
+request header.
+
+Traefik's compress middleware was applied to every route with no options, and
+its compressor holds a response's first kilobyte back to decide whether
+compressing is worth the CPU. For a page that is invisible. For a stream the
+first kilobyte is however long the work takes — several minutes on a deploy — so
+nothing reached the browser, and the proxy chain gave up before the daemon did.
+
+curl sends no `Accept-Encoding` unless asked, so nothing compressed anything and
+every measurement showed a healthy stream. The bug lived entirely in the gap
+between how the endpoint was tested and how it is used. Adding
+`-H 'Accept-Encoding: gzip'` reproduced it in one try.
+
+Two fixes, because there are two compressors. Islet's Traefik middleware now
+excludes `text/event-stream` and `application/x-ndjson`, and every streaming
+response says `no-transform`, which is what a CDN reads. Compression stays on
+for everything else: the panel bundle wants it.
+
+This was never only about the assistant. Container logs, a Compose deploy, a SQL
+query and a ping all stream through the same middleware, and all of them were
+buffered — endpoints whose entire purpose is to be watched while they run.
+
+The general lesson is about the test, not the code: a measurement taken with a
+client that does not behave like the real one is not a measurement of the thing
+that matters. Both tests added here encode that — one on the rendered Traefik
+config, one scanning for a streaming content type set without `no-transform`.

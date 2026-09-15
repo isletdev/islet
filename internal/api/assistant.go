@@ -412,7 +412,10 @@ func streamRun(ctx context.Context, w http.ResponseWriter, rn *run, from int) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	// Nothing between here and the client may buffer this, or the point is
 	// lost and the proxy times out with the whole reply sitting in a buffer.
-	w.Header().Set("Cache-Control", "no-store")
+	// no-transform is the load-bearing half: a compressor in front of a stream
+	// holds its first kilobyte back, and for a stream that is however long the
+	// work takes. It reached the browser as nothing, then as a gateway timeout.
+	w.Header().Set("Cache-Control", "no-store, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(w)
