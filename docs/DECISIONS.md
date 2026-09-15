@@ -1749,3 +1749,42 @@ so a value that arrived from a group can refer to a secret too.
 Two things the screenshots caught again: Assistant rendered as though it were a
 group heading and Vault had no icon, both because a nav entry without an entry
 in NAV_ICONS draws as a bare label.
+
+## 2026-09-15 — An OpenID Connect provider, chosen for the machine it runs on
+"Spin up an OAuth server" has an obvious answer and a correct one. The obvious
+answer is Keycloak or Authentik, and both want a Postgres, a Redis and a worker
+before they will start — on the 1 vCPU box this project targets, that is most of
+the machine for a thing that authenticates a handful of people.
+
+Pocket ID is one container, SQLite, and speaks OpenID Connect. That fits the
+catalog's shape, and it fits the machine.
+
+It was tested rather than written from the documentation. The image was pulled,
+run with exactly the environment the catalog generates, and asked for its
+discovery document:
+
+    issuer                 https://id.example.com   (built from APP_URL)
+    authorization_endpoint /authorize
+    token_endpoint         /api/oidc/token
+    jwks_uri               /.well-known/jwks.json
+    listening on           1411
+
+That test answered a question the documentation did not. Pocket ID's own example
+says to generate `ENCRYPTION_KEY` with `openssl rand -base64 32`, and the
+catalog's `secret` field generates 48 hex characters instead. Rather than guess
+whether the difference mattered — a catalog entry that fails on first install is
+worse than no catalog entry — the container was started with a hex key, and it
+runs. The container and the image were removed afterwards; neither belonged on
+that server.
+
+`TRUST_PROXY` is set because it sits behind Islet's Traefik, so the client
+address arrives in a header. `APP_URL` is the domain, which matters more here
+than in most entries: a passkey is bound to the origin it was enrolled on, so a
+wrong value there is not a misconfiguration to fix later but a set of
+credentials that have to be enrolled again.
+
+The notes say plainly when not to use it. Islet already has forward-auth —
+"Protect this app with Islet login" — and for putting a door in front of
+something that has no idea what OIDC is, that remains the simpler answer. This
+is for applications that understand OpenID Connect and want to know who the user
+is.

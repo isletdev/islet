@@ -1,0 +1,23 @@
+name: Pocket ID
+slug: pocket-id
+category: security
+description: An OpenID Connect provider, so your own apps can offer "sign in with" against accounts you control. Passkeys rather than passwords.
+website: https://pocket-id.org
+service: pocket-id
+port: 1411
+fields:
+  - key: ENCRYPTION_KEY
+    label: Encryption key
+    type: secret
+    hint: Encrypts the passkey material at rest. Generated for you; losing it means every credential has to be enrolled again.
+volumes:
+  - data
+notes: |
+  Open the domain you gave it and create the first account — whoever does that
+  becomes the administrator, so do it now rather than later.
+
+  To let an app sign people in with it: add an OIDC client in Pocket ID, then
+  give the app the issuer URL (your domain), the client id and the client
+  secret. Islet's own "Protect this app with Islet login" is the simpler option
+  when you only want a door in front of something; this is for apps that
+  understand OpenID Connect themselves and want to know who the user is.
