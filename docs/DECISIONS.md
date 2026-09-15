@@ -1583,3 +1583,54 @@ not be. `mcp.Server` takes an `OnRefusal` callback, the API writes it as
 `read,deploy,domains,catalog` created a domain and read the catalog, and its
 attempts at the file API, a security fix and a workspace are all in the audit
 log beside the successes.
+
+## 2026-09-15 — The assistant talks to providers over HTTP, not through their SDKs
+The panel is to have an assistant, usable three ways: a Claude subscription
+through a workspace, an Anthropic API key, and any other provider through its
+own API. That last requirement decides the shape — this is a provider
+interface, not a Claude integration.
+
+The Anthropic SDK is the documented way to call Claude from Go, and this does
+not use it. Two reasons, in this order. The daemon is a single static binary
+that has to run on a 1 vCPU box, and its dependency list is eleven direct
+entries, every one of them load-bearing — a driver, a multiplexer, a scheduler.
+And there is more than one provider here: taking a vendor SDK for one and
+hand-writing the wire format for the rest would leave two shapes of the same
+thing to keep in step. `Complete` is one POST and one response; the formats are
+small, stable and written down.
+
+They are not written from memory. Each provider file names the reference it was
+written from, and the tests assert the request as well as the reply — that
+Anthropic gets `input_schema` and a dated `anthropic-version` while the
+OpenAI-compatible endpoint gets `function.parameters`, that the system prompt is
+a field in one and a message in the other, that tool results ride on a user turn
+there and on their own `tool` messages here, and that arguments arrive as an
+object in one and a JSON string in the other.
+
+Three decisions inside the loop are worth stating.
+
+**A failed tool is part of the conversation, not the end of it.** A narrow token
+refusing a call is the normal case now that scopes exist, and a model told its
+call was refused generally tries something else. Ending the run on the first
+refusal would make a deliberately narrow token useless.
+
+**Every call gets a result, including the failures.** Both formats reject a turn
+whose results do not line up with the calls before it, and a model left with a
+call it never heard back about answers as though it had.
+
+**The loop is bounded.** Every step is a paid request and a set of changes to a
+real server, and a model that has misunderstood can ask for the same thing
+indefinitely. It stops after a fixed number of rounds and says so, which is
+better than looping and better than pretending to have finished.
+
+Two provider details that would otherwise be found the hard way: an Anthropic
+refusal arrives as HTTP 200 with an empty content list and a `refusal` stop
+reason, so read naively it looks like the model answering with silence; and a
+local model behind Ollama or llama.cpp has no key at all, so no authorization
+header is sent when none is set rather than an empty bearer.
+
+No thinking parameter is sent. The current generation thinks adaptively on its
+own, a token budget is rejected outright, and disabling thinking makes a model
+occasionally write a tool call into its visible text instead of calling the
+tool — which in a loop like this one would look like the model ignoring its
+instructions.
