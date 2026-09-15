@@ -302,18 +302,27 @@ func panelHasTrustedCert(ctx context.Context, px *proxy.Manager) bool {
 	return false
 }
 
-// socketPath is where the local CLI socket lives: /run/islet/isletd.sock on
-// Linux, <data>/isletd.sock elsewhere, or ISLET_SOCKET; empty disables it.
+// socketPath is where the local CLI socket lives: /run/islet/isletd.sock for
+// the installed daemon, <data>/isletd.sock for any other, or ISLET_SOCKET.
+//
+// The data directory decides, because /run/islet/isletd.sock is a single fixed
+// path and a second daemon on the same host would share it — which is not
+// hypothetical, since running a development daemon beside the installed one is
+// how this project is worked on. Startup removes a stale socket at that path
+// and shutdown removes its own, so a development daemon starting took the
+// installed daemon's socket away and another stopping took it away again. The
+// installed CLI then quietly fell back to HTTPS with a saved token, which works
+// well enough that nobody notices the socket is gone.
 func socketPath(dataDir string) string {
 	if v, ok := os.LookupEnv("ISLET_SOCKET"); ok {
 		return v
 	}
-	if runtime.GOOS == "linux" {
+	abs, _ := filepath.Abs(dataDir)
+	if runtime.GOOS == "linux" && abs == defaultDataDir() {
 		if err := os.MkdirAll("/run/islet", 0o700); err == nil {
 			return "/run/islet/isletd.sock"
 		}
 	}
-	abs, _ := filepath.Abs(dataDir)
 	return filepath.Join(abs, "isletd.sock")
 }
 

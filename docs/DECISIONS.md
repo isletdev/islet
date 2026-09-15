@@ -1788,3 +1788,36 @@ The notes say plainly when not to use it. Islet already has forward-auth —
 something that has no idea what OIDC is, that remains the simpler answer. This
 is for applications that understand OpenID Connect and want to know who the user
 is.
+
+## 2026-09-15 — Two fixed paths that two daemons were sharing
+Setting up the panel's assistant against a Claude subscription turned up two
+bugs of the same shape, both found by using the thing rather than reading it.
+
+**The MCP URL was whatever the browser typed.** `publicURL` returned
+`r.Host`, so a workspace created while browsing to a local alias was handed
+`https://islet/mcp`. The agent runs on the server, where that name does not
+resolve — so every MCP call it made failed, it ran without any of Islet's tools,
+and nothing said why. The `EAI_AGAIN islet` in this session's own startup was
+exactly that, unnoticed for a day. A domain routed to the panel resolves from
+both sides, so `PanelHost` is preferred and the request's host is the fallback
+for a server that has no panel domain.
+
+**The local CLI socket was one fixed path.** `/run/islet/isletd.sock`,
+regardless of data directory. Startup removes a stale socket there and shutdown
+removes its own, so a development daemon beside the installed one — the
+arrangement this project documents as normal — took the installed daemon's
+socket away when it started and again when it stopped. That is not hypothetical
+either: it happened repeatedly while this feature was being built, and was only
+noticed because the socket was needed. The installed CLI falls back to HTTPS
+with a saved token, which works well enough that nobody looks. The path now
+follows the data directory, and `/run` belongs to the installed daemon alone.
+
+Both are the same mistake as the transient unit name earlier in this release: a
+fixed name for a thing there can be more than one of, on a machine the project
+explicitly expects to be running two.
+
+A third thing, which is not a bug. Creating the assistant's own API token could
+not be done from a token — "tokens cannot mint tokens; sign in with a browser".
+That is the rule working. It makes setting the assistant up a two-step job that
+cannot be automated from the server, and that is the correct trade: a server
+that could mint its own credentials is a server whose credentials mean nothing.

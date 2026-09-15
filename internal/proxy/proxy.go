@@ -93,16 +93,28 @@ func (m *Manager) Ports() (string, string) { return m.httpP, m.httpsP }
 
 // PanelRouted says whether an enabled domain points at the panel.
 func (m *Manager) PanelRouted(ctx context.Context) bool {
+	return m.PanelHost(ctx) != ""
+}
+
+// PanelHost is the hostname an enabled domain reaches the panel on, or empty.
+//
+// It exists because the Host header of a browser request is not a usable
+// address for anything running on the server. An agent started in a workspace
+// runs here, and asking it to reach the panel at whatever name the person
+// happened to type into their browser — a local alias, a name from their own
+// hosts file — gives it an address that does not resolve. A domain routed to
+// the panel resolves from both sides, which is the property that matters.
+func (m *Manager) PanelHost(ctx context.Context) string {
 	doms, err := m.Domains(ctx)
 	if err != nil {
-		return false
+		return ""
 	}
 	for _, d := range doms {
 		if d.TargetType == "panel" && d.Enabled {
-			return true
+			return d.Host
 		}
 	}
-	return false
+	return ""
 }
 
 func validPort(p string) bool {

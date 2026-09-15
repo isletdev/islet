@@ -150,7 +150,24 @@ func (s *Server) wireMCP(r *http.Request, id, name string) error {
 // publicURL is this panel as the agent on this machine can reach it. The agent
 // is local, so the loopback address always works and does not depend on a
 // domain being routed yet.
+// publicURL is an address for this panel that the thing being told about it can
+// actually reach.
+//
+// A domain routed to the panel comes first, because an agent started here runs
+// on the server and the Host header is whatever the person's browser used —
+// which may be a local alias, or a name only their machine resolves. That was
+// not theoretical: a workspace created through such a name was handed
+// "https://islet/mcp", and every MCP call the agent made failed to resolve, so
+// it ran without any of Islet's tools and nothing said why.
+//
+// The request's own host is the fallback, since on a server with no panel
+// domain it is the only address there is.
 func (s *Server) publicURL(r *http.Request) string {
+	if s.proxy != nil {
+		if h := s.proxy.PanelHost(r.Context()); h != "" {
+			return "https://" + h
+		}
+	}
 	scheme := "https"
 	if r.TLS == nil {
 		scheme = "http"
