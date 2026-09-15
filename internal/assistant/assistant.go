@@ -46,6 +46,22 @@ type Message struct {
 	Text    string       `json:"text,omitempty"`
 	Calls   []ToolCall   `json:"calls,omitempty"`
 	Results []ToolResult `json:"results,omitempty"`
+	// Tools is what was done while this turn was being produced, by a provider
+	// that runs its own loop and therefore never returns Calls. It is a record,
+	// not an instruction: nothing here is ever executed, and the loop ignores
+	// it. Without it a conversation with the subscription provider reads, on
+	// the device it is opened on tomorrow, as prose with no account of what it
+	// actually did to the server.
+	Tools []ToolRun `json:"tools,omitempty"`
+}
+
+// ToolRun is one call that already happened.
+type ToolRun struct {
+	Name   string         `json:"name"`
+	Input  map[string]any `json:"input,omitempty"`
+	MS     int64          `json:"ms"`
+	OK     bool           `json:"ok"`
+	Output string         `json:"output,omitempty"`
 }
 
 // Tool is what the model is told it can do. Schema is JSON Schema, which is

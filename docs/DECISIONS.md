@@ -2083,3 +2083,78 @@ A conversation opened while it is working attaches from the event count reported
 with it rather than from zero, so the stored transcript and the live stream do
 not overlap. The final event carries the whole transcript, which corrects any
 race between reading the messages and counting the events.
+
+## 2026-09-15 — The assistant had a root shell, and --allowed-tools never stopped it
+Driving the panel in a browser to look at the assistant's layout turned up
+something else entirely: the tool lines on screen said `Bash`. Asked directly to
+run `id -u`, the assistant ran it and answered `0`.
+
+The grant shipped in v0.14.1 was `--allowed-tools mcp__islet`, on the assumption
+that naming the MCP server restricted the session to it. It does not. It says
+which tools need no approval; Claude Code's own tools are still there, and some
+of them — `Bash` among them — are classified as safe and run without asking.
+Measured twice, once in a clean environment matching the daemon's, because the
+first measurement was made inside a Claude Code session and could have inherited
+its permissions. It had not.
+
+What that meant: the daemon runs as root, so the assistant had a root shell and
+unscoped reads of every file on the machine, both outside the token's scopes and
+outside the audit log. A read-scoped token was not read-only.
+
+What works, established by trying each:
+
+- `--allowed-tools` alone: `Bash` runs.
+- `--permission-mode manual --permission-prompts none`: `Read` is refused,
+  `Bash` still runs — the safe-command classifier answers for it.
+- `--disallowed-tools`: `Bash` is refused, and the model reaches a shell through
+  `Monitor` instead. A blocklist of what you thought of is not a boundary.
+- `--settings` with `permissions.deny`: the tools are not in the session at all.
+  "This session simply has no shell tool." With `--permission-prompts none`
+  behind it and `--strict-mcp-config` so no other MCP server is loaded, asked to
+  run a command and read `/etc/shadow`, it did neither — it reached for
+  `mcp__islet__read_file` instead, which is the point: through the gate, against
+  the scopes, into the audit log.
+
+The deny list is a floor and the comment above it says so. A tool added upstream
+and classified as safe would not be on it. The durable fix is to run the process
+as somebody other than root, which is a separate change because the
+subscription's credentials live in root's home — and it is the one to make next
+if this feature grows.
+
+## 2026-09-15 — Looking at the panel, finally
+Two releases in a row were shipped without seeing them, because no browser
+speaking the DevTools protocol was installed here and installing packages on
+somebody's server is not mine to do. A Chrome-for-Testing build unpacked into a
+scratch directory is neither an install nor a repository dependency, and it is
+what this should have been from the start.
+
+What it found immediately: the model writes Markdown and the panel showed
+`**db**` and backticks; tool output was printed in full, so one container
+listing was two hundred lines of JSON between a question and its answer, and on
+a phone it was the whole screen.
+
+Markdown is rendered by a file in this repository rather than a library. Partly
+the dependency rule, but mostly because this text is not trusted — it is a
+model's prose quoting whatever the tools returned, which is whatever was in a
+container's environment or a file it read. Building React nodes means there is
+no innerHTML in the path and nothing to escape correctly; the only way to
+produce an element is for that file to have decided to. Links are limited to
+http, https and mailto for the same reason.
+
+Tool output now sits behind a line that says what ran and how long it took, and
+opens on a click — except a refusal, which opens itself, because it names the
+scope that was missing. Claude Code's tool-discovery calls are not shown at all:
+that is the model reading its own tool list, and on a phone it filled the screen
+with `query=select:…`. Everything that touches anything is still shown,
+including a built-in that should not have run — which is how the hole above
+became visible in the first place.
+
+And the record now travels with the turn. The subscription provider never
+returns tool calls, because Claude Code made them itself, so a conversation
+reopened tomorrow on another device read as prose with no account of what it had
+done. `Message.Tools` carries that: a record, never an instruction, ignored by
+the loop.
+
+The two audit scripts took `ISLET_BASE`, so they can drive a build under test
+rather than the installed daemon that owns 9443. `/assistant` is clean at 390,
+768 and 1440.

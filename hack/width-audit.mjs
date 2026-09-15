@@ -11,7 +11,9 @@
 //
 // It exits zero either way and prints what it found; read the list.
 const [, , cookie, ...paths] = process.argv;
-const DEBUG = "http://127.0.0.1:9222", BASE = "http://127.0.0.1:9443";
+// The installed daemon owns 9443 on a server Islet manages, so a build under
+// test runs on another port. ISLET_BASE says which.
+const DEBUG = "http://127.0.0.1:9222", BASE = process.env.ISLET_BASE ?? "http://127.0.0.1:9443";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const list = await (await fetch(DEBUG + "/json/list")).json();
 const ws = new WebSocket(list.find((t) => t.type === "page" && (t.url.startsWith(BASE) || t.url === "about:blank")).webSocketDebuggerUrl);
@@ -20,7 +22,7 @@ let id = 0; const pending = new Map();
 ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } };
 const send = (method, params = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method, params })); return new Promise((res, rej) => pending.set(n, (m) => (m.error ? rej(new Error(m.error.message)) : res(m.result)))); };
 await send("Page.enable"); await send("Network.enable"); await send("Runtime.enable");
-await send("Network.setCookie", { name: "islet_session", value: cookie, domain: "127.0.0.1", path: "/", httpOnly: true });
+await send("Network.setCookie", { name: "islet_session", value: cookie, domain: new URL(BASE).hostname, path: "/", httpOnly: true });
 await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 const W = { 20: 80, 24: 96, 28: 112, 32: 128, 36: 144, 40: 160, 44: 176, 48: 192, 52: 208, 56: 224, 64: 256, 72: 288, 80: 320, 96: 384 };

@@ -19,7 +19,9 @@
 
 const [, , cookie, ...paths] = process.argv;
 const DEBUG = "http://127.0.0.1:9222";
-const BASE = "http://127.0.0.1:9443";
+// The installed daemon owns 9443 on a server Islet manages, so a build under
+// test runs on another port. ISLET_BASE says which.
+const BASE = process.env.ISLET_BASE ?? "http://127.0.0.1:9443";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const list = await (await fetch(DEBUG + "/json/list")).json();
@@ -31,7 +33,7 @@ ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(
 const send = (method, params = {}) => { const n = ++id; ws.send(JSON.stringify({ id: n, method, params })); return new Promise((res, rej) => pending.set(n, (m) => (m.error ? rej(new Error(m.error.message)) : res(m.result)))); };
 
 await send("Page.enable"); await send("Network.enable"); await send("Runtime.enable");
-await send("Network.setCookie", { name: "islet_session", value: cookie, domain: "127.0.0.1", path: "/", httpOnly: true });
+await send("Network.setCookie", { name: "islet_session", value: cookie, domain: new URL(BASE).hostname, path: "/", httpOnly: true });
 
 const PROBE = `(() => {
   const out = [];

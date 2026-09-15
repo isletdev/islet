@@ -68,8 +68,14 @@ func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs [
 
 	// --verbose is not optional here: stream-json refuses without it.
 	args := []string{"--print", "--output-format", "stream-json", "--verbose"}
+	// Nothing may answer a permission prompt, so anything that would ask is
+	// refused rather than waiting for a terminal that does not exist.
+	args = append(args, "--permission-prompts", "none", "--settings", claudeSettings())
 	if s.MCPConfig != "" {
-		args = append(args, "--mcp-config", s.MCPConfig)
+		// Only the servers in that file. Without this, an MCP server configured
+		// for the person running the daemon would be loaded too, and the
+		// assistant would quietly have tools nobody granted it.
+		args = append(args, "--mcp-config", s.MCPConfig, "--strict-mcp-config")
 		// Print mode cannot ask. Claude Code prompts before using an MCP tool,
 		// and with no terminal to prompt on it refuses every one of them — so
 		// without this the assistant answers "I could not, permission was
@@ -104,7 +110,7 @@ func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs [
 	if err := cmd.Start(); err != nil {
 		return Message{}, fmt.Errorf("claude: %w", err)
 	}
-	answer, perr := readClaudeStream(stdout, obs)
+	answer, done, perr := readClaudeStream(stdout, obs)
 	werr := cmd.Wait()
 	if perr != nil && werr == nil {
 		werr = perr
@@ -123,7 +129,7 @@ func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs [
 	if strings.TrimSpace(answer) == "" {
 		return Message{}, errors.New("claude answered nothing; check that it is signed in on this server")
 	}
-	return Message{Role: RoleAssistant, Text: strings.TrimSpace(answer)}, nil
+	return Message{Role: RoleAssistant, Text: strings.TrimSpace(answer), Tools: done}, nil
 }
 
 // claudeEvent is the part of one stream-json line this cares about. The format
@@ -150,7 +156,7 @@ type claudeEvent struct {
 
 // readClaudeStream turns the binary's event stream into observer calls and
 // returns the final answer.
-func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
+func readClaudeStream(r io.Reader, obs *Observer) (string, []ToolRun, error) {
 	sc := bufio.NewScanner(r)
 	// A tool result can be large — a container listing, a file — and the
 	// default 64 KB limit would end the scan mid-run with an answer already
@@ -158,6 +164,7 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
 	sc.Buffer(make([]byte, 64<<10), 8<<20)
 	calls := map[string]ToolCall{}
 	started := map[string]time.Time{}
+	var done []ToolRun
 	var answer string
 	var failure string
 	for sc.Scan() {
@@ -176,6 +183,15 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
 				case "text":
 					obs.text(b.Text)
 				case "tool_use":
+					if internalTool(b.Name) {
+						// Looking up which tool to use is the model talking to
+						// itself, not something happening to the server, and on
+						// a phone it filled the screen with `query=select:…`.
+						// Everything else is reported, including anything the
+						// deny list failed to stop — a built-in appearing here
+						// is a hole worth seeing.
+						continue
+					}
 					c := ToolCall{ID: b.ID, Name: shortToolName(b.Name), Input: b.Input}
 					calls[b.ID] = c
 					started[b.ID] = time.Now()
@@ -189,9 +205,21 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
 				}
 				c, ok := calls[b.ToolUse]
 				if !ok {
-					c = ToolCall{ID: b.ToolUse, Name: "tool"}
+					// Its start was not reported, so neither is its end.
+					continue
 				}
-				obs.toolEnd(c, ToolResult{CallID: b.ToolUse, Content: resultText(b.Content), IsError: b.IsError}, time.Since(started[b.ToolUse]))
+				out := resultText(b.Content)
+				took := time.Since(started[b.ToolUse])
+				obs.toolEnd(c, ToolResult{CallID: b.ToolUse, Content: out, IsError: b.IsError}, took)
+				// Kept with the turn so the conversation still says what was
+				// done when it is read back tomorrow, on another device. The
+				// output is trimmed: a container listing is not a thing to
+				// store in full on every turn.
+				const keep = 2 << 10
+				if len(out) > keep {
+					out = out[:keep] + "\n… truncated"
+				}
+				done = append(done, ToolRun{Name: c.Name, Input: c.Input, MS: took.Milliseconds(), OK: !b.IsError, Output: out})
 				delete(calls, b.ToolUse)
 				delete(started, b.ToolUse)
 			}
@@ -206,13 +234,19 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return answer, err
+		return answer, done, err
 	}
 	if failure != "" {
-		return "", errors.New(failure)
+		return "", done, errors.New(failure)
 	}
-	return answer, nil
+	return answer, done, nil
 }
+
+// internalTool is a Claude Code tool that does nothing to the server.
+//
+// Only tool discovery qualifies: it is the model reading the tool list, which
+// is its own business. Everything that touches anything is reported.
+func internalTool(name string) bool { return name == "ToolSearch" }
 
 // shortToolName drops the MCP prefix, so the panel shows list_domains rather
 // than mcp__islet__list_domains. A built-in tool has no prefix and is left as
@@ -252,6 +286,54 @@ func resultText(raw json.RawMessage) string {
 		}
 	}
 	return string(raw)
+}
+
+// deniedTools are Claude Code's own tools, which this assistant must not have.
+//
+// The reason is the whole design. Islet's authority is the token in the MCP
+// configuration and the scopes on it; every tool call through that server is
+// checked against them and written to the audit log. A built-in tool goes round
+// all of it — the daemon runs as root, so `Bash` is a root shell and `Read` is
+// every file on the machine, neither of them scoped, neither of them recorded.
+//
+// Granting the MCP server with --allowed-tools does not restrict anything: it
+// says which tools need no approval, and measurement is how that was found out.
+// Asked to run `id -u` with only that flag, the assistant ran it and answered
+// 0. Nor is "nobody can approve" enough on its own: Claude Code treats some
+// commands as safe and runs them without asking, so `Read` was refused in that
+// state and `Bash` was not.
+//
+// This list is a floor rather than a ceiling, and it is honest to say so: a
+// tool added upstream and classified as safe would not be on it. Two things
+// stand behind it — permission prompts answered by nobody, which catches
+// anything that asks, and the fact that the useful paths are all through the
+// MCP server anyway, where the scopes are. The durable fix is to run this
+// process as somebody other than root, which is a separate change because the
+// subscription's credentials live in root's home.
+var deniedTools = []string{
+	"Bash", "BashOutput", "KillShell",
+	"Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep",
+	"WebFetch", "WebSearch",
+	"Task", "Monitor", "Skill", "Workflow", "Artifact",
+	"PushNotification", "SendMessage", "SendUserFile", "RemoteTrigger", "ScheduleWakeup",
+	"CronCreate", "CronDelete", "CronList",
+}
+
+// claudeSettings is the permission policy, as the JSON --settings takes.
+func claudeSettings() string {
+	b, err := json.Marshal(map[string]any{
+		"permissions": map[string]any{
+			"deny": deniedTools,
+			// Everything else asks, and nothing can answer.
+			"defaultMode": "manual",
+		},
+	})
+	if err != nil {
+		// Unreachable with a literal map, and a broken policy must not become
+		// no policy: an empty deny list is the permissive case.
+		return `{"permissions":{"deny":["Bash","Read","Write","Edit","Task"],"defaultMode":"manual"}}`
+	}
+	return string(b)
 }
 
 // mcpServerNames reads the server names out of an MCP configuration and

@@ -288,10 +288,24 @@ func TestSubscriptionGrantsTheMCPServersInItsConfig(t *testing.T) {
 	}
 	// Only the MCP servers. Granting Bash or file editing would go around the
 	// token's scopes entirely, and that token is the only fence here.
+	//
+	// The check is on what --allowed-tools carries rather than on the whole
+	// command line, because those names now appear in the deny list too — which
+	// is the opposite of granting them, and the point of the next test.
+	grant := ""
+	if i := strings.Index(got, "--allowed-tools "); i >= 0 {
+		grant = strings.TrimSpace(got[i+len("--allowed-tools "):])
+	}
+	if grant == "" {
+		t.Fatalf("no grant was passed: %q", got)
+	}
 	for _, never := range []string{"Bash", "Edit", "Write", "bypassPermissions"} {
-		if strings.Contains(got, never) {
-			t.Errorf("%q must never be granted: %q", never, got)
+		if strings.Contains(grant, never) {
+			t.Errorf("%q must never be granted: %q", never, grant)
 		}
+	}
+	if strings.Contains(got, "--dangerously-skip-permissions") || strings.Contains(got, "bypassPermissions") {
+		t.Errorf("permissions must never be bypassed: %q", got)
 	}
 }
 
@@ -415,5 +429,111 @@ func TestSubscriptionIgnoresEventsItDoesNotKnow(t *testing.T) {
 	}
 	if msg.Text != "done anyway" {
 		t.Errorf("answer %q", msg.Text)
+	}
+}
+
+// The assistant's authority is the token in its MCP configuration and the
+// scopes on it. Claude Code's own tools go round all of it: the daemon runs as
+// root, so Bash is a root shell and Read is every file on the machine, neither
+// scoped nor written to the audit log.
+//
+// This was not theoretical. With only --allowed-tools, which is what shipped,
+// the assistant was asked to run `id -u` and answered 0.
+func TestSubscriptionRefusesClaudeCodesOwnTools(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" > "+filepath.Join(dir, "args.txt")+"\ncat >/dev/null\necho '{\"type\":\"result\",\"result\":\"ok\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Subscription{Bin: bin, MCPConfig: filepath.Join(dir, "mcp.json")}
+	if err := os.WriteFile(p.MCPConfig, []byte(`{"mcpServers":{"islet":{"type":"http","url":"https://x/mcp"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	got := string(args)
+
+	// Nobody can answer a prompt, so anything that would ask is refused rather
+	// than waiting for a terminal that is not there.
+	if !strings.Contains(got, "--permission-prompts none") {
+		t.Errorf("nothing refuses what would prompt: %q", got)
+	}
+	// Only the servers in the file Islet wrote. Otherwise an MCP server
+	// configured for whoever runs the daemon is loaded too, and the assistant
+	// has tools nobody granted it.
+	if !strings.Contains(got, "--strict-mcp-config") {
+		t.Errorf("another MCP configuration could be loaded: %q", got)
+	}
+	// And the tools that reach the machine directly are denied by name.
+	for _, tool := range []string{"Bash", "Read", "Write", "Edit", "WebFetch", "Task"} {
+		if !strings.Contains(got, `"`+tool+`"`) {
+			t.Errorf("%s is not denied: %q", tool, got)
+		}
+	}
+	if !strings.Contains(got, "manual") {
+		t.Errorf("the default is not to ask: %q", got)
+	}
+	// The MCP server is still granted, or the assistant can do nothing at all.
+	if !strings.Contains(got, "mcp__islet") {
+		t.Errorf("the tools it is supposed to have were not granted: %q", got)
+	}
+}
+
+// The policy is built from a literal, so it cannot silently become permissive.
+func TestTheDenyListIsNeverEmpty(t *testing.T) {
+	s := claudeSettings()
+	for _, tool := range deniedTools {
+		if !strings.Contains(s, `"`+tool+`"`) {
+			t.Errorf("%s is missing from the settings the binary is given: %s", tool, s)
+		}
+	}
+	if len(deniedTools) < 10 {
+		t.Errorf("the deny list has shrunk to %d entries, which is how a shell gets back in", len(deniedTools))
+	}
+}
+
+// A conversation read back tomorrow, on another device, should still say what
+// the assistant did — not just what it concluded. The subscription provider
+// never returns tool calls, because Claude Code ran them itself, so the record
+// travels on the turn instead.
+func TestTheTurnKeepsWhatItDid(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	lines := []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__islet__list_domains","input":{"limit":5}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"[{\"host\":\"a.example.com\"}]"}]}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__islet__create_domain","input":{"host":"b.example.com"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"scopes do not cover domains"}]}}`,
+		`{"type":"result","result":"One domain; I could not add the other."}`,
+	}
+	script := "#!/bin/sh\ncat >/dev/null\n"
+	for _, l := range lines {
+		script += "echo '" + l + "'\n"
+	}
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := (&Subscription{Bin: bin}).Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.Tools) != 2 {
+		t.Fatalf("the turn kept %d tool runs, want 2: %+v", len(msg.Tools), msg.Tools)
+	}
+	if msg.Tools[0].Name != "list_domains" || !msg.Tools[0].OK {
+		t.Errorf("first run recorded as %+v", msg.Tools[0])
+	}
+	if msg.Tools[1].Name != "create_domain" || msg.Tools[1].OK {
+		t.Errorf("the refusal was not recorded as one: %+v", msg.Tools[1])
+	}
+	if msg.Tools[1].Output != "scopes do not cover domains" {
+		t.Errorf("the refusal lost its reason: %q", msg.Tools[1].Output)
+	}
+	// And it is a record, not an instruction: the outer loop must never see
+	// these as calls to make, or every reopened conversation would run again.
+	if len(msg.Calls) != 0 {
+		t.Errorf("this provider must never return tool calls: %+v", msg.Calls)
 	}
 }

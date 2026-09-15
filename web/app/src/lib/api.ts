@@ -181,11 +181,15 @@ export interface AssistantConfig {
 }
 export interface AssistantToolCall { id: string; name: string; input?: Record<string, unknown> }
 export interface AssistantToolResult { callId: string; content: string; isError?: boolean }
+/** One call that already happened, kept with the turn that made it. */
+export interface AssistantToolRun { name: string; input?: Record<string, unknown>; ms: number; ok: boolean; output?: string }
 export interface AssistantMessage {
   role: "user" | "assistant";
   text?: string;
   calls?: AssistantToolCall[];
   results?: AssistantToolResult[];
+  /** What a provider running its own loop did while producing this turn. */
+  tools?: AssistantToolRun[];
 }
 
 /**

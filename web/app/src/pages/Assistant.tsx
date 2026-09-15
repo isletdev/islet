@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, RequestError, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage } from "@/lib/api";
+import { api, RequestError, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
 import { getNDJSON, postNDJSON } from "@/lib/stream";
 import { useDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Input } from "@/components/ui";
+import Markdown from "@/components/Markdown";
 
 function err(e: unknown) {
   if (e instanceof RequestError) return e.message;
@@ -302,11 +303,16 @@ export default function Assistant() {
                 <button
                   type="button"
                   onClick={() => void open(c.id)}
-                  className={`w-full truncate rounded-md px-2 py-2 pr-14 text-left text-xs ${c.id === chatId ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
+                  className={`w-full rounded-md px-2 py-1.5 pr-12 text-left ${c.id === chatId ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
                   title={c.title || "Untitled"}
                 >
-                  {c.runId && <span aria-label="working" className="mr-1.5 inline-block size-1.5 rounded-full bg-success align-middle" />}
-                  {c.title || "Untitled"}
+                  <span className="block truncate text-xs">
+                    {c.runId && <span aria-label="working" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-success align-middle" />}
+                    {c.title || "Untitled"}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] text-ink-muted">
+                    {c.runId ? "working…" : ago(c.updatedAt)}
+                  </span>
                 </button>
                 <span className="absolute right-1 top-1/2 flex -translate-y-1/2 gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                   <button type="button" onClick={() => void rename(c)} className="-my-1 px-1 py-1 text-[11px] text-ink-muted hover:text-ink" aria-label={`Rename ${c.title || "conversation"}`}>✎</button>
@@ -336,7 +342,7 @@ export default function Assistant() {
                 </ul>
               </div>
             )}
-            {msgs.map((m, i) => <Turn key={i} m={m} />)}
+            <Transcript msgs={msgs} />
             {activity.length > 0 && <Working items={activity} />}
             {running && activity.length === 0 && (
               <p className="text-sm text-ink-muted">{reconnecting ? "Picking up where it got to…" : "Thinking…"}</p>
@@ -376,64 +382,131 @@ function Working({ items }: { items: Activity[] }) {
     <ul className="space-y-1">
       {items.map((it, i) =>
         it.kind === "text" ? (
-          <li key={i} className="whitespace-pre-wrap text-sm text-ink-muted">{it.text}</li>
+          <li key={i}><Markdown text={it.text} className="text-sm leading-relaxed text-ink-muted" /></li>
         ) : (
-          <li key={it.id || i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono text-[11px]">
-            <span aria-hidden className={it.ms === undefined ? "text-ink-muted" : it.ok ? "text-success" : "text-warning"}>
-              {it.ms === undefined ? "◌" : it.ok ? "✓" : "✕"}
-            </span>
-            <span className={it.ok === false ? "text-warning" : "text-ink"}>{it.name}</span>
-            {it.input && Object.keys(it.input).length > 0 && (
-              <span className="min-w-0 break-all text-ink-muted">{summarise(it.input)}</span>
-            )}
-            {it.ms !== undefined && <span className="text-ink-muted">{fmtMs(it.ms)}</span>}
-            {it.ok === false && it.preview && <span className="w-full break-all text-warning">{it.preview}</span>}
-          </li>
+          <ToolLine key={it.id || i} name={it.name} input={it.input} ok={it.ok} ms={it.ms} output={it.ok === false ? it.preview : undefined} />
         ),
       )}
     </ul>
   );
 }
 
+// Arguments as one short line. A phone is 390 pixels wide and a wrapped
+// argument pushed every tool call to three lines, which turned a run of nine
+// into a wall.
 function summarise(input: Record<string, unknown>) {
-  return Object.entries(input)
+  const s = Object.entries(input)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join(" ")
-    .slice(0, 120);
+    .join(" ");
+  return s.length > 64 ? s.slice(0, 64) + "…" : s;
 }
 
 function fmtMs(ms: number) {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function Turn({ m }: { m: AssistantMessage }) {
-  // A turn carrying only results is the transcript of what the tools said; it
-  // is shown because a refusal is the most useful thing on the screen when one
-  // happens, and hiding it would leave the model's summary as the only account.
-  if (m.results?.length) {
+/**
+ * The conversation, with each turn's tool calls folded into the turn that asked
+ * for them.
+ *
+ * The results arrive as a message of their own, which is how both wire formats
+ * carry them, but reading them that way puts a wall of JSON between a question
+ * and its answer. Here they belong to the turn that made the call.
+ */
+function Transcript({ msgs }: { msgs: AssistantMessage[] }) {
+  const out = [];
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    // A results-only message is drawn by the turn before it, unless there was
+    // none — which should not happen, and is still better shown than dropped.
+    if (m.results?.length && i > 0 && msgs[i - 1].calls?.length) continue;
+    out.push(<Turn key={i} m={m} answers={msgs[i + 1]?.results} />);
+  }
+  return <>{out}</>;
+}
+
+function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResult[] }) {
+  const mine = m.role === "user";
+  if (mine && !m.results?.length) {
     return (
-      <ul className="space-y-1">
-        {m.results.map((r) => (
-          <li key={r.callId} className={`overflow-x-auto whitespace-pre-wrap break-all rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${r.isError ? "border-warning/40 bg-warning-soft text-warning" : "border-border text-ink-muted"}`}>
-            {r.isError ? "refused: " : ""}{r.content.length > 300 ? r.content.slice(0, 300) + "…" : r.content}
-          </li>
-        ))}
-      </ul>
+      <div className="flex justify-end">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-ink px-3 py-2 text-sm text-on-ink">{m.text}</div>
+      </div>
     );
   }
-  const mine = m.role === "user";
+  const results = m.results ?? answers;
   return (
-    <div className={mine ? "flex justify-end" : ""}>
-      <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${mine ? "bg-ink text-on-ink" : "bg-surface-2"}`}>
-        {m.text && <p className="whitespace-pre-wrap">{m.text}</p>}
-        {m.calls?.length ? (
-          <ul className="mt-1.5 space-y-1">
-            {m.calls.map((c) => (
-              <li key={c.id} className="font-mono text-[11px] text-ink-muted">→ {c.name}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+    <div className="space-y-1.5">
+      {/* What this turn did, for a provider that ran its own loop. It comes
+          before the prose because that is the order it happened in. */}
+      {m.tools?.length ? (
+        <ul className="space-y-1">
+          {m.tools.map((t, i) => <ToolLine key={i} name={t.name} input={t.input} ok={t.ok} ms={t.ms} output={t.output} />)}
+        </ul>
+      ) : null}
+      {m.text && <Markdown text={m.text} className="max-w-[90%] text-sm leading-relaxed" />}
+      {m.calls?.length ? (
+        <ul className="space-y-1">
+          {m.calls.map((c) => {
+            const r = results?.find((x) => x.callId === c.id);
+            return <ToolLine key={c.id} name={c.name} input={c.input} ok={r ? !r.isError : undefined} output={r?.content} />;
+          })}
+        </ul>
+      ) : null}
+      {/* Results with no call to hang them on: shown rather than lost. */}
+      {!m.calls?.length && m.results?.length ? (
+        <ul className="space-y-1">
+          {m.results.map((r) => <ToolLine key={r.callId} name="tool" ok={!r.isError} output={r.content} />)}
+        </ul>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * One tool, as a line you can open.
+ *
+ * Tool output used to be printed in full: a container listing is two hundred
+ * lines of JSON between one sentence and the next, and on a phone it was the
+ * whole screen. The line says what ran and how it went; the output is a click
+ * away — except a refusal, which opens itself, because it names the scope that
+ * was missing and that is the most useful thing on the screen when it happens.
+ */
+function ToolLine({ name, input, ok, ms, output }: { name: string; input?: Record<string, unknown>; ok?: boolean; ms?: number; output?: string }) {
+  const mark = ok === undefined ? "◌" : ok ? "✓" : "✕";
+  const tone = ok === undefined ? "text-ink-muted" : ok ? "text-success" : "text-warning";
+  const head = (
+    <>
+      <span aria-hidden className={tone}>{mark}</span>
+      <span className={ok === false ? "text-warning" : "text-ink"}>{name}</span>
+      {input && Object.keys(input).length > 0 && <span className="min-w-0 truncate text-ink-muted">{summarise(input)}</span>}
+      {ms !== undefined && <span className="text-ink-muted">{fmtMs(ms)}</span>}
+    </>
+  );
+  if (!output) {
+    return <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono text-[11px]">{head}</li>;
+  }
+  return (
+    <li>
+      <details open={ok === false} className="group">
+        <summary className="-my-1 flex cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1 font-mono text-[11px] marker:content-['']">
+          {head}
+          <span className="text-ink-muted underline decoration-dotted group-open:hidden">show</span>
+        </summary>
+        <pre className={`mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border px-2.5 py-1.5 font-mono text-[11px] ${ok === false ? "border-warning/40 bg-warning-soft text-warning" : "border-border text-ink-muted"}`}>{output}</pre>
+      </details>
+    </li>
+  );
+}
+
+/** How long ago, in as few characters as a list can spare. */
+function ago(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(then).toLocaleDateString();
 }
