@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `53cf249`, tagged `v0.14.6`, 2026-09-15. 127 commits, 53 tags, CI green on `main`.
+**Head:** `f15a49e`, tagged `v0.15.0`, 2026-09-15. 130 commits, 56 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.14.6
+## Shipped since the plan ran out — v0.6.0 to v0.15.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -68,6 +68,10 @@ recent history, because it is the half that was found rather than designed.
 | v0.14.4 | `03d170c` | `create_domain` named six target types; the proxy takes three. An agent asked to put an app on a domain picks "app", which was refused every time |
 | v0.14.5 | `735cafa` | What calling all seventy tools found that reading them did not. `diagnostics` answered "500 streaming unsupported" — its endpoint sends SSE and the recorder tools call through was not an `http.Flusher`; `search_files` offered `path`/`query` where the handler read `root`/`q`; and `content`, a boolean, was sent as "true" where every query flag here is compared against "1", so search-inside-files was a switch connected to nothing |
 | v0.14.6 | `53cf249` | Making the recorder flushable let the diagnostics tool past the refusal and into a panic: `streamLines` drains the request body, and a request assembled in process has none. Fixed at both ends — the synthetic request carries `http.NoBody`, and the helper every streaming endpoint funnels through no longer takes the daemon's handler down on a nil |
+
+| v0.14.7 | `6378beb` | Creating a Mongo database sends the new user's password inside a `--eval` script — one argument, so no redaction rule could see it, and it reached the audit table and the command drawer in full |
+| v0.14.8 | `4babc79` | Streaming broke the tab that was already open: it reads the whole reply with `JSON.parse` and fails at the first newline. The shape now follows `Accept`, and a stale tab reloads itself when it asks for a chunk that no longer exists |
+| v0.15.0 | `f15a49e` | **A run belongs to the daemon.** Asking for anything long from a phone failed silently — a locked screen closes the connection, and the loop was bound to the request. Runs now have an id, an event log and a sequence number to come back on; the panel reattaches on mount, on visibility and on reconnect. And they say what they are doing: each tool named as it starts and ticked when it returns, read out of Claude Code's own `stream-json` for the subscription provider and out of the loop for the rest |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
