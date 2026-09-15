@@ -15,7 +15,11 @@ set -eu
 BASE="${ISLET_BASE:-http://127.0.0.1:9443}"
 COOKIE="${1:?usage: ISLET_BASE=… hack/e2e-backup.sh <islet_session cookie>}"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# restic runs as root inside its container and leaves root-owned files in the
+# repository, so on a machine where this script is not root the cleanup cannot
+# remove them. That is tidying, not a result: it must not decide the exit code.
+# (It passed as root here and failed in CI on exactly this.)
+trap 'rm -rf "$WORK" 2>/dev/null || true' EXIT
 
 api() {
   method="$1"; path="$2"; shift 2
@@ -69,6 +73,6 @@ ok "every byte came back identical"
 
 api DELETE "/api/v1/backups/plans/$plan" > /dev/null 2>&1 || true
 api DELETE "/api/v1/backups/destinations/$dest" > /dev/null 2>&1 || true
-rm -rf "$target"
+rm -rf "$target" 2>/dev/null || true
 echo
 echo "backup e2e: clean"
