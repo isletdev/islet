@@ -25,6 +25,8 @@
   "nav.backups.blurb": "Encrypted backups that are tested by restoring them.",
   "nav.security": "Security",
   "nav.security.blurb": "Score, firewall, SSH, intrusion prevention, scans.",
+  "nav.vault": "Vault",
+  "nav.vault.blurb": "Secrets under a name, referred to as @vault:NAME wherever they are needed.",
   "nav.logs": "Logs",
   "nav.logs.blurb": "One viewer across system, Docker and app logs.",
   "nav.servers": "Servers",

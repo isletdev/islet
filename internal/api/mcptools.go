@@ -238,6 +238,14 @@ func (s *Server) curatedTools() []mcp.Tool {
 			map[string]any{"name": str("Check name"), "type": str("http, tcp or keyword"), "target": str("URL or host:port"), "keyword": str("Text that must appear, for a keyword check")}},
 		{"delete_uptime_check", "Delete an uptime check, so this server stops watching that target and alerting on it.", "uptime", "DELETE", "/api/v1/uptime/checks/{id}", []string{"id"}, map[string]any{"id": str("Check id")}},
 
+		// ---- the vault ---------------------------------------------------
+		// Listing and storing, and no reveal. An agent that could read every
+		// secret on the server could copy the server; it can put one in and
+		// refer to it by name, which is what it needs to set something up.
+		{"list_secrets", "Names of the secrets stored in the vault, with what each is for and when it was last used. Values are never returned.", "read", "GET", "/api/v1/vault", nil, map[string]any{}},
+		{"store_secret", "Put a value in the vault under a name, so it can be referred to as @vault:NAME in an app's environment or a cron command instead of being written out. Replaces the value if the name is already in use.", "vault", "POST", "/api/v1/vault", []string{"name", "value"},
+			map[string]any{"name": str("UPPER_CASE_NAME, letters digits and underscores"), "value": str("The secret itself"), "description": str("What it is for")}},
+
 		// ---- the server itself --------------------------------------------------
 		{"metrics_history", "CPU, memory, disk and network over time.", "read", "GET", "/api/v1/metrics/history", nil, map[string]any{"hours": num("How far back, default 24")}},
 		{"diagnostics", "ping, traceroute, dig and a port check from this server.", "read", "GET", "/api/v1/diagnostics", nil, map[string]any{"host": str("What to test"), "kind": str("ping, traceroute, dig or port")}},

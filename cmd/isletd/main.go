@@ -41,6 +41,7 @@ import (
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/tlsutil"
 	"github.com/isletdev/islet/internal/uptime"
+	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
@@ -174,6 +175,7 @@ func run() error {
 		return fmt.Errorf("cron: %w", err)
 	}
 	ws := workspace.New(st, cmds, bus, *dataDir, log)
+	vlt := vault.New(st, keys)
 	go watch.Docker(ctx, cmds, bus, log)
 	go watch.Resources(ctx, sampler, bus)
 	go watch.Daily(ctx, px, bus, log)
@@ -206,7 +208,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

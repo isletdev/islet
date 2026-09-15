@@ -244,7 +244,7 @@ function Tokens() {
   // TestPanelOffersTheSameScopes reads this line and fails if they drift: a
   // scope offered here that no rule understands would grant nothing, and a
   // scope the rules know that is missing here cannot be given to anyone.
-  const SCOPES = ["read", "deploy", "cron", "db", "containers", "domains", "files", "backups", "security", "uptime", "runners", "catalog", "workspaces", "notify", "logs", "system", "settings", "shell"];
+  const SCOPES = ["read", "deploy", "cron", "db", "containers", "domains", "files", "backups", "security", "uptime", "runners", "catalog", "workspaces", "vault", "notify", "logs", "system", "settings", "shell"];
   const create = async (e: FormEvent) => {
     e.preventDefault(); setMsg(null);
     try { const r = await api.tokenCreate({ name, scopes: scopes.length ? scopes.join(",") : "*", ttlDays: ttl }); setCreated(r.token); setName(""); setScopes([]); await load(); }

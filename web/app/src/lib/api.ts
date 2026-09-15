@@ -172,6 +172,8 @@ export interface DeployApp {
 }
 export interface Detection { strategy: string; framework: string; summary: string; installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; composeFile?: string; nodeVersion?: string; pythonVersion?: string }
 
+export interface VaultSecret { id: string; name: string; description: string; createdAt: string; updatedAt: string; lastUsedAt?: string }
+
 export interface AssistantConfig {
   provider: "anthropic" | "openai" | "subscription";
   model: string; baseUrl: string; keySet: boolean; defaultModel: string;
@@ -338,6 +340,10 @@ export const api = {
   cookieDomain: () => request<{ cookieDomain: string }>("/api/v1/auth/cookie-domain"),
   cookieDomainSet: (cookieDomain: string) => post<{ cookieDomain: string }>("/api/v1/auth/cookie-domain", { cookieDomain }),
   tokens: () => request<ApiToken[]>("/api/v1/auth/tokens"),
+  vault: () => request<VaultSecret[]>("/api/v1/vault"),
+  vaultSet: (b: { name: string; value: string; description: string }) => post<{ ok: boolean }>("/api/v1/vault", b),
+  vaultDelete: (name: string) => post<void>(`/api/v1/vault/${encodeURIComponent(name)}`, undefined, "DELETE"),
+  vaultReveal: (name: string) => post<{ name: string; value: string }>(`/api/v1/vault/${encodeURIComponent(name)}/reveal`, {}),
   assistant: () => request<AssistantConfig>("/api/v1/assistant"),
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
   assistantChat: (b: { messages: AssistantMessage[]; maxSteps?: number }) =>

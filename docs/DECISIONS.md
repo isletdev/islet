@@ -1703,3 +1703,49 @@ them and their own server. Two things the screenshots caught that review did
 not: the sidebar rendered `nav.assistant` because the translation was missing,
 and a JSON tool result scrolled the page sideways on a phone because a
 monospace line without wrapping does that.
+
+## 2026-09-15 — A vault: one place for a secret, and a name to call it by
+Islet already encrypted credentials in half a dozen places — an app's
+environment, a registry login, a DNS provider token, now the assistant's API key
+— each in its own setting, each reachable only from the page that wrote it. The
+same database password ends up pasted into an app, a cron job and a backup hook,
+and rotating it means remembering all three.
+
+The value is stored the way all of those already are, AES-GCM through the
+daemon's keys. What this adds is the name: `@vault:DATABASE_PASSWORD` written
+into an app's environment is replaced on the way into the process, so rotating
+is one edit in one place.
+
+Four rules, each of which is the interesting part of the design.
+
+**A value goes in and does not come back out.** The listing carries names,
+descriptions and when each was last used — never values. A list that carried
+them would put every secret on the server into any log, screenshot or browser
+cache that caught the response.
+
+**Revealing one is a door with a light on it.** Admins only, through a session,
+written to the audit log every time. No scope reaches it, and the test that says
+so runs over every scope: a token that could read every secret would be a copy
+of the server. The alternative — no reveal at all — is worse, because the person
+who genuinely needs to paste a key into something Islet does not manage will
+keep their own copy somewhere instead.
+
+**An unknown reference is left exactly as written.** Replacing `@vault:TYPO`
+with nothing turns a wrong password into a working connection to the wrong
+database. Left in place it fails at once and says what is wrong when anyone
+looks. The deploy log says a substitution happened and never what it
+substituted.
+
+**An agent can put a secret in and cannot take one out.** `store_secret` and
+`list_secrets` are tools; there is no reveal tool, and the escape hatch is
+refused on that route too. Setting something up needs writing a secret and
+referring to it; it never needs reading one back.
+
+The deploy service takes the expansion as a hook rather than calling the vault,
+so it keeps knowing nothing about it, and a deploy without one still works — the
+reference simply stays as written. Expansion runs after the environment groups,
+so a value that arrived from a group can refer to a secret too.
+
+Two things the screenshots caught again: Assistant rendered as though it were a
+group heading and Vault had no icon, both because a nav entry without an entry
+in NAV_ICONS draws as a bare label.

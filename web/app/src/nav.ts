@@ -38,6 +38,7 @@ export const NAV: NavItem[] = [
   { path: "/notifications", key: "notifications", label: "Notifications", group: "operate", phase: "v0.4", ready: true, blurb: "Telegram, Discord, Slack, email and webhooks." },
   { path: "/backups", key: "backups", label: "Backups", group: "operate", phase: "v0.6", ready: true, blurb: "Encrypted backups that are tested by restoring them." },
   { path: "/security", key: "security", label: "Security", group: "operate", phase: "v0.6", ready: true, blurb: "Score, firewall, SSH, intrusion prevention, scans." },
+  { path: "/vault", key: "vault", label: "Vault", group: "operate", phase: "v0.12", ready: true, blurb: "Secrets under a name, referred to as @vault:NAME wherever they are needed." },
 
   { path: "/servers", key: "servers", label: "Servers", group: "account", phase: "v0.3", ready: true, blurb: "Every machine this panel manages, and how to add another." },
   { path: "/settings", key: "settings", label: "Settings", group: "account", phase: "v0.1", ready: true, blurb: "Users, 2FA, API tokens, updates." },

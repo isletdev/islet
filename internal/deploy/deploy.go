@@ -128,6 +128,12 @@ type Service struct {
 	CloneAuth func(ctx context.Context, repoURL string) (string, bool)
 	// EnvGroup resolves a shared environment group by name (lines), or ok=false.
 	EnvGroup func(ctx context.Context, name string) ([]string, bool)
+	// Secrets replaces @vault:NAME references with their values, on the way
+	// into the process and nowhere else. It is a hook rather than a direct
+	// call so that this package keeps knowing nothing about the vault, and so
+	// that a deploy without one still works — a reference simply stays as
+	// written, which fails loudly rather than becoming an empty password.
+	Secrets func(ctx context.Context, in string) string
 }
 
 type run struct {
@@ -1248,6 +1254,23 @@ func (s *Service) expandGroups(ctx context.Context, lines []string, lg *logger) 
 			}
 		}
 		lg.line("[islet] env group @" + name + " applied")
+	}
+	// Last, so a value that arrived from a group can refer to a secret too.
+	// The log says a substitution happened and never what it substituted.
+	if s.Secrets != nil {
+		n := 0
+		for i, l := range out {
+			if !strings.Contains(l, "@vault:") {
+				continue
+			}
+			if v := s.Secrets(ctx, l); v != l {
+				out[i] = v
+				n++
+			}
+		}
+		if n > 0 {
+			lg.line("[islet] " + strconv.Itoa(n) + " environment variable(s) filled in from the vault")
+		}
 	}
 	return out
 }

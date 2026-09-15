@@ -30,7 +30,7 @@ type Token struct {
 var Scopes = []string{
 	"read", "deploy", "cron", "db", "containers", "domains", "files",
 	"backups", "security", "uptime", "runners", "catalog", "workspaces",
-	"notify", "logs", "system", "settings", "shell",
+	"vault", "notify", "logs", "system", "settings", "shell",
 }
 
 // ErrBadToken is returned for unknown, expired or malformed tokens.
@@ -284,6 +284,17 @@ func ScopeAllows(scopes, method, path string) bool {
 		// to grant any method, which was harmless only because no such route
 		// existed — a poor thing for a permission check to rely on.
 		return read && (has("logs") || has("read"))
+	// The vault. Listing names is a read; storing one needs the vault scope.
+	// Revealing a value is deliberately not reachable by any scope at all —
+	// it is admin-and-session only, because a token that could read every
+	// secret on the server would be a copy of the server.
+	case strings.HasSuffix(path, "/reveal") && strings.HasPrefix(path, "/api/v1/vault"):
+		return false
+	case strings.HasPrefix(path, "/api/v1/vault"):
+		if read {
+			return has("vault") || has("read")
+		}
+		return has("vault")
 	// Asking the assistant needs only the ability to read, because the
 	// assistant cannot exceed the scopes of whoever asked: it runs every tool
 	// through the same gate a direct call passes. Configuring it — which means

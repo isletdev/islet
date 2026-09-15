@@ -34,6 +34,7 @@ import (
 	"github.com/isletdev/islet/internal/sqlclient"
 	"github.com/isletdev/islet/internal/store"
 	"github.com/isletdev/islet/internal/uptime"
+	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
@@ -54,6 +55,7 @@ type Deps struct {
 	Notify     *notify.Bus
 	Cron       *cron.Service
 	Workspaces *workspace.Service
+	Vault      *vault.Service
 	DB         *db.Service
 	Uptime     *uptime.Service
 	Deploy     *deploy.Service
@@ -82,6 +84,7 @@ type Server struct {
 	notify     *notify.Bus
 	cron       *cron.Service
 	workspaces *workspace.Service
+	vault      *vault.Service
 	db         *db.Service
 	uptime     *uptime.Service
 	deploy     *deploy.Service
@@ -109,7 +112,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now()}
 	// The SQL client costs a map and a ticker until somebody opens a
 	// connection, which is the whole argument for it living in the daemon.
 	if s.store != nil && s.keys != nil {
@@ -137,6 +140,7 @@ func New(d Deps) http.Handler {
 	})
 	if s.deploy != nil {
 		s.deploy.EnvGroup = s.EnvGroupLines
+		s.deploy.Secrets = s.expandSecrets
 	}
 	mux := http.NewServeMux()
 
@@ -174,6 +178,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/github", s.requireAuth(s.handleGitHubConfig))
 	mux.HandleFunc("POST /api/v1/github", requireJSON(s.requireAuth(s.handleGitHubSave)))
 	mux.HandleFunc("GET /api/v1/github/repos", s.requireAuth(s.handleGitHubRepos))
+	mux.HandleFunc("GET /api/v1/vault", s.requireAuth(s.handleVault))
+	mux.HandleFunc("POST /api/v1/vault", requireJSON(s.requireAuth(s.handleVault)))
+	mux.HandleFunc("DELETE /api/v1/vault/{name}", s.requireAuth(s.handleVaultDelete))
+	mux.HandleFunc("POST /api/v1/vault/{name}/reveal", requireJSON(s.requireAuth(s.handleVaultReveal)))
 	mux.HandleFunc("GET /api/v1/assistant", s.requireAuth(s.handleAssistantConfig))
 	mux.HandleFunc("POST /api/v1/assistant", requireJSON(s.requireAuth(s.handleAssistantConfig)))
 	mux.HandleFunc("POST /api/v1/assistant/chat", requireJSON(s.requireAuth(s.handleAssistantChat)))

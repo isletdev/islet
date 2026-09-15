@@ -127,6 +127,31 @@ func TestReadingFilesNeedsItsOwnScope(t *testing.T) {
 	}
 }
 
+// No token may reveal a secret. A token that could read every secret on the
+// server would be a copy of the server, so revealing is left to an admin with
+// a session, and written down every time.
+func TestNoTokenCanRevealASecret(t *testing.T) {
+	for _, sc := range append(append([]string{}, Scopes...), "*", "vault,settings,system") {
+		if sc == "*" {
+			continue // the deliberate exception, checked elsewhere
+		}
+		if ScopeAllows(sc, "POST", "/api/v1/vault/DATABASE_PASSWORD/reveal") {
+			t.Errorf("scope %q must not be able to reveal a secret", sc)
+		}
+	}
+	// Storing and listing still work, or the vault would be unusable by a
+	// deploy pipeline, which is most of the point.
+	if !ScopeAllows("vault", "POST", "/api/v1/vault") {
+		t.Error("the vault scope should be able to store a secret")
+	}
+	if !ScopeAllows("read", "GET", "/api/v1/vault") {
+		t.Error("read should be able to list the names")
+	}
+	if ScopeAllows("read", "POST", "/api/v1/vault") {
+		t.Error("read must not be able to store one")
+	}
+}
+
 // Notify sends. It does not read the channel list, which holds webhook URLs
 // and bot tokens.
 func TestNotifySendsButDoesNotRead(t *testing.T) {
@@ -158,7 +183,7 @@ func TestUnknownPathsAreRefused(t *testing.T) {
 // a scope nobody can be given would be dead.
 func TestEveryOfferedScopeIsUnderstood(t *testing.T) {
 	// The scopes handled by a case of their own rather than by the area table.
-	known := map[string]bool{"read": true, "shell": true, "notify": true, "logs": true, "files": true}
+	known := map[string]bool{"read": true, "shell": true, "notify": true, "logs": true, "files": true, "vault": true}
 	for _, a := range areas {
 		known[a.scope] = true
 	}

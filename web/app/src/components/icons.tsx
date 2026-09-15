@@ -426,7 +426,26 @@ export const WorkspacesIcon = (p: IconProps) => (
   </svg>
 );
 
+/** A speech mark with a spark: something you ask, that acts. */
+export const AssistantIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <path d="M21 12a8 8 0 0 1-8 8H8l-4 2 1-4.2A8 8 0 1 1 21 12Z" />
+    <path d="m12 8 1 2.5 2.5 1-2.5 1L12 15l-1-2.5-2.5-1 2.5-1Z" />
+  </svg>
+);
+
+/** A padlock over a slab: a thing kept shut. */
+export const VaultIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <rect x="3" y="10" width="18" height="11" rx="2" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    <circle cx="12" cy="15.5" r="1.25" />
+  </svg>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
+  assistant: AssistantIcon,
+  vault: VaultIcon,
   workspaces: WorkspacesIcon,
   overview: OverviewIcon,
   containers: ContainersIcon,
