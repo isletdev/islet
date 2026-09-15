@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -151,44 +152,68 @@ func (s *Server) one(ctx context.Context, actor, scopes, role string, r request)
 		if err := json.Unmarshal(r.Params, &p); err != nil {
 			return errResp(r.ID, -32602, "invalid params")
 		}
-		for _, t := range s.tools {
-			if t.Name != p.Name {
-				continue
+		out, err := s.CallTool(ctx, actor, scopes, role, p.Name, p.Arguments)
+		if err != nil {
+			if errors.Is(err, ErrNoSuchTool) {
+				return errResp(r.ID, -32602, err.Error())
 			}
-			method, path := t.Method, t.Path
-			if t.Resolve != nil {
-				m, pth, err := t.Resolve(p.Arguments)
-				if err != nil {
-					s.deny(ctx, actor, t.Name, "", "", err.Error())
-					return okResp(r.ID, toolResult(err.Error(), true))
-				}
-				method, path = m, pth
-			}
-			if !s.allow(scopes, method, path) {
-				why := "this token's scopes do not cover " + method + " " + path + " (needs " + t.Scope + ")"
-				s.deny(ctx, actor, t.Name, method, path, why)
-				return okResp(r.ID, toolResult(why, true))
-			}
-			// A tool that changes the server needs the role the equivalent
-			// HTTP route needs. Checking the scope alone let a viewer with a
-			// wide token of their own run a cron job, which runs as root.
-			if method != "GET" && role == "viewer" {
-				why := "viewers cannot " + method + " " + path
-				s.deny(ctx, actor, t.Name, method, path, why)
-				return okResp(r.ID, toolResult(why, true))
-			}
-			cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			defer cancel()
-			out, err := t.Call(cctx, actor, p.Arguments)
-			if err != nil {
-				return okResp(r.ID, toolResult(err.Error(), true))
-			}
-			return okResp(r.ID, toolResult(out, false))
+			return okResp(r.ID, toolResult(err.Error(), true))
 		}
-		s.deny(ctx, actor, p.Name, "", "", "no such tool")
-		return errResp(r.ID, -32602, "unknown tool "+p.Name)
+		return okResp(r.ID, toolResult(out, false))
 	}
 	return errResp(r.ID, -32601, "method not found: "+r.Method)
+}
+
+// ErrNoSuchTool is returned when the name does not match anything. It is
+// distinguished because a protocol error and a tool that failed are different
+// things to a client.
+var ErrNoSuchTool = errors.New("unknown tool")
+
+// Tools is the set the agent may see, for a caller that renders them itself.
+func (s *Server) Tools() []Tool { return s.tools }
+
+// CallTool runs one tool under the same two gates every call passes: the
+// token's scopes and the caller's role, both checked against the route the call
+// actually resolves to.
+//
+// It exists so that the JSON-RPC endpoint and the in-panel assistant are one
+// implementation rather than two. They serve different callers — one an agent
+// over HTTP, the other the model behind the panel's chat — and a second copy of
+// this would be a second place for the gates to drift, which is exactly the
+// kind of difference nobody notices until it is the difference that mattered.
+func (s *Server) CallTool(ctx context.Context, actor, scopes, role, name string, args map[string]any) (string, error) {
+	for _, t := range s.tools {
+		if t.Name != name {
+			continue
+		}
+		method, path := t.Method, t.Path
+		if t.Resolve != nil {
+			m, pth, err := t.Resolve(args)
+			if err != nil {
+				s.deny(ctx, actor, t.Name, "", "", err.Error())
+				return "", err
+			}
+			method, path = m, pth
+		}
+		if !s.allow(scopes, method, path) {
+			why := "this token's scopes do not cover " + method + " " + path + " (needs " + t.Scope + ")"
+			s.deny(ctx, actor, t.Name, method, path, why)
+			return "", errors.New(why)
+		}
+		// A tool that changes the server needs the role the equivalent HTTP
+		// route needs. Checking the scope alone let a viewer with a wide token
+		// of their own run a cron job, which runs as root.
+		if method != "GET" && role == "viewer" {
+			why := "viewers cannot " + method + " " + path
+			s.deny(ctx, actor, t.Name, method, path, why)
+			return "", errors.New(why)
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		return t.Call(cctx, actor, args)
+	}
+	s.deny(ctx, actor, name, "", "", "no such tool")
+	return "", fmt.Errorf("%w %s", ErrNoSuchTool, name)
 }
 
 func toolResult(text string, isErr bool) map[string]any {

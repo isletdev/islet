@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -211,5 +212,72 @@ func TestRefusalsAreReported(t *testing.T) {
 		if r.actor != "tester" {
 			t.Errorf("every refusal should name who made it, got %q", r.actor)
 		}
+	}
+}
+
+// The JSON-RPC endpoint and CallTool are the same gates or they are a bug
+// waiting to happen: an agent over HTTP and the model behind the panel's chat
+// are different callers, and a difference between them would be invisible
+// until it was the difference that mattered.
+func TestBothPathsEnforceTheSameGates(t *testing.T) {
+	newServer := func(ran *string) *Server {
+		return New([]Tool{{
+			Name: "islet_request", Scope: "varies", Method: "GET", Path: "/api/v1/",
+			Resolve: func(args map[string]any) (string, string, error) {
+				if Str(args, "path") == "" {
+					return "", "", errBadTarget
+				}
+				return Str(args, "method"), Str(args, "path"), nil
+			},
+			Call: func(_ context.Context, _ string, args map[string]any) (string, error) {
+				*ran = Str(args, "method") + " " + Str(args, "path")
+				return "ok", nil
+			},
+		}}, scopesFor)
+	}
+
+	cases := []struct {
+		name         string
+		scopes, role string
+		args         map[string]any
+		wantRefused  bool
+	}{
+		{"read token writing", "read", "admin", map[string]any{"method": "POST", "path": "/api/v1/domains"}, true},
+		{"read token reading", "read", "admin", map[string]any{"method": "GET", "path": "/api/v1/domains"}, false},
+		{"viewer writing", "all", "viewer", map[string]any{"method": "POST", "path": "/api/v1/domains"}, true},
+		{"viewer reading", "all", "viewer", map[string]any{"method": "GET", "path": "/api/v1/domains"}, false},
+		{"no target", "all", "admin", map[string]any{}, true},
+		{"allowed write", "all", "admin", map[string]any{"method": "POST", "path": "/api/v1/domains"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var viaRPC, viaCall string
+			rpc := newServer(&viaRPC)
+			_, isErr := call(t, rpc, c.scopes, c.role, "islet_request", c.args)
+
+			direct := newServer(&viaCall)
+			_, err := direct.CallTool(context.Background(), "tester", c.scopes, c.role, "islet_request", c.args)
+
+			if isErr != (err != nil) {
+				t.Errorf("the two paths disagree: JSON-RPC refused=%v, CallTool refused=%v", isErr, err != nil)
+			}
+			if isErr != c.wantRefused {
+				t.Errorf("refused=%v, want %v", isErr, c.wantRefused)
+			}
+			if viaRPC != viaCall {
+				t.Errorf("the tool ran differently: JSON-RPC %q, CallTool %q", viaRPC, viaCall)
+			}
+		})
+	}
+}
+
+// An unknown name is a protocol error over JSON-RPC and an ordinary error to a
+// direct caller, so it is distinguishable rather than looking like a tool that
+// ran and failed.
+func TestUnknownToolIsDistinguishable(t *testing.T) {
+	s := New(nil, scopesFor)
+	_, err := s.CallTool(context.Background(), "tester", "all", "admin", "nope", nil)
+	if !errors.Is(err, ErrNoSuchTool) {
+		t.Fatalf("want ErrNoSuchTool, got %v", err)
 	}
 }

@@ -1634,3 +1634,36 @@ own, a token budget is rejected outright, and disabling thinking makes a model
 occasionally write a tool call into its visible text instead of calling the
 tool — which in a loop like this one would look like the model ignoring its
 instructions.
+
+## 2026-09-15 — The assistant borrows the asker's authority and has none of its own
+The panel's assistant can now act. The question that decides whether that is a
+feature or a hole is what it is allowed to do, and the answer is: exactly what
+the person asking could already do through the API, and nothing more.
+
+`mcp.CallTool` was extracted so the JSON-RPC endpoint and the assistant are one
+implementation of the two gates rather than two. They serve different callers —
+an agent over HTTP and the model behind the panel's chat — and a second copy
+would be a second place for the scope and role checks to drift, which is the
+kind of difference nobody notices until it is the one that mattered. A test runs
+the same six cases down both paths and fails if they disagree.
+
+A session in the panel acts with the person's full authority; a request carrying
+a token is narrowed to that token's scopes. Verified against a live daemon: the
+same question — "put the panel on this hostname" — created the domain when asked
+through a session, and when asked with a read-only token the tool came back
+`isError` with "this token's scopes do not cover POST /api/v1/domains (needs
+domains)", no domain was created, and the audit log recorded
+`assistant:devadmin mcp.refused create_domain POST /api/v1/domains`.
+
+Asking needs only `read`, because of the above: the assistant cannot exceed the
+asker, so gating the conversation itself any harder would only stop people using
+it. Configuring it needs `settings`, because that means storing an API key.
+
+Three smaller calls. A refused tool is returned to the model rather than ending
+the run, and the system prompt tells it to say which scope was missing instead of
+working around it — a refusal is information the person needs, not a dead end. A
+very long tool result is truncated, because it otherwise crowds out the
+conversation and is paid for again on every later turn. And the key is stored
+the way the registry credentials and shared env groups already are — AES-GCM
+through the daemon's keys, base64 in the settings table — rather than in a
+scheme of its own; the panel is told whether a key is set and never what it is.

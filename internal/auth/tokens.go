@@ -284,6 +284,17 @@ func ScopeAllows(scopes, method, path string) bool {
 		// to grant any method, which was harmless only because no such route
 		// existed — a poor thing for a permission check to rely on.
 		return read && (has("logs") || has("read"))
+	// Asking the assistant needs only the ability to read, because the
+	// assistant cannot exceed the scopes of whoever asked: it runs every tool
+	// through the same gate a direct call passes. Configuring it — which means
+	// setting an API key — is configuration.
+	case path == "/api/v1/assistant/chat":
+		return has("read")
+	case strings.HasPrefix(path, "/api/v1/assistant"):
+		if read {
+			return has("read")
+		}
+		return has("settings")
 	// Reading a file is reading anything on the server. The file API serves
 	// whatever path the daemon can open, and the daemon is root, so a scope
 	// that covered it would quietly include /etc/shadow, every .env an app was
