@@ -148,9 +148,9 @@ func (s *Server) curatedTools() []mcp.Tool {
 		{"create_domain", "Route a hostname to a container, an app, a port or the panel, and issue a certificate for it. This is how a site gets a name.", "domains", "POST", "/api/v1/domains", []string{"host", "targetType"},
 			map[string]any{
 				"host":        str("The hostname, for example shop.example.com"),
-				"targetType":  str("container, app, port, panel, static or redirect"),
-				"target":      str("Container name, app id, or URL, depending on targetType"),
-				"port":        num("Port on the target"),
+				"targetType":  str("container, url or panel. An app is routed by its container name; a local port is a url like http://127.0.0.1:8080"),
+				"target":      str("Container name for container, an http(s) URL for url, nothing for panel"),
+				"port":        num("Port inside the container, for targetType container"),
 				"tls":         str("letsencrypt, letsencrypt-dns, self or none. Default letsencrypt"),
 				"redirectWww": flag("Also answer the www form and redirect it here"),
 			}},

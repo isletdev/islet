@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/proxy"
 )
 
 func routes(t *testing.T) []route {
@@ -152,4 +153,48 @@ func namesTheAPIReads(t *testing.T) map[string]bool {
 		t.Fatalf("only %d names found; the scan is not reading the source it thinks it is", len(out))
 	}
 	return out
+}
+
+// A description that names values the validator rejects is the same lie as a
+// parameter nothing reads, one level down, and the name check cannot see it:
+// create_domain offered "container, app, port, panel, static or redirect" where
+// the proxy accepts three of those. An agent asked to put a site on a domain
+// picked "app", was refused, and had no way to learn what would have worked.
+//
+// So the accepted set is asked of the validator rather than written down twice.
+func TestCreateDomainOffersOnlyTargetTypesTheProxyAccepts(t *testing.T) {
+	var desc string
+	s := &Server{}
+	for _, tool := range s.curatedTools() {
+		if tool.Name != "create_domain" {
+			continue
+		}
+		props, _ := tool.InputSchema["properties"].(map[string]any)
+		p, _ := props["targetType"].(map[string]any)
+		desc, _ = p["description"].(string)
+	}
+	if desc == "" {
+		t.Fatal("create_domain no longer describes targetType")
+	}
+	// The values are the words before the first sentence break.
+	head, _, _ := strings.Cut(desc, ".")
+	for _, word := range regexp.MustCompile(`[a-z-]+`).FindAllString(head, -1) {
+		if word == "or" || word == "and" {
+			continue
+		}
+		// A type is offered honestly if some target shape gets past Validate
+		// without the type itself being the objection.
+		ok := false
+		for _, target := range []string{"", "web", "http://127.0.0.1:8080"} {
+			d := proxy.Domain{Host: "site.example.com", TargetType: word, Target: target, Port: 8080}
+			err := d.Validate()
+			if err == nil || !strings.Contains(err.Error(), "targetType") {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("create_domain offers targetType %q, which the proxy refuses", word)
+		}
+	}
 }
