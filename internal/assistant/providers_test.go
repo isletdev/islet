@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -188,5 +190,68 @@ func TestAnthropicNeedsAKey(t *testing.T) {
 	if _, err := p.Complete(context.Background(), "", nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "no Anthropic API key") {
 		t.Errorf("want a clear error, got %v", err)
+	}
+}
+
+// The subscription provider shells out, so it is tested with a stand-in binary
+// rather than the real one: running the real claude would spend the person's
+// quota on every `go test`.
+func TestSubscriptionRunsTheBinaryAndReturnsItsOutput(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\ncat > " + filepath.Join(dir, "stdin.txt") + "\necho \"$@\" > " + filepath.Join(dir, "args.txt") + "\necho 'Two domains are configured.'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Subscription{Bin: bin, MCPConfig: "/etc/islet/mcp.json", Model: "claude-opus-5", Dir: dir}
+	msg, err := p.Complete(context.Background(), "you manage a server",
+		[]Message{{Role: RoleUser, Text: "how many domains?"}}, []Tool{{Name: "ignored"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Text != "Two domains are configured." {
+		t.Errorf("reply %q", msg.Text)
+	}
+	// Claude Code runs its own loop over MCP, so the outer loop must see no
+	// calls or it would try to run tools a second time.
+	if len(msg.Calls) != 0 {
+		t.Errorf("this provider must never return tool calls, got %+v", msg.Calls)
+	}
+
+	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
+	for _, want := range []string{"--print", "--mcp-config", "/etc/islet/mcp.json", "--model", "claude-opus-5"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("args %q missing %q", args, want)
+		}
+	}
+	// The conversation goes in on stdin: an argument list has a limit a
+	// transcript reaches.
+	in, _ := os.ReadFile(filepath.Join(dir, "stdin.txt"))
+	if !strings.Contains(string(in), "how many domains?") || !strings.Contains(string(in), "you manage a server") {
+		t.Errorf("stdin did not carry the conversation: %q", in)
+	}
+}
+
+// Not being signed in is the most common failure and the one whose fix is
+// least obvious, so it is named rather than passed through raw.
+func TestSubscriptionExplainsNotBeingSignedIn(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'Please run login first' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &Subscription{Bin: bin}
+	_, err := p.Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not signed in") {
+		t.Fatalf("want a sign-in explanation, got %v", err)
+	}
+}
+
+func TestSubscriptionSaysWhenClaudeIsMissing(t *testing.T) {
+	p := &Subscription{Bin: "/nonexistent/claude-binary"}
+	_, err := p.Complete(context.Background(), "", []Message{{Role: RoleUser, Text: "hi"}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("want a clear missing-binary error, got %v", err)
 	}
 }

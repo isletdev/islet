@@ -24,6 +24,7 @@ export const NAV: NavItem[] = [
   { path: "/files", key: "files", label: "Files", group: "server", phase: "v0.2", ready: true, blurb: "Browse, edit and move files without SSH." },
   { path: "/terminal", key: "terminal", label: "Terminal", group: "server", phase: "v0.1", ready: true, blurb: "A shell on this server, in the browser." },
   { path: "/workspaces", key: "workspaces", label: "Workspaces", group: "server", phase: "v0.9", ready: true, blurb: "Sessions that keep running when you close the tab \u2014 for an agent, or anything long." },
+  { path: "/assistant", key: "assistant", label: "Assistant", group: "server", phase: "v0.12", ready: true, blurb: "Ask for what you want in words. It does what your account can, and nothing more." },
   { path: "/containers", key: "containers", label: "Containers", group: "server", phase: "v0.2", ready: true, blurb: "Every container, image, volume and Compose stack on this server." },
   { path: "/logs", key: "logs", label: "Logs", group: "server", phase: "v0.4", ready: true, blurb: "One viewer across system, Docker and app logs." },
 

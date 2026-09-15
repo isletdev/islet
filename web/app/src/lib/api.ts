@@ -172,6 +172,20 @@ export interface DeployApp {
 }
 export interface Detection { strategy: string; framework: string; summary: string; installCmd: string; buildCmd: string; startCmd: string; outputDir: string; port: number; healthPath: string; composeFile?: string; nodeVersion?: string; pythonVersion?: string }
 
+export interface AssistantConfig {
+  provider: "anthropic" | "openai" | "subscription";
+  model: string; baseUrl: string; keySet: boolean; defaultModel: string;
+  tools: number; mcpConfig: string; claudeInstalled: boolean;
+}
+export interface AssistantToolCall { id: string; name: string; input?: Record<string, unknown> }
+export interface AssistantToolResult { callId: string; content: string; isError?: boolean }
+export interface AssistantMessage {
+  role: "user" | "assistant";
+  text?: string;
+  calls?: AssistantToolCall[];
+  results?: AssistantToolResult[];
+}
+
 export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
 
 export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
@@ -324,6 +338,10 @@ export const api = {
   cookieDomain: () => request<{ cookieDomain: string }>("/api/v1/auth/cookie-domain"),
   cookieDomainSet: (cookieDomain: string) => post<{ cookieDomain: string }>("/api/v1/auth/cookie-domain", { cookieDomain }),
   tokens: () => request<ApiToken[]>("/api/v1/auth/tokens"),
+  assistant: () => request<AssistantConfig>("/api/v1/assistant"),
+  assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
+  assistantChat: (b: { messages: AssistantMessage[]; maxSteps?: number }) =>
+    post<{ messages: AssistantMessage[]; reply: string }>("/api/v1/assistant/chat", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),

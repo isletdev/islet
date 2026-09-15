@@ -71,5 +71,7 @@
   "settings.language.desc": "The panel's language. English is complete; other languages fall back to English for anything not translated yet. Translations live in web/app/src/locales; pull requests welcome.",
   "settings.language.coverage": "{pct}% translated",
   "nav.workspaces": "Workspaces",
-  "nav.workspaces.blurb": "Sessions that keep running when you close the tab — for an agent, or anything long."
+  "nav.workspaces.blurb": "Sessions that keep running when you close the tab — for an agent, or anything long.",
+  "nav.assistant": "Assistant",
+  "nav.assistant.blurb": "Ask for what you want in words. It does what your account can, and nothing more."
 }

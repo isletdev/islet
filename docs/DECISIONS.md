@@ -1667,3 +1667,39 @@ conversation and is paid for again on every later turn. And the key is stored
 the way the registry credentials and shared env groups already are — AES-GCM
 through the daemon's keys, base64 in the settings table — rather than in a
 scheme of its own; the panel is told whether a key is set and never what it is.
+
+## 2026-09-15 — The assistant, finished: three ways to run a model, one way to act
+The feature is whole now. A page in the panel takes a question in words, the
+model answers it using Islet's tools, and the whole exchange — what it called,
+what came back, what it decided — is on screen.
+
+Three providers, because the requirement was all three:
+
+- **An Anthropic API key**, billed per token.
+- **Any OpenAI-compatible endpoint** — OpenAI, Groq, Together, DeepSeek,
+  OpenRouter, and anything self-hosted behind Ollama, vLLM or llama.cpp. One
+  provider covers them because the differences are a base URL and a model name.
+- **A Claude subscription**, through the Claude Code binary in print mode, so the
+  person's own subscription pays rather than an API key.
+
+The third is a provider from the outside and unlike the others inside, which is
+worth knowing. Claude Code runs its own tool loop: it is handed an MCP
+configuration pointing back at this daemon, discovers the tools itself, and
+returns when it has an answer. So it never returns tool calls, the outer loop
+sees one turn and stops, and — the part that matters — the scopes that bound it
+are the ones on the token in that configuration, not the scopes of whoever
+asked. The other two are bounded by the asker. The panel says so rather than
+leaving it to be discovered.
+
+It is tested with a stand-in binary rather than the real one: running `claude`
+in a unit test would spend the person's quota on every `go test`. The two
+failures worth naming are named — not signed in, and not installed — because
+both are common and neither has an obvious fix from the error the CLI prints.
+
+The page shows tool results, including the refusals, rather than only the
+model's summary. A refusal names the scope that would be needed, which is a
+decision for the person; a model paraphrasing it is one layer too many between
+them and their own server. Two things the screenshots caught that review did
+not: the sidebar rendered `nav.assistant` because the translation was missing,
+and a JSON tool result scrolled the page sideways on a phone because a
+monospace line without wrapping does that.

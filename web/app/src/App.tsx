@@ -10,6 +10,7 @@ import Placeholder from "./pages/Placeholder";
 const Settings = lazy(() => import("./pages/Settings"));
 const Terminal = lazy(() => import("./pages/Terminal"));
 const Workspaces = lazy(() => import("./pages/Workspaces"));
+const Assistant = lazy(() => import("./pages/Assistant"));
 const Console = lazy(() => import("./pages/Console"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/servers" element={<Servers />} />
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/workspaces" element={<Workspaces />} />
+        <Route path="/assistant" element={<Assistant />} />
         <Route path="/containers/*" element={<ContainersRoot />} />
         <Route path="/files" element={<Files />} />
         <Route path="/domains" element={<Domains />} />

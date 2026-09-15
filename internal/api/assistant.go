@@ -134,6 +134,16 @@ func (s *Server) providerFor(ctx context.Context) (assistant.Provider, error) {
 		return &assistant.Anthropic{Key: key, Model: model, BaseURL: baseURL}, nil
 	case "openai":
 		return &assistant.OpenAI{Key: key, Model: model, BaseURL: baseURL, Label: "OpenAI-compatible"}, nil
+	case "subscription":
+		// No key: this one spends the subscription the person signed into on
+		// this server. The MCP configuration is what gives it Islet's tools,
+		// and the token inside it is what bounds them.
+		bin, _, _ := s.store.Setting(ctx, "assistant.claude_bin")
+		if bin == "" && s.workspaces != nil {
+			bin = s.workspaces.ClaudePath(ctx)
+		}
+		cfg, _, _ := s.store.Setting(ctx, "assistant.mcp_config")
+		return &assistant.Subscription{Bin: bin, MCPConfig: cfg, Model: model}, nil
 	default:
 		return nil, fmt.Errorf("unknown assistant provider %q", kind)
 	}
@@ -151,11 +161,15 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 		if kind == "" {
 			kind = "anthropic"
 		}
+		mcpCfg, _, _ := s.store.Setting(r.Context(), "assistant.mcp_config")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"provider": kind, "model": model, "baseUrl": base,
 			"keySet":       key != "",
 			"defaultModel": assistant.DefaultAnthropicModel,
 			"tools":        len(s.assistantTools()),
+			"mcpConfig":    mcpCfg,
+			// Whether the subscription route is even possible here.
+			"claudeInstalled": s.workspaces != nil && s.workspaces.ClaudePath(r.Context()) != "",
 		})
 		return
 	}
@@ -163,25 +177,27 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		BaseURL  string `json:"baseUrl"`
-		Key      string `json:"key"`
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
+		BaseURL   string `json:"baseUrl"`
+		Key       string `json:"key"`
+		MCPConfig string `json:"mcpConfig"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
 	switch req.Provider {
-	case "anthropic", "openai":
+	case "anthropic", "openai", "subscription":
 	default:
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "provider must be anthropic or openai"})
 		return
 	}
 	for k, v := range map[string]string{
-		"assistant.provider": req.Provider,
-		"assistant.model":    strings.TrimSpace(req.Model),
-		"assistant.base_url": strings.TrimSpace(req.BaseURL),
+		"assistant.provider":   req.Provider,
+		"assistant.model":      strings.TrimSpace(req.Model),
+		"assistant.base_url":   strings.TrimSpace(req.BaseURL),
+		"assistant.mcp_config": strings.TrimSpace(req.MCPConfig),
 	} {
 		if err := s.store.SetSetting(r.Context(), k, v); err != nil {
 			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})

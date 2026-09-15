@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState } from "@/lib/api";
+import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
@@ -77,6 +77,7 @@ export default function Settings() {
         {tab === "integrations" && <>
           <CatalogSource />
           <GitHubApp />
+          <AssistantCard />
           <MCP />
         </>}
 
@@ -435,6 +436,51 @@ function GitHubApp() {
         <div className="sm:col-span-2"><Field label="Private key (.pem)" hint={st.config.configured ? "Leave empty to keep the stored key." : "Generate one at the bottom of the GitHub App page and paste the file contents."}><textarea value={form.privateKey} onChange={(e) => setForm({ ...form, privateKey: e.target.value })} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field></div>
         <Field label="Webhook secret" hint={st.config.configured ? "Leave empty to keep it." : "The secret you typed on the GitHub App page."}><Input type="password" value={form.webhookSecret} onChange={(e) => setForm({ ...form, webhookSecret: e.target.value })} autoComplete="off" /></Field>
         <div className="flex items-center gap-2 sm:col-span-3"><Button type="submit" className="h-9" disabled={busy}>{busy ? "Verifying…" : "Save"}</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
+      </form>
+    </Card>
+  );
+}
+
+function AssistantCard() {
+  const [c, setC] = useState<AssistantConfig | null>(null);
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () => { void api.assistant().then(setC).catch(() => {}); };
+  useEffect(load, []);
+  if (!c) return null;
+  const save = async (e: FormEvent) => {
+    e.preventDefault(); setMsg(null);
+    try {
+      await api.assistantSave({ provider: c.provider, model: c.model, baseUrl: c.baseUrl, key, mcpConfig: c.mcpConfig });
+      setKey(""); setMsg("Saved."); load();
+    } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+  };
+  return (
+    <Card title="Assistant" description="The model behind Ask. It acts as whoever is asking and can do no more than they can.">
+      <form onSubmit={save} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <label className="sm:col-span-3">
+          <span className="mb-1 block text-sm font-medium">Where the model runs</span>
+          <Select value={c.provider} onChange={(e) => setC({ ...c, provider: e.target.value as AssistantConfig["provider"] })}>
+            <option value="anthropic">Anthropic — an API key, billed per token</option>
+            <option value="subscription">Claude subscription on this server{c.claudeInstalled ? "" : " (claude is not installed)"}</option>
+            <option value="openai">Any OpenAI-compatible API — OpenAI, Groq, OpenRouter, or a local model</option>
+          </Select>
+        </label>
+        <Input value={c.model} onChange={(e) => setC({ ...c, model: e.target.value })} placeholder={c.provider === "anthropic" ? c.defaultModel : "model name"} className="font-mono" aria-label="Model" />
+        {c.provider === "openai" && (
+          <Input value={c.baseUrl} onChange={(e) => setC({ ...c, baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" className="font-mono sm:col-span-2" aria-label="Base URL" />
+        )}
+        {c.provider === "subscription" && (
+          <Input value={c.mcpConfig} onChange={(e) => setC({ ...c, mcpConfig: e.target.value })} placeholder="/var/lib/islet/workspaces/<id>/mcp.json" className="font-mono sm:col-span-2" aria-label="MCP config path" />
+        )}
+        {c.provider !== "subscription" && (
+          <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={c.keySet ? "key is set — leave blank to keep it" : "API key"} className="font-mono sm:col-span-2" aria-label="API key" />
+        )}
+        <Button type="submit" className="h-9 text-xs">Save</Button>
+        <p className="text-xs text-ink-muted sm:col-span-3">
+          {c.tools} tools are available to it. A subscription runs Claude Code on this server and is bounded by the token in its MCP configuration, not by who is asking.
+        </p>
+        {msg && <p className="text-sm text-ink-muted sm:col-span-3">{msg}</p>}
       </form>
     </Card>
   );
