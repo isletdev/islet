@@ -6,6 +6,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"sort"
@@ -220,16 +221,51 @@ func (c *Collector) TopProcesses(ctx context.Context, limit int) ([]Process, err
 	return out, nil
 }
 
-// Port is a listening socket.
+// Port is a listening service: one row per protocol and port, however many
+// addresses it is bound to.
+//
+// One row per socket is what the kernel has and not what anybody wants to read.
+// A TURN server bound to every interface on this machine was twelve rows of
+// 3478 — the public v4 address, the public v6 address, loopback, and every
+// Docker bridge — and anything listening on both families is two rows of the
+// same thing. Twenty-five ports arrived as forty-seven lines.
 type Port struct {
-	Proto   string `json:"proto"`
+	Proto string `json:"proto"`
+	// Address is the most exposed of the addresses this port is bound to, so a
+	// port that is public somewhere never reads as private here.
 	Address string `json:"address"`
-	Port    uint32 `json:"port"`
-	PID     int32  `json:"pid"`
-	Process string `json:"process"`
+	// Addresses is all of them, most exposed first, so collapsing hides
+	// nothing.
+	Addresses []string `json:"addresses,omitempty"`
+	Port      uint32   `json:"port"`
+	PID       int32    `json:"pid"`
+	Process   string   `json:"process"`
 }
 
-// ListeningPorts lists TCP listeners and bound UDP sockets.
+// exposure ranks a bound address by how far it can be reached from, which is
+// the only ordering that matters when one has to stand for the rest.
+func exposure(addr string) int {
+	ip := net.ParseIP(addr)
+	switch {
+	case addr == "" || addr == "0.0.0.0" || addr == "::":
+		return 4 // every interface, including any added later
+	case ip == nil:
+		return 1
+	case ip.IsLoopback():
+		return 0
+	case ip.IsPrivate() || ip.IsLinkLocalUnicast():
+		return 2 // a Docker bridge, or a private network
+	default:
+		return 3 // a real address on the internet
+	}
+}
+
+type portKey struct {
+	proto string
+	port  uint32
+}
+
+// ListeningPorts lists TCP listeners and bound UDP sockets, one row per port.
 func (c *Collector) ListeningPorts(ctx context.Context) ([]Port, error) {
 	conns, err := gnet.ConnectionsWithContext(ctx, "inet")
 	if err != nil {
@@ -237,6 +273,7 @@ func (c *Collector) ListeningPorts(ctx context.Context) ([]Port, error) {
 	}
 	names := map[int32]string{}
 	seen := map[string]bool{}
+	where := map[portKey]int{}
 	var out []Port
 	for _, cn := range conns {
 		var proto string
@@ -253,7 +290,7 @@ func (c *Collector) ListeningPorts(ctx context.Context) ([]Port, error) {
 			continue
 		}
 		seen[key] = true
-		p := Port{Proto: proto, Address: cn.Laddr.IP, Port: cn.Laddr.Port, PID: cn.Pid}
+		p := Port{Proto: proto, Address: cn.Laddr.IP, Addresses: []string{cn.Laddr.IP}, Port: cn.Laddr.Port, PID: cn.Pid}
 		if cn.Pid > 0 {
 			if n, ok := names[cn.Pid]; ok {
 				p.Process = n
@@ -264,7 +301,29 @@ func (c *Collector) ListeningPorts(ctx context.Context) ([]Port, error) {
 				}
 			}
 		}
-		out = append(out, p)
+		// One row per protocol and port. The address kept is the most exposed,
+		// and a process name is kept from whichever socket has one — a
+		// published container port has a docker-proxy on some of its addresses
+		// and nothing on others.
+		at, ok := where[portKey{proto, cn.Laddr.Port}]
+		if !ok {
+			where[portKey{proto, cn.Laddr.Port}] = len(out)
+			out = append(out, p)
+			continue
+		}
+		row := &out[at]
+		row.Addresses = append(row.Addresses, p.Address)
+		if exposure(p.Address) > exposure(row.Address) {
+			row.Address = p.Address
+		}
+		if row.Process == "" {
+			row.Process, row.PID = p.Process, p.PID
+		}
+	}
+	for i := range out {
+		sort.SliceStable(out[i].Addresses, func(a, b int) bool {
+			return exposure(out[i].Addresses[a]) > exposure(out[i].Addresses[b])
+		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Port != out[j].Port {

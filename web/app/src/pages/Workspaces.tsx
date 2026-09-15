@@ -42,6 +42,14 @@ const EMPTY_WS: Workspace = {
   createdAt: "", updatedAt: "", lastAttachedAt: "", running: false,
 };
 
+/** Whether a command line runs Claude Code, which is what decides whether its
+    flags mean anything — the same rule the daemon applies when it builds the
+    line. */
+function runsClaude(cmd?: string): boolean {
+  const head = (cmd ?? "").trim().split(/\s+/)[0] ?? "";
+  return head !== "" && head.split("/").pop() === "claude";
+}
+
 const EMPTY_AGENT: Partial<Agent> = {
   id: "", name: "", preset: "claude", command: "claude", resume: true, skipPermissions: false,
 };
@@ -151,8 +159,14 @@ export default function Workspaces() {
     if (!wsID) return;
     return pollInterval(() => void loadAgents(wsID), 10000);
   }, [wsID, loadAgents]);
-  // Switching workspace lands on its shell, never on an agent of the one before.
+  // Switching workspace never keeps the previous one's agent selected.
   useEffect(() => { setTab(SHELL); }, [wsID]);
+  // And once its agents are known, land on one — but only when the selected tab
+  // is not an agent that exists, or the ten-second poll would drag the
+  // selection back to the first agent while somebody was reading the second.
+  useEffect(() => {
+    setTab((cur) => (agents.some((a) => a.id === cur) ? cur : agents[0]?.id ?? SHELL));
+  }, [agents]);
   // Attaching is what creates the session, so the state fetched a moment ago
   // says "session down" beside a terminal that is plainly up. Ask again once
   // the attach has had time to land, rather than leaving the header wrong for
@@ -231,7 +245,7 @@ export default function Workspaces() {
     });
     if (!ok) return;
     await run(a.id + "rm", () => api.agentDelete(ws!.id, a.id));
-    setTab(SHELL);
+    setTab(agents.find((x) => x.id !== a.id)?.id ?? SHELL);
   };
 
   const stopWorkspace = async (w: Workspace) => {
@@ -316,7 +330,7 @@ export default function Workspaces() {
     : "";
 
   return (
-    <div className="mx-auto max-w-[110rem] space-y-3 sm:space-y-4">
+    <div className="mx-auto flex h-full min-h-0 max-w-[110rem] flex-col gap-3 sm:gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Workspaces</h1>
@@ -364,7 +378,7 @@ export default function Workspaces() {
       )}
 
       {tmux && list.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
           {/* ---- the workspaces themselves ---- */}
           <nav aria-label="Workspaces" className="rounded-lg border border-border bg-surface p-1.5">
             <ul className="flex gap-1 overflow-x-auto lg:block lg:space-y-0.5 lg:overflow-visible">
@@ -389,7 +403,7 @@ export default function Workspaces() {
 
           {/* ---- the workspace on screen ---- */}
           {ws && (
-            <section className="min-w-0 space-y-3">
+            <section className="flex min-h-0 min-w-0 flex-col gap-3">
               <header className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -423,18 +437,11 @@ export default function Workspaces() {
               )}
 
               {/* ---- agent tabs ---- */}
-              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1.5">
-                <button
-                  type="button"
-                  onClick={() => setTab(SHELL)}
-                  aria-current={tab === SHELL ? "true" : undefined}
-                  className={
-                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors " +
-                    (tab === SHELL ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
-                  }
-                >
-                  shell
-                </button>
+              {/* The workspace's own shell window is not offered here any more.
+                  A shell on this server is what the Terminal page is, and a tab
+                  for it sat in front of the agents this page exists for. The
+                  window is still there over SSH, as the line at the bottom says. */}
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1">
                 {agents.map((a) => (
                   <button
                     key={a.id}
@@ -442,7 +449,7 @@ export default function Workspaces() {
                     onClick={() => setTab(a.id)}
                     aria-current={tab === a.id ? "true" : undefined}
                     className={
-                      "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors " +
+                      "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors " +
                       (tab === a.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
                     }
                   >
@@ -453,7 +460,7 @@ export default function Workspaces() {
                 <button
                   type="button"
                   onClick={() => setEditingAgent({ ...EMPTY_AGENT })}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
                 >
                   <PlusIcon className="h-3.5 w-3.5" />Add agent
                 </button>
@@ -490,11 +497,27 @@ export default function Workspaces() {
                 </div>
               )}
 
-              {/* ---- the terminal is the page ---- */}
-              <TermView key={termPath} path={termPath} reattaches className="h-[60dvh] min-h-[20rem]" />
+              {/* ---- the terminal is the page ----
+                  It takes the room that is left rather than a fixed 60dvh: with
+                  a header, the tabs and the agent bar above it, a fixed height
+                  guaranteed a scrollbar and a terminal smaller than the space
+                  it was scrolling past. */}
+              {agent ? (
+                <TermView key={termPath} path={termPath} reattaches className="min-h-[14rem] flex-1" />
+              ) : (
+                <div className="flex min-h-[14rem] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-surface p-6 text-center">
+                  <p className="text-sm text-ink-muted">
+                    Nothing is running in <span className="text-ink">{ws.name}</span> yet.
+                  </p>
+                  <Button className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => setEditingAgent({ ...EMPTY_AGENT })}>
+                    <PlusIcon className="h-3.5 w-3.5" />Add an agent
+                  </Button>
+                </div>
+              )}
 
-              <p className="text-xs text-ink-muted">
-                Reachable without Islet as well: <code>tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-{ws.id}</code>
+              <p className="shrink-0 text-xs text-ink-muted">
+                The workspace's own shell window is still there over SSH:{" "}
+                <code>tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-{ws.id}</code>
               </p>
             </section>
           )}
@@ -550,12 +573,17 @@ export default function Workspaces() {
                 required
               />
             </Field>
-            <Field label="What it runs" hint={PRESETS[editingAgent.preset ?? "claude"].blurb}>
+            <Field label="Starts from" hint={PRESETS[editingAgent.preset ?? "claude"].blurb}>
               <Select
                 value={editingAgent.preset ?? "claude"}
                 onChange={(e) => {
                   const p = e.target.value as Agent["preset"];
-                  setEditingAgent({ ...editingAgent, preset: p, command: PRESETS[p].command });
+                  // A preset fills the command in; it does not own it. Anything
+                  // typed over the top survives changing your mind about which
+                  // row you started from.
+                  const untouched = !editingAgent.command ||
+                    Object.values(PRESETS).some((x) => x.command === editingAgent.command);
+                  setEditingAgent({ ...editingAgent, preset: p, command: untouched ? PRESETS[p].command : editingAgent.command });
                 }}
               >
                 {(Object.keys(PRESETS) as Agent["preset"][]).map((k) => (
@@ -563,18 +591,31 @@ export default function Workspaces() {
                 ))}
               </Select>
             </Field>
-            {editingAgent.preset !== "shell" && (
-              <Field label="Command" className="md:col-span-2" hint="Typed into the window as if you had typed it, so it is visible in the scrollback.">
-                <Input
-                  value={editingAgent.command ?? ""}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, command: e.target.value })}
-                  className="font-mono"
-                  required
-                />
-              </Field>
-            )}
-            {editingAgent.preset === "claude" && (
+            {/* Always editable, whatever the preset. It used to be hidden for a
+                shell and erased on save, so "a shell that runs htop" could not
+                be expressed at all; and the options below were tied to the
+                preset rather than to the command, so `claude --model opus-5`
+                under "something else" could not resume its own conversation. */}
+            <Field
+              label="Command"
+              className="md:col-span-2"
+              hint="Typed into the window as if you had typed it, so it is visible in the scrollback. Empty is a plain shell."
+            >
+              <Input
+                value={editingAgent.command ?? ""}
+                onChange={(e) => setEditingAgent({ ...editingAgent, command: e.target.value })}
+                className="font-mono"
+                placeholder="claude --model opus-5"
+              />
+            </Field>
+            {runsClaude(editingAgent.command) && (
               <>
+                <p className="text-xs text-ink-muted md:col-span-2">
+                  Islet adds what this needs and nothing you have already written: the binary's full path, {" "}
+                  <code>--session-id</code> or <code>--resume</code> for the options below, and{" "}
+                  <code>--mcp-config</code> when the workspace has Islet's tools switched on. Write any of them yourself
+                  and yours is used.
+                </p>
                 <Field label="" className="md:col-span-2">
                   <label className="flex items-start gap-2 text-sm">
                     <input

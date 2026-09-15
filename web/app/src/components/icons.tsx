@@ -42,7 +42,12 @@ export const ContainersIcon = (p: IconProps) => (
 
 export const FilesIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="M3 7.4c0-1.1.9-2 2-2h3.5c.63 0 1.22.29 1.6.79l1 1.31H19c1.1 0 2 .9 2 2v8.1c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2z" />
+    {/* The folder body ends at y=19.5 against a tab starting at 5.4: half a
+        unit low, which is small and visible next to a row of icons that are
+        not. */}
+    <g transform="translate(0 -0.5)">
+      <path d="M3 7.4c0-1.1.9-2 2-2h3.5c.63 0 1.22.29 1.6.79l1 1.31H19c1.1 0 2 .9 2 2v8.1c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2z" />
+    </g>
   </Icon>
 );
 
@@ -87,8 +92,10 @@ export const CronIcon = (p: IconProps) => (
 
 export const NotificationsIcon = (p: IconProps) => (
   <Icon {...p}>
-    <path d="M18 9a6 6 0 1 0-12 0c0 4.9-2.1 6.3-2.1 6.3h16.2S18 13.9 18 9Z" />
-    <path d="M13.8 19a2 2 0 0 1-3.6 0" />
+    <g transform="translate(0 0.45)">
+      <path d="M18 9a6 6 0 1 0-12 0c0 4.9-2.1 6.3-2.1 6.3h16.2S18 13.9 18 9Z" />
+      <path d="M13.8 19a2 2 0 0 1-3.6 0" />
+    </g>
   </Icon>
 );
 
@@ -418,20 +425,30 @@ export const TableIcon = (p: IconProps) => (
 
 /** A window with a second one behind it: a session that is still there. */
 export const WorkspacesIcon = (p: IconProps) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <rect x="2" y="6" width="14" height="12" rx="2" />
-    <path d="M8 3h12a2 2 0 0 1 2 2v10" />
-    <path d="m5.5 11 2 2-2 2" />
-    <path d="M10 15h3" />
-  </svg>
+  // Same two corrections: the shared stroke weight, and down 1.5 — the back
+  // window reaches y=3 while nothing goes below y=18, so it sat high.
+  <Icon {...p}>
+    <g transform="translate(0 1.5)">
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+      <path d="M8 3h12a2 2 0 0 1 2 2v10" />
+      <path d="m5.5 11 2 2-2 2" />
+      <path d="M10 15h3" />
+    </g>
+  </Icon>
 );
 
 /** A speech mark with a spark: something you ask, that acts. */
 export const AssistantIcon = (p: IconProps) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <path d="M21 12a8 8 0 0 1-8 8H8l-4 2 1-4.2A8 8 0 1 1 21 12Z" />
-    <path d="m12 8 1 2.5 2.5 1-2.5 1L12 15l-1-2.5-2.5-1 2.5-1Z" />
-  </svg>
+  // Through the shared Icon, so the stroke weight matches its neighbours, and
+  // lifted: the bubble's tail hangs to y=22 against a body starting at y=4, so
+  // the drawn shape's middle was 14.2 on a grid whose middle is 12 — nearly two
+  // pixels below every label it sits beside.
+  <Icon {...p}>
+    <g transform="translate(0 -2.2)">
+      <path d="M21 12a8 8 0 0 1-8 8H8l-4 2 1-4.2A8 8 0 1 1 21 12Z" />
+      <path d="m12 8 1 2.5 2.5 1-2.5 1L12 15l-1-2.5-2.5-1 2.5-1Z" />
+    </g>
+  </Icon>
 );
 
 /** A padlock over a slab: a thing kept shut. */

@@ -68,13 +68,113 @@ func TestAgentValidateGivesEachItsOwnSession(t *testing.T) {
 		t.Error("an agent was allowed to be named after the workspace's own shell window")
 	}
 
-	// A shell agent has nothing to resume and nothing to skip permissions for.
-	sh := &Agent{Name: "runner", Preset: "shell", Resume: true, SkipPermissions: true}
+	// A shell agent has nothing to resume, but saying so is the command's job
+	// rather than the preset's: what the flags do is decided when the line is
+	// built, and a preset that erased them made `claude --model opus-5` under
+	// "something else" unable to resume its own conversation.
+	sh := &Agent{Name: "runner", Preset: "shell", Command: "", Resume: true, SkipPermissions: true}
 	if err := sh.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if sh.Resume || sh.SkipPermissions {
-		t.Error("a shell agent kept flags that only mean something to Claude Code")
+	if got := resolveAgentCommand("htop", "", "/etc/islet/mcp.json", sh); got != "htop" {
+		t.Errorf("a command that is not Claude Code was given Claude Code's flags: %q", got)
+	}
+}
+
+// What Islet adds to a command, and what it must not touch.
+//
+// The rule that was missing: a preset decided which flags were added, so a
+// command that ran Claude Code under "something else" got none of them, and a
+// person who had written their own --resume or --mcp-config got a second copy
+// appended after it — in a line they never see, because the stored command is
+// what they typed.
+func TestResolveAgentCommandAddsWhatIsMissingAndNothingElse(t *testing.T) {
+	const mcp = "/var/lib/islet/workspaces/w1/mcp.json"
+	const claude = "/root/.local/bin/claude"
+
+	cases := []struct {
+		name  string
+		cmd   string
+		agent *Agent
+		want  string
+	}{
+		{
+			"a bare claude gets the path, its conversation and the tools",
+			"claude",
+			&Agent{Resume: true, SessionUUID: "u1"},
+			claude + " --session-id u1 --mcp-config " + mcp,
+		},
+		{
+			"claude with arguments of somebody's own keeps them",
+			"claude --model opus-5 --append-system-prompt 'be brief'",
+			&Agent{Resume: true, SessionUUID: "u1"},
+			claude + " --model opus-5 --append-system-prompt 'be brief' --session-id u1 --mcp-config " + mcp,
+		},
+		{
+			"a second run resumes rather than naming a new conversation",
+			"claude",
+			&Agent{Resume: true, SessionUUID: "u1", LastStarted: "2026-09-15T10:00:00Z"},
+			claude + " --resume u1 --mcp-config " + mcp,
+		},
+		{
+			"a hand-written --resume is left alone",
+			"claude --resume abc",
+			&Agent{Resume: true, SessionUUID: "u1", LastStarted: "2026-09-15T10:00:00Z"},
+			claude + " --resume abc --mcp-config " + mcp,
+		},
+		{
+			"a hand-written --mcp-config is left alone",
+			"claude --mcp-config /tmp/mine.json",
+			&Agent{},
+			claude + " --mcp-config /tmp/mine.json",
+		},
+		{
+			"an absolute path the person chose is not replaced",
+			"/usr/local/bin/claude",
+			&Agent{},
+			"/usr/local/bin/claude --mcp-config " + mcp,
+		},
+		{
+			"asking not to be asked adds the flag once",
+			"claude --dangerously-skip-permissions",
+			&Agent{SkipPermissions: true},
+			claude + " --dangerously-skip-permissions --mcp-config " + mcp,
+		},
+		{
+			"anything that is not Claude Code is run exactly as written",
+			"npm run dev -- --host",
+			&Agent{Resume: true, SessionUUID: "u1", SkipPermissions: true},
+			"npm run dev -- --host",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolveAgentCommand(c.cmd, claude, mcp, c.agent); got != c.want {
+				t.Errorf("\n got %q\nwant %q", got, c.want)
+			}
+		})
+	}
+}
+
+// A command may be empty, and that means a shell. It used to mean "the preset
+// erased what you typed", which is a different thing and was not asked for.
+func TestAnEmptyCommandIsAShell(t *testing.T) {
+	for _, preset := range []string{"shell", "custom"} {
+		a := &Agent{Name: "w", Preset: preset}
+		if err := a.Validate(); err != nil {
+			t.Errorf("%s with no command was refused: %v", preset, err)
+		}
+		if a.Command != "" {
+			t.Errorf("%s was given a command it did not ask for: %q", preset, a.Command)
+		}
+	}
+	// And a command under any preset survives.
+	a := &Agent{Name: "w", Preset: "shell", Command: "watch -n5 docker ps"}
+	if err := a.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if a.Command != "watch -n5 docker ps" {
+		t.Errorf("the command was erased by its preset: %q", a.Command)
 	}
 }
 

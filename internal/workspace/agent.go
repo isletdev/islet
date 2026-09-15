@@ -69,27 +69,27 @@ func (a *Agent) Validate() error {
 		return errors.New(`"shell" is the name of the workspace's own shell window; pick another`)
 	}
 	switch a.Preset {
+	// A preset is where the form starts, not what the agent is allowed to be.
+	// It used to be the second thing: choosing "a shell" erased whatever
+	// command had been typed, and choosing "something else" turned off resume
+	// and the permission flag whether or not the command was Claude Code — so
+	// `claude --model opus-5` could not resume, and there was no way to run a
+	// shell with anything in it. What actually decides is the command.
 	case "claude":
 		if a.Command == "" {
 			a.Command = "claude"
 		}
-	case "shell":
-		a.Command = ""
-		a.Resume = false // there is no conversation to come back to
-		a.SkipPermissions = false
-	case "custom":
-		if a.Command == "" {
-			return errors.New("a custom agent needs a command to run")
-		}
-		a.Resume = false // resuming is a Claude Code conversation, not a rerun
-		a.SkipPermissions = false
+	case "shell", "custom":
+		// An empty command is a shell. That is a choice, not a mistake.
 	default:
 		return errors.New("preset must be claude, shell or custom")
 	}
 	if strings.ContainsAny(a.Command, "\n\r") {
 		return errors.New("the command must be a single line")
 	}
-	if a.Preset == "claude" && a.SessionUUID == "" {
+	// A conversation id belongs to anything that runs Claude Code, whichever
+	// preset was picked to get there.
+	if a.SessionUUID == "" && isClaude(a.Command) {
 		a.SessionUUID = newUUID()
 	}
 	return nil
@@ -182,22 +182,50 @@ func (s *Service) launchAgent(ctx context.Context, w *Workspace, a *Agent) strin
 	if cmd == "" {
 		return ""
 	}
-	if a.Preset != "claude" {
+	claudePath := ""
+	if isClaude(cmd) {
+		claudePath = s.ClaudePath(ctx)
+	}
+	mcp := ""
+	if w.MCPEnabled {
+		if p := s.mcpPath(w.ID); fileExists(p) {
+			mcp = p
+		}
+	}
+	return resolveAgentCommand(cmd, claudePath, mcp, a)
+}
+
+// isClaude reports whether a command line runs Claude Code, which is what
+// decides whether Claude Code's flags mean anything.
+func isClaude(cmd string) bool {
+	head, _, _ := strings.Cut(strings.TrimSpace(cmd), " ")
+	// path, not filepath: this command line is executed by a shell on the
+	// Linux server, so "/usr/bin/claude" is absolute whatever the machine this
+	// daemon was compiled on thinks.
+	return head != "" && path.Base(head) == "claude"
+}
+
+// resolveAgentCommand adds what Islet knows to what the person wrote.
+//
+// Two rules, and the second is the one that was missing. Flags are added
+// because the command is Claude Code, not because a preset said so. And
+// anything already on the line is left alone: somebody who has written their
+// own --model, --mcp-config or --resume meant it, and a second copy appended
+// after it is at best ignored and at worst an error they cannot see, since the
+// line that runs is not the line they typed.
+func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent) string {
+	if !isClaude(cmd) {
 		return cmd
 	}
 	head, rest, _ := strings.Cut(cmd, " ")
-	// path, not filepath: this command line is executed by a shell on the
-	// Linux server, so "/usr/bin/claude" is absolute whatever the machine
-	// this daemon was compiled on thinks.
-	if path.Base(head) == "claude" && !strings.HasPrefix(head, "/") {
-		if p := s.ClaudePath(ctx); p != "" && p != head {
-			cmd = p
-			if rest != "" {
-				cmd += " " + rest
-			}
+	if claudePath != "" && !strings.HasPrefix(head, "/") && claudePath != head {
+		cmd = claudePath
+		if rest != "" {
+			cmd += " " + rest
 		}
 	}
-	if a.Resume && a.SessionUUID != "" {
+	has := func(flag string) bool { return strings.Contains(cmd, flag) }
+	if a.Resume && a.SessionUUID != "" && !has("--resume") && !has("--session-id") && !has("--continue") {
 		// --session-id names the conversation on the first run; --resume
 		// reopens that exact one afterwards. --continue is deliberately not
 		// used: it means "the most recent conversation in this directory", and
@@ -209,12 +237,10 @@ func (s *Service) launchAgent(ctx context.Context, w *Workspace, a *Agent) strin
 			cmd += " --resume " + a.SessionUUID
 		}
 	}
-	if w.MCPEnabled {
-		if p := s.mcpPath(w.ID); fileExists(p) {
-			cmd += " --mcp-config " + p
-		}
+	if mcpConfig != "" && !has("--mcp-config") {
+		cmd += " --mcp-config " + mcpConfig
 	}
-	if a.SkipPermissions && !strings.Contains(cmd, "--dangerously-skip-permissions") {
+	if a.SkipPermissions && !has("--dangerously-skip-permissions") {
 		cmd += " --dangerously-skip-permissions"
 	}
 	return cmd

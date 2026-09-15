@@ -125,10 +125,13 @@ function List() {
     finally { setBusy(null); }
   };
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    // Capped and scrolled, with the header staying put. A server with sixty
+    // containers is an ordinary server, and the page below this — images,
+    // volumes, disk usage — should not be a scroll away because of it.
+    <div className="max-h-[70dvh] overflow-auto rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
       <table className="w-full min-w-[900px] text-sm">
-        <thead className="text-left text-xs text-ink-muted"><tr className="group">
+        <thead className="sticky top-0 z-10 bg-surface text-left text-xs text-ink-muted"><tr className="group">
           <SortHeader label="Name" column="name" sort={sort} onSort={toggle} className="px-4" />
           <SortHeader label="Image" column="image" sort={sort} onSort={toggle} />
           <SortHeader label="Stack" column="stack" sort={sort} onSort={toggle} />

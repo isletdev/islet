@@ -115,14 +115,25 @@ export default function Overview() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card title={t("overview.processes")} description={t("overview.processes.desc")}>
-          <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
-            <thead className="text-left text-xs text-ink-muted">
+          {/* Capped and scrolled rather than however long the server happens to
+              be: these two cards sit side by side, and a hundred rows in one of
+              them pushes everything below it off the page. */}
+          <div className="max-h-80 overflow-auto"><table className="w-full min-w-[420px] text-sm">
+            <thead className="sticky top-0 z-10 bg-surface text-left text-xs text-ink-muted">
               <tr><th className="pb-2 font-medium">Process</th><th className="pb-2 font-medium">User</th><th className="pb-2 text-right font-medium">CPU</th><th className="pb-2 text-right font-medium">Memory</th></tr>
             </thead>
             <tbody className="divide-y divide-border">
               {procs.map((p) => (
                 <tr key={p.pid}>
-                  <td className="py-1.5"><span className="font-medium">{p.name}</span> <span className="font-mono text-xs text-ink-faint">{p.pid}</span></td>
+                  {/* A process name is whatever was on the command line, and a
+                      browser or a JVM puts three hundred characters there. Left
+                      to wrap, one row was taller than the card. */}
+                  <td className="max-w-0 py-1.5">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="truncate font-medium" title={p.name}>{p.name}</span>
+                      <span className="shrink-0 font-mono text-xs text-ink-faint">{p.pid}</span>
+                    </div>
+                  </td>
                   <td className="py-1.5 text-ink-muted">{p.user}</td>
                   <td className="py-1.5 text-right font-mono tabular-nums">{pct(p.cpuPct)}</td>
                   <td className="py-1.5 text-right font-mono tabular-nums">{bytes(p.memRss, 0)}</td>
@@ -132,16 +143,23 @@ export default function Overview() {
             </tbody>
           </table></div>
         </Card>
-        <Card title="Listening ports" description="Sockets accepting connections on this server.">
-          <div className="overflow-x-auto"><table className="w-full min-w-[360px] text-sm">
-            <thead className="text-left text-xs text-ink-muted">
+        <Card title="Listening ports" description={ports.length ? `${ports.length} sockets accepting connections on this server.` : "Sockets accepting connections on this server."}>
+          <div className="max-h-80 overflow-auto"><table className="w-full min-w-[360px] text-sm">
+            <thead className="sticky top-0 z-10 bg-surface text-left text-xs text-ink-muted">
               <tr><th className="pb-2 font-medium">Port</th><th className="pb-2 font-medium">Address</th><th className="pb-2 font-medium">Process</th></tr>
             </thead>
             <tbody className="divide-y divide-border">
               {ports.map((p) => (
-                <tr key={`${p.proto}-${p.address}-${p.port}`}>
+                <tr key={`${p.proto}-${p.port}`}>
                   <td className="py-1.5 font-mono tabular-nums">{p.port}<span className="ml-1 text-xs text-ink-faint">{p.proto}</span></td>
-                  <td className="py-1.5 font-mono text-xs text-ink-muted">{p.address || "*"}</td>
+                  <td className="py-1.5 font-mono text-xs text-ink-muted">
+                    {p.address || "*"}
+                    {/* A port bound to a dozen interfaces is one service, but
+                        saying so without saying how many would be hiding it. */}
+                    {p.addresses && p.addresses.length > 1 && (
+                      <span className="ml-1 text-ink-faint" title={p.addresses.join("\n")}>+{p.addresses.length - 1}</span>
+                    )}
+                  </td>
                   <td className="py-1.5">{p.container ? <Link to={`/containers?c=${p.container}`} className="-my-1 inline-block py-1 text-accent hover:underline">{p.container}</Link> : p.process || <span className="text-ink-faint">pid {p.pid || "?"}</span>}</td>
                 </tr>
               ))}

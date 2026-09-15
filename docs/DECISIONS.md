@@ -2209,3 +2209,56 @@ neither, so the number FitAddon reads is the number that is there: 36 rows,
 four pixels of slack, nothing clipped. Measured again at 390 and 1440 to be
 sure, and it fixes every terminal in the panel at once — the shell, a workspace,
 a container exec, the pop-out console — because they are all one component.
+
+## 2026-09-15 — Five small things, each measured
+**Icons that did not line up with their labels.** Measured rather than nudged:
+for every sidebar row, where the icon's drawn ink sits inside its 24-unit grid,
+and where the label's glyph ink sits on the page. The median offset across
+seventeen rows was zero — the row centring was already right — and four icons
+were drawn off-centre. The assistant's speech bubble hangs a tail to y=22
+against a body starting at y=4, putting its middle at 14.2 and the icon 1.65px
+below its label; the workspaces windows reach y=3 and stop at 18, sitting 1.63px
+high; files and notifications were under half a unit out. Those two also drew
+their own `<svg>` at stroke 1.5 rather than going through the shared `Icon` at
+1.7, so they were a shade lighter than everything around them. All four now
+centre on 12.
+
+What is left is typography and stays: "Logs", "Apps", "Uptime" and "Security"
+have descenders, so their glyph ink sits lower than a word without one, and an
+icon centred on the line box reads a fraction high beside them. Aligning to each
+word would misalign all the rest.
+
+**Twenty-five ports arriving as forty-seven rows.** One row per socket is what
+the kernel has. A TURN server bound to every interface was twelve rows of 3478 —
+public v4, public v6, loopback, and each Docker bridge — and anything on both
+families was two rows of one thing. They are grouped by protocol and port now.
+The address kept is the most exposed of them, ranked wildcard > public > private
+> loopback, so a port that is reachable from outside can never read as private;
+the rest are counted beside it and listed on hover, so collapsing hides nothing.
+
+Both long lists are also capped and scrolled with their headers pinned, as is
+the containers table. And a process name is whatever was on the command line: a
+headless browser put three hundred characters in one cell and made a row taller
+than the card it was in.
+
+**The workspaces page scrolled for no reason.** The terminal was a fixed 60dvh,
+and 60dvh plus a header, a tab bar and an agent bar is more than one screen —
+so the page scrolled past a terminal that was smaller than the space it was
+scrolling through. It takes the room that is left now.
+
+The shell tab went with it. A shell on this server is what the Terminal page is;
+a tab for it sat in front of the agents the page exists for, and the workspace's
+own window is still there over SSH, which the line under the terminal says.
+
+**Agent presets decided too much.** Choosing "a shell" erased whatever command
+had been typed; choosing "something else" turned resume and the permission flag
+off whether or not the command was Claude Code. So `claude --model opus-5` under
+"something else" could not resume its own conversation, and "a shell that runs
+htop" could not be expressed at all.
+
+A preset is where the form starts now, and the command decides the rest: the
+flags are added because the line runs Claude Code, whichever preset was picked
+to get there. And anything already written is left alone — somebody who typed
+their own `--resume`, `--mcp-config` or `--model` meant it, and a second copy
+appended after it is at best ignored and at worst an error they cannot see,
+because the line that runs is not the line they typed.
