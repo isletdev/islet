@@ -316,14 +316,29 @@ export default function TermView({
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>Reconnect</Button>
         )}
       </div>
-      <div
-        ref={host}
-        className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2"
-        // The browser's own menu here offers Back, Reload, View source and
-        // Inspect — nothing that applies to a terminal, and nothing the two
-        // things people actually want. This is those two things.
-        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
-      />
+      {/*
+        The padding and the border are on the outside, and the terminal's own
+        parent carries neither.
+        
+        FitAddon works out how many rows fit from getComputedStyle(parent).height
+        and then subtracts the padding of the *terminal* element, not the
+        parent's. With box-sizing: border-box — which is every element here —
+        that height includes the parent's padding and border, so a box 670px
+        tall with 8px of padding and a 1px border reported 670 where 652 was
+        usable: 37 rows asked for, 36 that fit, and the last one clipped to five
+        of its eighteen pixels. Which is what it looked like: half a line at the
+        bottom, on every terminal in the panel.
+      */}
+      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2">
+        <div
+          ref={host}
+          className="h-full w-full"
+          // The browser's own menu here offers Back, Reload, View source and
+          // Inspect — nothing that applies to a terminal, and nothing the two
+          // things people actually want. This is those two things.
+          onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
+        />
+      </div>
       {menu && (
         <>
           <div className="fixed inset-0 z-40" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />

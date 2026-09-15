@@ -61,7 +61,12 @@ export default function Assistant() {
   const abort = useRef<AbortController | null>(null);
   const runId = useRef<string | null>(null);
   const openChat = useRef<string | null>(null);
-  const seq = useRef(0);
+  // Whether the run reported an ending of its own. Without it a dropped
+  // connection is indistinguishable from a finished answer.
+  const settled = useRef(false);
+  const retry = useRef<number | undefined>(undefined);
+  const tries = useRef(0);
+  const resumeNow = useRef<() => Promise<void>>(undefined);
 
   const refreshChats = useCallback(async () => {
     try {
@@ -78,15 +83,19 @@ export default function Assistant() {
   useEffect(() => { foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, activity, running]);
 
   const handle = useCallback((ev: AssistantEvent) => {
-    if (ev.type !== "ping") seq.current = ev.seq + 1;
     switch (ev.type) {
       case "start":
         runId.current = ev.runId;
+        settled.current = false;
         if (ev.chatId) {
           openChat.current = ev.chatId;
           setChatId(ev.chatId);
           rememberChat(ev.chatId);
         }
+        // The stream is replayed from the beginning whenever this page
+        // reattaches, so anything this run already wrote into the stored
+        // conversation is dropped first and rebuilt from the events.
+        if (typeof ev.base === "number") setMsgs((m) => (m.length > ev.base ? m.slice(0, ev.base) : m));
         setActivity([]);
         break;
       case "text":
@@ -100,14 +109,20 @@ export default function Assistant() {
         break;
       case "turn":
         setMsgs((m) => [...m, ev.message]);
+        // The turn carries what it did, so the running list has said its piece.
+        setActivity([]);
         break;
       case "done":
+        settled.current = true;
         setMsgs(ev.messages);
         setActivity([]);
         setRunning(false);
         void refreshChats();
         break;
       case "error":
+        // The run itself failed, which is the only kind of failure worth
+        // putting on the screen. A connection that drops is not one.
+        settled.current = true;
         if (ev.messages?.length) setMsgs(ev.messages);
         setError(ev.message);
         setRunning(false);
@@ -116,41 +131,104 @@ export default function Assistant() {
     }
   }, [refreshChats]);
 
-  // follow reads a stream to its end. It does not decide what a stream means:
-  // an ending one may be a finished run or a connection that dropped, and only
-  // the events say which.
+  // Backing off, because a daemon that is restarting should not be hammered,
+  // and a phone in a tunnel will not be helped by trying twice a second.
+  //
+  // It reaches the current resume through a ref: the two call each other — a
+  // failed resume schedules another — and a ref is how that is written without
+  // one of them capturing a stale copy of the other.
+  const resumeSoon = useCallback(() => {
+    window.clearTimeout(retry.current);
+    setReconnecting(true);
+    setRunning(true);
+    const wait = Math.min(15000, 800 * 2 ** Math.min(tries.current, 4));
+    tries.current += 1;
+    retry.current = window.setTimeout(() => { void resumeNow.current?.(); }, wait);
+  }, []);
+
+  // follow reads a stream to its end and decides what its ending meant.
+  //
+  // A stream that stops is not a failure. A phone locking its screen, a tab
+  // going to the background, a train entering a tunnel: all of them end the
+  // connection while the run carries on, and reporting that as an error — which
+  // is what this used to do, because a dropped fetch is a rejected promise —
+  // put "Failed to fetch" on the screen of somebody whose deploy was fine. Only
+  // an `error` event means the run failed. Everything else reconnects.
   const follow = useCallback(async (start: (onEvent: (e: AssistantEvent) => void, signal: AbortSignal) => Promise<void>) => {
     const ac = new AbortController();
     abort.current?.abort();
     abort.current = ac;
+    settled.current = false;
     setRunning(true);
     setError(null);
+    let dropped: boolean;
     try {
       await start(handle, ac.signal);
-    } catch (e) {
-      if (!ac.signal.aborted) setError(err(e));
+      // Ending without a closing line is a cut connection, not an answer.
+      dropped = !settled.current;
+    } catch {
+      dropped = true;
     } finally {
-      if (abort.current === ac) {
-        abort.current = null;
-        setRunning(false);
-      }
+      if (abort.current === ac) abort.current = null;
     }
-  }, [handle]);
+    // Stopped on purpose: by the Stop button, by opening another conversation,
+    // or by leaving the page.
+    if (ac.signal.aborted) return;
+    if (dropped) resumeSoon();
+    else setRunning(false);
+  }, [handle, resumeSoon]);
 
-  // Pick a run back up. `from` is what this page already has, so nothing is
-  // shown twice — the stored transcript and the live stream do not overlap.
-  const attach = useCallback(async (id: string, from: number) => {
+  // Pick the run back up from the beginning.
+  //
+  // From the beginning, not from where this page got to: the events are what
+  // say which tools ran, and a client that reattached from its own position saw
+  // "working…" with an empty list until the run finished. The run's first event
+  // carries the point in the conversation it started from, so replaying the lot
+  // cannot double anything.
+  const attach = useCallback(async (id: string) => {
     runId.current = id;
-    seq.current = from;
     setReconnecting(true);
     try {
-      await follow((onEvent, signal) => getNDJSON<AssistantEvent>(`/api/v1/assistant/runs/${encodeURIComponent(id)}?from=${from}`, onEvent, signal));
+      await follow((onEvent, signal) => getNDJSON<AssistantEvent>(`/api/v1/assistant/runs/${encodeURIComponent(id)}?from=0`, onEvent, signal));
     } finally {
       setReconnecting(false);
     }
   }, [follow]);
 
+  // resume finds whatever is working on the open conversation and watches it
+  // again. When nothing is, the conversation is simply reloaded: the run
+  // finished while this page was away, and the answer is already stored.
+  const resume = useCallback(async () => {
+    window.clearTimeout(retry.current);
+    const chat = openChat.current;
+    if (!chat) { setRunning(false); return; }
+    try {
+      const list = await api.assistantChats();
+      const here = list.find((c) => c.id === chat);
+      setChats(list);
+      if (!here) { setRunning(false); return; }
+      if (here.runId) {
+        tries.current = 0;
+        await attach(here.runId);
+        return;
+      }
+      const detail = await api.assistantChatOpen(chat);
+      setMsgs(detail.turns);
+      setActivity([]);
+      setRunning(false);
+    } catch {
+      // Still unreachable. Come back later, more slowly each time, and the
+      // moment the tab or the network returns.
+      resumeSoon();
+    }
+  }, [attach, resumeSoon]);
+
+  // The timer above fires into whatever resume is current.
+  useEffect(() => { resumeNow.current = resume; }, [resume]);
+
+
   const open = useCallback(async (id: string) => {
+    window.clearTimeout(retry.current);
     abort.current?.abort();
     abort.current = null;
     openChat.current = id;
@@ -163,9 +241,9 @@ export default function Assistant() {
       const detail = await api.assistantChatOpen(id);
       setMsgs(detail.turns);
       runId.current = detail.runId ?? null;
-      // Still working somewhere else — another device, or this one before the
-      // screen locked. Watch from the point the stored transcript reaches.
-      if (detail.runId) void attach(detail.runId, detail.runEvents ?? 0);
+      // Still working — on another device, or on this one before the screen
+      // locked. Watch it, replaying what already happened.
+      if (detail.runId) void attach(detail.runId);
       else setRunning(false);
     } catch (e) {
       setError(err(e));
@@ -189,13 +267,13 @@ export default function Assistant() {
 
   // A phone unlocking, or a network coming back, is when a dropped stream has
   // to be picked up again.
+  // A phone unlocking, or a network coming back, is when a dropped stream has
+  // to be picked up again — and is the moment to stop waiting out a backoff.
   useEffect(() => {
     const back = () => {
       if (document.visibilityState !== "visible" || abort.current) return;
-      void refreshChats().then((list) => {
-        const here = list.find((c) => c.id === openChat.current);
-        if (here?.runId) void attach(here.runId, here.id === openChat.current && runId.current === here.runId ? seq.current : 0);
-      });
+      tries.current = 0;
+      void resume();
     };
     document.addEventListener("visibilitychange", back);
     window.addEventListener("online", back);
@@ -203,10 +281,14 @@ export default function Assistant() {
       document.removeEventListener("visibilitychange", back);
       window.removeEventListener("online", back);
     };
-  }, [attach, refreshChats]);
+  }, [resume]);
 
-  // Leaving the page stops the watching. The run is the daemon's and carries on.
-  useEffect(() => () => abort.current?.abort(), []);
+  // Leaving the page stops the watching, and the waiting. The run is the
+  // daemon's and carries on either way.
+  useEffect(() => () => {
+    window.clearTimeout(retry.current);
+    abort.current?.abort();
+  }, []);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -215,12 +297,12 @@ export default function Assistant() {
     setMsgs((m) => [...m, { role: "user", text: q }]);
     setText("");
     setActivity([]);
-    seq.current = 0;
     await follow((onEvent, signal) =>
       postNDJSON<AssistantEvent>("/api/v1/assistant/chat", onEvent, { chatId: chatId ?? undefined, text: q }, signal));
   };
 
   const newChat = () => {
+    window.clearTimeout(retry.current);
     abort.current?.abort();
     abort.current = null;
     runId.current = null;
@@ -235,6 +317,7 @@ export default function Assistant() {
   };
 
   const stop = async () => {
+    window.clearTimeout(retry.current);
     const id = runId.current;
     if (id) { try { await api.assistantRunCancel(id); } catch { /* it may have just finished */ } }
     abort.current?.abort();

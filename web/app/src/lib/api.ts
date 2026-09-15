@@ -202,7 +202,7 @@ export interface AssistantMessage {
  * reattaches with the next number and is given what it missed.
  */
 export type AssistantEvent =
-  | { seq: number; type: "start"; runId: string; chatId: string; tools: number; ask: string }
+  | { seq: number; type: "start"; runId: string; chatId: string; tools: number; ask: string; base: number }
   | { type: "ping" }
   | { seq: number; type: "text"; text: string }
   | { seq: number; type: "tool"; id: string; name: string; input?: Record<string, unknown> }

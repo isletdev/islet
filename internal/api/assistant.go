@@ -316,7 +316,15 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	// The question travels in the first event so a client that reattaches after
 	// a reload — a phone reopening the panel — can show what was asked without
 	// waiting for the run to finish and hand over the whole transcript.
-	rn.add("start", map[string]any{"runId": rn.ID, "chatId": chatID, "tools": len(tools), "ask": rn.Ask})
+	// base is how many messages the conversation held before this run said
+	// anything. A client reattaching replays the whole event log from zero — it
+	// is the only way to see the tool calls that happened while it was away —
+	// and turns this run has already written to the conversation would then be
+	// counted twice. Trimming to base first makes the replay exact.
+	rn.add("start", map[string]any{
+		"runId": rn.ID, "chatId": chatID, "tools": len(tools),
+		"ask": rn.Ask, "base": len(msgs),
+	})
 
 	obs := rn.observer()
 	if chatID != "" && s.chats != nil {

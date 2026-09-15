@@ -2158,3 +2158,54 @@ the loop.
 The two audit scripts took `ISLET_BASE`, so they can drive a build under test
 rather than the installed daemon that owns 9443. `/assistant` is clean at 390,
 768 and 1440.
+
+## 2026-09-15 — A dropped connection is not an error, and a cold page has to be told what it missed
+Two complaints about the same moment: the phone goes away while the assistant is
+working, and comes back.
+
+The first was a lie on the screen. A dropped fetch is a rejected promise, the
+page had no way to tell that from a real failure, and it wrote "Failed to fetch"
+over a deploy that was going perfectly well. Only an `error` event from the run
+means the run failed; a stream that simply stops means the connection stopped.
+It now reconnects instead — immediately when the tab or the network comes back,
+and otherwise on a backoff from 800ms to fifteen seconds, because a daemon that
+is restarting should not be hammered and a phone in a tunnel will not be helped
+by trying twice a second.
+
+The second was a gap in what a returning client is told. It reattached from its
+own position in the event log, which for a page that had just loaded was zero
+events but a run already ten tools deep — so the screen said "working" and then
+listed only what happened next. It now replays from the beginning every time.
+
+That is only safe because the run says where it started. Turns are written to
+the conversation as they complete, so a replay would otherwise re-append turns
+already loaded from the database. The first event carries `base`, the number of
+messages the conversation held before this run said anything; the client trims
+to it and rebuilds the rest from the events, which makes the replay exact rather
+than merely likely. And a `turn` event now clears the live tool list, because
+the turn carries its own record of what it did — one place per fact, on screen
+as in the database.
+
+Neither is unit-testable in any honest way: both are about a browser, a network
+and a run that outlives them. `hack/e2e-assistant.mjs` drives all three — asks a
+question, takes the network away mid-run, brings it back, then loads a cold page
+while the run is still going — and asserts what should be on screen at each
+point. It is how both fixes were confirmed.
+
+## 2026-09-15 — Half a line at the bottom of every terminal
+Reported twice. Measured once: the terminal box was 670px tall with 8px of
+padding and a 1px border, xterm rendered 37 rows of 18px into the 652px that
+were actually usable, and the last row was clipped to five of its eighteen
+pixels.
+
+FitAddon asks the terminal's parent for `getComputedStyle(...).height` and then
+subtracts the padding of the *terminal* element, not the parent's. Every element
+here is `box-sizing: border-box`, so that height includes the parent's padding
+and border — and the parent was the padded, bordered box.
+
+The fix is to stop asking a padded element how much room there is. The padding
+and the border moved to an outer wrapper and the terminal's own parent carries
+neither, so the number FitAddon reads is the number that is there: 36 rows,
+four pixels of slack, nothing clipped. Measured again at 390 and 1440 to be
+sure, and it fixes every terminal in the panel at once — the shell, a workspace,
+a container exec, the pop-out console — because they are all one component.
