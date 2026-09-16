@@ -401,11 +401,26 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	// The test is the cookie, not the column: a session can hold a gate token
 	// the browser never received, which is exactly what happens to everybody
 	// who was already signed in when the domain was set.
-	if sess != nil && u != nil && currentCookieDomain(r) != "" {
+	if dom := currentCookieDomain(r); sess != nil && u != nil && dom != "" {
 		if c, err := r.Cookie(gateCookie); err != nil || c.Value == "" {
 			if gate, err := s.auth.EnsureGate(r.Context(), sess.ID); err == nil {
 				sess.HasGate = true
 				setGateCookie(w, r, gate, sess.ExpiresAt)
+			}
+			// This browser was signed in before the gate cookie existed, which
+			// means it is still holding a session cookie scoped to the parent
+			// domain — and still handing it to every protected site it visits.
+			// Nothing on the server can see that scope, so the wide cookie is
+			// deleted by name at that scope and the session re-issued
+			// host-only. Without this, the thing the gate cookie exists to
+			// prevent goes on happening for a week, to exactly the people who
+			// were already using the panel.
+			if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
+				http.SetCookie(w, &http.Cookie{
+					Name: sessionCookie, Value: "", Path: "/", HttpOnly: true,
+					Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Domain: dom,
+				})
+				setSessionCookie(w, r, c.Value, sess.ExpiresAt)
 			}
 		}
 	}
