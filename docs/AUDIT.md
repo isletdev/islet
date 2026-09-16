@@ -77,6 +77,24 @@ Carried by **v0.18.2**:
   is an assistant with every scope.
 
 
+Carried by **v0.18.3**:
+
+- **10. The documentation is published.** At `islet.dev/docs`, by the website
+  repository, which checks this one out and runs `tools/docsite` as part of its
+  deploy — the text stays where the code is and nothing is copied by hand.
+  Publishing it meant fixing it: it linked to pages that were never rendered,
+  the logo on the front page was a broken image, and the whole index sat above
+  the content on a phone. The generator checks its own output now and refuses to
+  write a link that resolves to nothing.
+- **7 (continued). `internal/db` and `internal/uptime` have tests**, chosen for
+  where a mistake costs most rather than for coverage: what a database drop
+  refuses, that a dump file name cannot climb out of its directory, that Redis's
+  password stays out of the command line that gets written to the audit log —
+  and, for uptime, what it calls "down". A 503 is down, a page serving "Error
+  500" with a 200 is down when a keyword is set, an expected 401 is up, and a
+  timeout says "no answer within 1s" rather than whatever the transport said.
+
+
 ## ~~1.~~ (done) The command log is 61% polling noise — and every row is a process
 
 `commands` holds 8,681 rows on this server, three days old. What is in them:
@@ -181,10 +199,13 @@ the same class: state that changes without an event.
 **Do:** read them one by one. They are a list of places where the panel does work
 it was not asked to do.
 
-## 10. Smaller things (partly done)
+## ~~10.~~ (mostly done) Smaller things
 
 - ~~CI logs a Node 20 deprecation on every run.~~ Bumped in v0.18.1.
-- `islet.dev` docs site and the `isletdev/catalog` repository are both 404.
+- ~~`islet.dev` docs site is 404.~~ Published at `islet.dev/docs` in v0.18.3.
+- The `isletdev/catalog` repository is still 404. The daemon fetches and
+  overlays it when it exists; only the repository is missing, and creating one
+  under somebody else's organisation is not mine to do.
 - The VPS e2e workflow has never run: it skips itself without `HCLOUD_TOKEN`.
 - ~~The assistant's MCP token carries `*` and the panel does not say what that
   means.~~ Said in v0.18.2. Narrowing the token itself is the operator's call.
