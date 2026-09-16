@@ -84,9 +84,16 @@ function Locations({ value, containers, onChange }: { value: DomainLocation[]; c
  * is worth saying at the moment the box is ticked rather than discovering it
  * from an infinite loop.
  */
-function protectWarning(host: string, cookieDom: string): string {
+function protectWarning(host: string, cookieDom: string, tls: Domain["tls"] = "letsencrypt"): string {
   const h = host.trim().toLowerCase().replace(/^\*\./, "");
   if (!h) return "";
+  // A session cookie issued over HTTPS carries Secure, and a browser will not
+  // send a Secure cookie to an http:// address at all — so the gate never sees
+  // a session here, sends the visitor to sign in, and is no wiser when they
+  // come back. It loops, and nothing about the loop says why.
+  if (tls === "none") {
+    return `${h} is served over plain HTTP, and the panel's session cookie is marked Secure, so a browser will never send it to an http:// address. The gate would never see a signed-in visitor and the login would loop. Give this host a certificate first.`;
+  }
   if (!cookieDom) {
     return `This needs a session cookie domain, and none is set. Without one the panel's cookie is only sent to ${location.hostname}, so ${h} can never tell that a visitor is signed in and the login will loop. Set one under Settings, Sessions.`;
   }
@@ -162,7 +169,7 @@ function Protection({ value, users, onChange, cookieDom }: { value: Domain; user
   // An inherited row shows its host's list, greyed: what it would enforce.
   const effUsers = (r: Row) => (r.protect === "inherit" ? value.protectUsers ?? "" : r.users);
   const anyOn = rows.some(on);
-  const warning = anyOn ? protectWarning(value.host, cookieDom) : "";
+  const warning = anyOn ? protectWarning(value.host, cookieDom, value.tls) : "";
 
   return (
     <div className="rounded-md border border-border p-3">

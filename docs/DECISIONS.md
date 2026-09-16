@@ -2493,3 +2493,77 @@ they all start from a struct, and the fault was between the form and the row.
 It took saving a domain through the running daemon to see it, and there is now
 a round-trip test (`TestDomainRoundTrip`) that saves, reads back, updates and
 reads again, so the next column cannot be lost the same way.
+
+## 2026-09-16 — What an audit of the protection gateway found
+
+Six faults, four of them only visible by putting a real Traefik in front of a
+real backend and looking at what arrived. A throwaway Traefik v3.5 on a spare
+port with an echo server behind it answered in minutes what reading the code
+had been guessing at for an hour.
+
+**`PathPrefix` is a string prefix, not a path prefix.** A rule for `/hooks`
+also claims `/hooksecret`. That was harmless while a location only chose a
+backend — and a hole the moment a location could open something the host
+protects, because "open `/hooks`" silently opened every path starting with
+those eight letters. Now a location that *relaxes* the host's gate matches
+``Path(`/hooks`) || PathPrefix(`/hooks/`)`` and nothing else. Locations that
+only tighten, or that touch no gate at all, keep prefix matching: it is what
+nginx does, it is what an imported config means, and widening a gate to cover
+more paths than expected fails safe.
+
+**`X-Islet-User` was whatever the visitor typed, on any route with no gate.**
+Traefik replaces the header on a protected route — measured, since the whole
+scheme rests on it — but an open route, or an open path on a protected host,
+handed the client's own value straight to the app. The header is documented as
+who the visitor is, so an app was right to trust it and wrong to receive it.
+Every route now strips both identity headers first; only the gate puts one back.
+
+**An `Authorization` header broke the gate for everybody.** Traefik copies the
+visitor's headers to the auth request, the panel saw `Bearer …`, failed to
+recognise the app's own token and answered 401 — so protecting a site broke its
+API, its single-page front end and every mobile client, for users who were
+signed in and allowed. A valid *Islet* token fared no better: no scope covers
+`/_islet/auth`, so it was refused 403. Now an unknown bearer token at the gate
+falls through to the session cookie, and an Islet token identifies its owner
+and is judged by the route's allow-list like anybody else.
+
+**The API let a deployer change who may reach a site.** The panel has only ever
+offered the domain form to admins, and the API had not caught up: a plain PUT —
+or the assistant, which speaks the same API — could turn a gate off or add its
+own author to the list. Protection changes are admin-only now, with
+`ProtectionEquals` deciding what counts as one, so a deployer can still move a
+backend without tripping over it.
+
+**One refusal was one audit row per request.** A refused browser fetches the
+stylesheet, the script and the favicon and is refused for each; a bot is
+refused for as long as it keeps trying. One row per person per site per minute
+now. The same path also read every domain and every location on the server to
+work out where the panel lives, on every refused request; that answer is held
+for thirty seconds.
+
+**Protecting an HTTP-only host loops in silence.** The session cookie is issued
+Secure, and a browser will not send a Secure cookie to an `http://` address, so
+the gate never sees a session, redirects, and is no wiser when the visitor
+returns. The form says so now, in the same place it warns about the cookie
+domain.
+
+Two things found and *not* changed, because both are design decisions rather
+than slips, and one of them is expensive:
+
+**A protected app is handed the panel's session cookie.** It has to be: the
+cookie is scoped to a parent domain precisely so the gate can see it on the
+app's hostname, and Traefik forwards `Cookie` to the backend like any other
+header — confirmed by watching one arrive. So every protected app, and anything
+that compromises one, holds a token that is the panel, as whoever was visiting.
+The fix is a second cookie: a gateway cookie scoped to the parent that only
+`/_islet/auth` accepts, with the panel's own session staying host-only. That is
+a real change to the login path and deserves its own release rather than being
+smuggled into an audit.
+
+**An encoded slash is not a path separator here, but may be one there.**
+`/hooks/..%2fadmin` is matched by the `/hooks` router and forwarded unchanged.
+Traefik is right about that, and right to normalise `..` and `%2e%2e`, which it
+does — both of those were measured and both land on the protected router. But a
+backend that decodes `%2F` and then resolves the path reaches `/admin` through a
+route that was opened for `/hooks`. Nothing Islet writes can fix an application
+that does that; what it can do is say so, which is now in the recipe.

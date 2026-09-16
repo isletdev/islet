@@ -7,7 +7,29 @@ import (
 
 // block returns the router stanza a rule belongs to, by working back from the
 // rule line to the name that opened it.
+// flat collapses every run of whitespace, because yaml.v3 folds a line longer
+// than eighty columns and a folded plain scalar is the same string with the
+// break standing in for a space.
+func flat(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// router returns one named router's stanza, which survives a folded rule line
+// where searching for the rule itself does not.
+func router(out, name string) string {
+	i := strings.Index(out, "\n        "+name+":\n")
+	if i < 0 {
+		return ""
+	}
+	rest := out[i+1:]
+	if j := strings.Index(rest[1:], "\n        d-"); j >= 0 {
+		return rest[:j+1]
+	}
+	return rest
+}
+
 func block(out string, idx int) string {
+	if idx < 0 {
+		return ""
+	}
 	start := strings.LastIndex(out[:idx], "\n        d-")
 	if start < 0 {
 		return ""
@@ -99,10 +121,18 @@ func TestRenderProtectLocationOptOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(raw)
-	hooks := block(out, strings.Index(out, "PathPrefix(`/hooks`)"))
+	hooks := router(out, "d-a-l0") // the /hooks location
 	api := block(out, strings.Index(out, "PathPrefix(`/api`)"))
+	if hooks == "" {
+		t.Fatalf("no router for /hooks:\n%s", out)
+	}
 	if strings.Contains(hooks, "-protect") {
 		t.Fatalf("/hooks is still protected:\n%s", hooks)
+	}
+	// And it opens that path only. PathPrefix is a string prefix in Traefik,
+	// so an unbounded rule would hand /hooksecret to the same open router.
+	if !strings.Contains(flat(out), "rule: Host(`shop.example.com`) && (Path(`/hooks`) || PathPrefix(`/hooks/`))") {
+		t.Fatalf("the opt-out rule is not bounded to the path:\n%s", out)
 	}
 	if !strings.Contains(api, "d-a-protect") {
 		t.Fatalf("/api did not inherit the host's protection:\n%s", api)
@@ -144,5 +174,59 @@ func TestRenderProtectSkipsThePanelHost(t *testing.T) {
 	}
 	if out := string(raw); strings.Contains(out, "-protect") {
 		t.Fatalf("the panel host got a forward-auth gate in front of its own login:\n%s", out)
+	}
+}
+
+// Only a rule that weakens the gate is bounded. A location that merely picks a
+// backend keeps nginx's prefix matching, which is what people import from.
+func TestRenderLocationMatchingFollowsWhoItLetsIn(t *testing.T) {
+	cases := []struct {
+		name    string
+		d       Domain
+		bounded bool
+	}{
+		{"open host, plain location", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y"}}}, false},
+		{"open host, location asks for a login", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y", Protect: "on"}}}, false},
+		{"protected host, location opens up", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Protect: true, Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y", Protect: "off"}}}, true},
+		{"protected host with a list, location names someone else", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Protect: true, ProtectUsers: "alice", Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y", Protect: "on", ProtectUsers: "alice,bob"}}}, true},
+		{"protected host with a list, location narrows it", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Protect: true, ProtectUsers: "alice,bob", Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y", Protect: "on", ProtectUsers: "alice"}}}, false},
+		{"protected host, no list, location asks for anyone signed in", Domain{ID: "a", Host: "h.example.com", TargetType: "url", Target: "http://x", TLS: "none", Protect: true, Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y", Protect: "on"}}}, false},
+	}
+	for _, c := range cases {
+		raw, err := Render([]Domain{c.d}, "http://panel:9443")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Contains(flat(string(raw)), "(Path(`/api`) || PathPrefix(`/api/`))")
+		if got != c.bounded {
+			t.Errorf("%s: bounded=%v, want %v\n%s", c.name, got, c.bounded, raw)
+		}
+	}
+}
+
+// An app is told to trust X-Islet-User. On a route with no gate in front of it
+// the header is whatever the visitor sent, so every route removes it first.
+func TestRenderStripsIdentityHeaders(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "a", Host: "open.example.com", TargetType: "url", Target: "http://x", TLS: "none", Enabled: true,
+			Locations: []Location{{Path: "/api", TargetType: "url", Target: "http://y"}}},
+	}, "http://panel:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "islet-strip-identity") {
+		t.Fatalf("no middleware removes the identity headers:\n%s", out)
+	}
+	for _, rule := range []string{"rule: Host(`open.example.com`)\n", "PathPrefix(`/api`)"} {
+		if b := block(out, strings.Index(out, rule)); !strings.Contains(b, "islet-strip-identity") {
+			t.Errorf("a serving router keeps whatever identity the visitor sent (%s):\n%s", rule, b)
+		}
 	}
 }

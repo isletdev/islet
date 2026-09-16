@@ -264,6 +264,12 @@ func ScopeAllows(scopes, method, path string) bool {
 		return has("shell")
 	case path == "/mcp":
 		return true
+	// The forward-auth gate. A token proves who its owner is, which is all the
+	// gate asks; what the owner may reach is the route's own allow-list, not a
+	// scope. Refusing here instead meant a machine client could never pass a
+	// gate at all, whatever it was minted for.
+	case path == "/_islet/auth":
+		return true
 	// Sending a notification is a write that the read scope must not cover,
 	// and it is the one thing under /api/v1/notify that "notify" is for.
 	case path == "/api/v1/notify/emit":

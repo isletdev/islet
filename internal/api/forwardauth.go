@@ -8,11 +8,16 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/pkg/api"
 )
+
+// forwardAuthPath is the route Traefik asks on behalf of a protected site.
+const forwardAuthPath = "/_islet/auth"
 
 func apiError(code, msg string) api.Error { return api.Error{Error: code, Message: msg} }
 
@@ -95,9 +100,24 @@ func splitUsers(s string) []string {
 	return out
 }
 
+// panelCache holds the answer for a moment, because every refused request asks
+// for it. A bot on a protected site produces one of these per request, and the
+// lookup reads every domain and every location on the server; a name the panel
+// answers to does not change between two of them.
+var panelCache struct {
+	sync.Mutex
+	url string
+	at  time.Time
+}
+
 // panelURL is where a visitor is sent to sign in, or "" if the panel has no
 // name of its own and the server has no public address either.
 func (s *Server) panelURL(ctx context.Context) string {
+	panelCache.Lock()
+	defer panelCache.Unlock()
+	if time.Since(panelCache.at) < 30*time.Second {
+		return panelCache.url
+	}
 	panel := ""
 	if doms, err := s.proxy.Domains(ctx); err == nil {
 		for _, d := range doms {
@@ -118,7 +138,39 @@ func (s *Server) panelURL(ctx context.Context) string {
 			panel = "https://" + ip + ":9443"
 		}
 	}
+	panelCache.url, panelCache.at = panel, time.Now()
 	return panel
+}
+
+// deniedRecently keeps one refusal per person per site per minute out of the
+// audit log. A browser refused on a page fetches its stylesheet, its script and
+// its favicon and is refused for each of them; a bot is refused for as long as
+// it keeps trying. Every one of those is the same event, and writing them all
+// buries the one that matters under thousands that do not.
+var denied struct {
+	sync.Mutex
+	seen map[string]time.Time
+}
+
+func firstDenialIn(window time.Duration, key string) bool {
+	denied.Lock()
+	defer denied.Unlock()
+	now := time.Now()
+	if denied.seen == nil {
+		denied.seen = map[string]time.Time{}
+	}
+	if len(denied.seen) > 1000 {
+		for k, t := range denied.seen {
+			if now.Sub(t) > window {
+				delete(denied.seen, k)
+			}
+		}
+	}
+	if t, ok := denied.seen[key]; ok && now.Sub(t) < window {
+		return false
+	}
+	denied.seen[key] = now
+	return true
 }
 
 // denyProtected answers a signed-in visitor the rule does not name.
@@ -128,7 +180,9 @@ func (s *Server) panelURL(ctx context.Context) string {
 // which account they are using — often the wrong one of two — and where the
 // permission lives, so an admin can be asked for it by name.
 func (s *Server) denyProtected(w http.ResponseWriter, r *http.Request, who, site string) {
-	_ = s.store.Audit(r.Context(), who, "proxy.protect.denied", site, "")
+	if firstDenialIn(time.Minute, who+"|"+site) {
+		_ = s.store.Audit(r.Context(), who, "proxy.protect.denied", site, "")
+	}
 	link := ""
 	if p := s.panelURL(r.Context()); p != "" {
 		link = `<p class="l"><a href="` + html.EscapeString(p) + `/domains">Open the Islet panel</a></p>`

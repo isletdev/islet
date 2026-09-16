@@ -339,17 +339,29 @@ func (s *Server) handleDomainSave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
 		return
 	}
+	var before *proxy.Domain
 	if id := r.PathValue("id"); id != "" {
 		d.ID = id
-		if _, err := s.proxy.Domain(r.Context(), id); err != nil {
+		cur, err := s.proxy.Domain(r.Context(), id)
+		if err != nil {
 			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such domain"})
 			return
 		}
+		before = cur
 	} else {
 		d.ID = ""
 	}
 	if d.TargetType == "panel" && u.Role != "admin" {
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can route the panel"})
+		return
+	}
+	// Who may reach a site is an access-control decision, not a routing one.
+	// The panel has only ever offered this form to admins; the API had not
+	// caught up, so a deployer could turn a gate off, or add themselves to its
+	// list, through a plain PUT — or through the assistant, which speaks the
+	// same API.
+	if u.Role != "admin" && !d.ProtectionEquals(before) {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "only admins can change who may reach a site"})
 		return
 	}
 	saved, err := s.proxy.Save(r.Context(), u.Username, &d)

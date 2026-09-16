@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1018,7 +1019,13 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 	if err := m.Reconcile(ctx); err != nil {
 		return nil, err
 	}
-	_ = m.st.Audit(ctx, actor, "domain.save", d.Host, d.TargetType+" "+d.Target)
+	detail := d.TargetType + " " + d.Target
+	// Who may reach a site belongs in the log that answers "who changed what",
+	// and a row that records only where it points does not say it.
+	if p := d.ProtectSummary(); p != "" {
+		detail += " " + p
+	}
+	_ = m.st.Audit(ctx, actor, "domain.save", d.Host, detail)
 	return m.Domain(ctx, d.ID)
 }
 
@@ -1174,6 +1181,16 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
 		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
+		// X-Islet-User is what an app is told to trust, and on a route with no
+		// gate in front of it the value is simply whatever the visitor typed.
+		// Traefik replaces these two on a protected route — that was measured,
+		// not assumed — but an open route, or an open path on a protected
+		// host, hands them straight to the backend. An empty value in
+		// customRequestHeaders deletes the header, so every route starts
+		// without one and only the gate can put it back.
+		"islet-strip-identity": map[string]any{"headers": map[string]any{
+			"customRequestHeaders": map[string]string{"X-Islet-User": "", "X-Islet-Role": ""},
+		}},
 	}
 	transports := map[string]any{"islet-insecure": map[string]any{"insecureSkipVerify": true}}
 
@@ -1227,7 +1244,7 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		if d.TLS == "none" {
 			proto = "islet-proto-http"
 		}
-		mws := []string{proto, "islet-compress", "islet-security-headers"}
+		mws := []string{proto, "islet-strip-identity", "islet-compress", "islet-security-headers"}
 		if d.IPAllowlist != "" {
 			middlewares[name+"-ipallow"] = map[string]any{"ipAllowList": map[string]any{"sourceRange": splitList(d.IPAllowlist)}}
 			mws = append(mws, name+"-ipallow")
@@ -1302,6 +1319,17 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		for i, l := range d.Locations {
 			ln := fmt.Sprintf("%s-l%d", name, i)
 			lrule := hostRule + fmt.Sprintf(" && PathPrefix(`%s`)", l.Path)
+			// PathPrefix is a string prefix, not a path prefix: a rule for
+			// /hooks also claims /hooksecret. Harmless while a location only
+			// chooses a backend, and a hole the moment it opens something the
+			// host protects — "open /hooks" would open every path that starts
+			// with those letters. So a location that lets somebody in the host
+			// would turn away matches that path and what is under it, nothing
+			// else. Locations that only tighten keep nginx's prefix matching,
+			// which is what people import from and rely on.
+			if relaxes(d, l) {
+				lrule = hostRule + fmt.Sprintf(" && (Path(`%s`) || PathPrefix(`%s/`))", l.Path, l.Path)
+			}
 			lpri := priority + 1 + min(len(l.Path), 98)
 
 			// A copy, not a reslice: appending to a shared backing array
@@ -1458,6 +1486,99 @@ func (m *Manager) certsFrom(path string) ([]Cert, error) {
 		}
 	}
 	return out, nil
+}
+
+// ProtectionEquals reports whether two versions of a domain would let the same
+// people reach the same paths. It normalises as it goes, so a list retyped in
+// another order or with different spacing is not a change.
+//
+// It exists so the API can hold changes to who may reach a site to a higher bar
+// than changes to where it points, without the HTTP layer having to know how
+// protection is spelled.
+func (d *Domain) ProtectionEquals(o *Domain) bool {
+	if o == nil {
+		o = &Domain{}
+	}
+	if d.Protect != o.Protect || normUsers(d.ProtectUsers) != normUsers(o.ProtectUsers) {
+		return false
+	}
+	type rule struct{ protect, users string }
+	at := func(x *Domain) map[string]rule {
+		m := map[string]rule{}
+		for _, l := range x.Locations {
+			p := l.Protect
+			if p == "" {
+				p = "inherit"
+			}
+			m[strings.TrimSuffix(strings.TrimSpace(l.Path), "/")] = rule{p, normUsers(l.ProtectUsers)}
+		}
+		return m
+	}
+	a, b := at(d), at(o)
+	// A path that is gone no longer lets anybody anywhere, so only paths
+	// present in the new version need to agree — but one that appears with a
+	// rule of its own is a change, which the length check below catches.
+	if len(a) != len(b) {
+		return false
+	}
+	for path, ra := range a {
+		if rb, ok := b[path]; !ok || ra != rb {
+			return false
+		}
+	}
+	return true
+}
+
+// ProtectSummary says who may reach what, for the audit log.
+func (d *Domain) ProtectSummary() string {
+	parts := []string{}
+	who := func(users string) string {
+		if users == "" {
+			return "any signed-in user"
+		}
+		return users
+	}
+	if d.Protect {
+		parts = append(parts, "protect="+who(d.ProtectUsers))
+	}
+	for _, l := range d.Locations {
+		switch l.Protect {
+		case "on":
+			parts = append(parts, l.Path+"="+who(l.ProtectUsers))
+		case "off":
+			parts = append(parts, l.Path+"=open")
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// relaxes reports whether a location admits somebody the host's own rule would
+// turn away — by asking for no login at all, or by naming people the host does
+// not. It decides how the location's rule is matched, because only a rule that
+// weakens the gate is dangerous when it claims more paths than it looks like.
+func relaxes(d Domain, l Location) bool {
+	if !d.Protect {
+		return false // nothing to relax
+	}
+	switch l.Protect {
+	case "off":
+		return true
+	case "on":
+		host := splitList(d.ProtectUsers)
+		if len(host) == 0 {
+			return false // the host already admits anyone signed in
+		}
+		loc := splitList(l.ProtectUsers)
+		if len(loc) == 0 {
+			return true // this path admits anyone signed in; the host does not
+		}
+		for _, u := range loc {
+			if !slices.Contains(host, u) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // MaintenancePage is served by the daemon at /_islet/maintenance.

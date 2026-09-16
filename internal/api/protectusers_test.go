@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // The empty list is the old switch: protected, open to any signed-in account.
 // Everything else is an exact membership test, because a rule that admitted
@@ -24,5 +27,32 @@ func TestUserAllowed(t *testing.T) {
 		if got := userAllowed(c.list, c.user); got != c.want {
 			t.Errorf("userAllowed(%q, %q) = %v, want %v", c.list, c.user, got, c.want)
 		}
+	}
+}
+
+// A refused browser asks again for every asset on the page, and a bot asks
+// forever. One audit row per person per site per minute; the rest are the same
+// event, and writing them all buries the one that matters.
+func TestDenialsAreNotWrittenOncePerRequest(t *testing.T) {
+	denied.Lock()
+	denied.seen = nil
+	denied.Unlock()
+
+	n := 0
+	for range 50 {
+		if firstDenialIn(time.Minute, "bob|admin.example.com") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("wrote %d audit rows for one refusal, want 1", n)
+	}
+	// A different person, or a different site, is a different event.
+	if !firstDenialIn(time.Minute, "alice|admin.example.com") || !firstDenialIn(time.Minute, "bob|other.example.com") {
+		t.Fatal("a distinct refusal was swallowed")
+	}
+	// And the window does expire.
+	if !firstDenialIn(0, "bob|admin.example.com") {
+		t.Fatal("refusals are silenced forever, not for a window")
 	}
 }

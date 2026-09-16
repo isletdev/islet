@@ -90,19 +90,28 @@ func (s *Server) withSession(next http.Handler) http.Handler {
 		}
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			u, t, err := s.auth.UserByToken(r.Context(), strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
-			if err != nil {
+			// The forward-auth gate sees whatever header the visitor sent to
+			// the app behind it, and an app's own bearer token is not ours to
+			// refuse — every request from a protected site's front-end carries
+			// one. Anywhere else an unknown token is still an error worth
+			// saying out loud; here the session cookie decides.
+			if err != nil && r.URL.Path == forwardAuthPath {
+				h = ""
+			} else if err != nil {
 				writeJSON(w, http.StatusUnauthorized, api.Error{Error: "bad_token", Message: "invalid or expired API token"})
 				return
 			}
-			if !auth.ScopeAllows(t.Scopes, r.Method, r.URL.Path) {
-				writeJSON(w, http.StatusForbidden, api.Error{Error: "scope", Message: "this token's scopes do not cover " + r.Method + " " + r.URL.Path})
+			if h != "" {
+				if !auth.ScopeAllows(t.Scopes, r.Method, r.URL.Path) {
+					writeJSON(w, http.StatusForbidden, api.Error{Error: "scope", Message: "this token's scopes do not cover " + r.Method + " " + r.URL.Path})
+					return
+				}
+				ctx := context.WithValue(r.Context(), ctxUser, u)
+				ctx = context.WithValue(ctx, ctxToken, t)
+				ctx = context.WithValue(ctx, ctxSession, &auth.Session{ID: "token:" + t.ID, UserID: u.ID})
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
-			ctx := context.WithValue(r.Context(), ctxUser, u)
-			ctx = context.WithValue(ctx, ctxToken, t)
-			ctx = context.WithValue(ctx, ctxSession, &auth.Session{ID: "token:" + t.ID, UserID: u.ID})
-			next.ServeHTTP(w, r.WithContext(ctx))
-			return
 		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {

@@ -24,6 +24,13 @@ outside world from ever seeing it.
    panel's login and come back to the page you asked for. Signed in as somebody
    not on the list, you get a page saying so rather than a loop.
 
+**Two things to know about the paths you open.** A path left open is opened for
+what is under it — `/hooks` and `/hooks/...` — and for nothing else, so the
+neighbouring `/hooksecret` stays behind the gate. But an application that
+decodes `%2F` in a URL and then resolves the result can still walk out of an
+open path into a protected one; if yours does, do not open a path in front of
+it.
+
 **Where it does not apply.** Islet's login protects names under the session
 cookie domain. For a name in another zone, run a panel on a name inside that
 zone, or use basic auth or the IP allowlist on the same form.
