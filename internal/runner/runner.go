@@ -352,12 +352,19 @@ func (s *Service) stopAll(ctx context.Context, p *Pool) {
 	}
 }
 
-func (s *Service) startOne(ctx context.Context, p *Pool) error {
-	s.mu.Lock()
-	s.seq++
-	name := fmt.Sprintf("%s%d-%s", s.prefix(p), s.seq, randHex(2))
-	s.mu.Unlock()
-	args := []string{"run", "-d", "--name", name, "--label", "islet.runner=" + p.ID, "--log-opt", "max-size=10m", "--log-opt", "max-file=2"}
+// containerArgs is everything a runner container gets whatever it runs: the
+// name it is found by, its limits, and the way it reaches the machine.
+//
+// host.docker.internal is how a job talks to the daemon on the box it is
+// running on, and Docker only provides that name on Desktop — on Linux a
+// container resolves nothing unless it is told. The deploy workflow this
+// package generates suggests exactly that address, so without the line the
+// workflow the panel hands somebody fails at its first curl. Traefik's
+// container has carried the same flag since it was written.
+func containerArgs(p *Pool, name string) []string {
+	args := []string{"run", "-d", "--name", name, "--label", "islet.runner=" + p.ID,
+		"--add-host", "host.docker.internal:host-gateway",
+		"--log-opt", "max-size=10m", "--log-opt", "max-file=2"}
 	if p.MemoryMB > 0 {
 		args = append(args, "--memory", fmt.Sprintf("%dm", p.MemoryMB))
 	}
@@ -367,6 +374,15 @@ func (s *Service) startOne(ctx context.Context, p *Pool) error {
 	if p.DockerAccess {
 		args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}
+	return args
+}
+
+func (s *Service) startOne(ctx context.Context, p *Pool) error {
+	s.mu.Lock()
+	s.seq++
+	name := fmt.Sprintf("%s%d-%s", s.prefix(p), s.seq, randHex(2))
+	s.mu.Unlock()
+	args := containerArgs(p, name)
 	switch p.Provider {
 	case "github":
 		u, _ := url.Parse(p.URL)
