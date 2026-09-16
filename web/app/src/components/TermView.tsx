@@ -25,6 +25,9 @@ export type TermStatus = "connecting" | "open" | "closed" | "error";
  * already killed the process, and silently opening a second one would leave
  * somebody typing into a fresh shell believing it was the old one.
  */
+// The close code the daemon sends the connection it displaced.
+const TAKEN_OVER = 4001;
+
 export default function TermView({
   path,
   className = "",
@@ -44,6 +47,13 @@ export default function TermView({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [hasSel, setHasSel] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // Somebody else is looking at this session now. A tmux session has one live
+  // client, so this is a thing to say and stop, not a thing to retry — two tabs
+  // retrying took the session from each other for as long as both were open.
+  const [takenOver, setTakenOver] = useState(false);
+  // A retry the tab is holding until it is on screen again. A background tab
+  // that reconnects steals the session from the window actually being used.
+  const waiting = useRef(false);
   // The manual paste box, for browsers that refuse to read the clipboard.
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -228,10 +238,23 @@ export default function TermView({
     };
     ws.onmessage = (ev) => t.write(new Uint8Array(ev.data as ArrayBuffer));
     ws.onerror = () => setStatus("error");
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       setStatus("closed");
+      if (ev.code === TAKEN_OVER) {
+        setTakenOver(true);
+        t.write("\r\n\x1b[90m[this session is open somewhere else now]\x1b[0m\r\n");
+        return;
+      }
       if (!reattaches) {
         t.write("\r\n\x1b[90m[session closed]\x1b[0m\r\n");
+        return;
+      }
+      // Nothing reconnects out of sight. A tab left open on another screen
+      // would otherwise take the session back from the one being typed into,
+      // over and over, which is what "detached" repeatedly looks like.
+      if (document.hidden) {
+        waiting.current = true;
+        t.write("\r\n\x1b[90m[disconnected; reconnecting when this tab is back on screen]\x1b[0m\r\n");
         return;
       }
       // Backing off to 15s: the session is safe on the other side, so trying
@@ -291,7 +314,19 @@ export default function TermView({
   // focusing after the clipboard read resolves, so it is not closed here.
   const close = useCallback(() => { setMenu(null); term.current?.focus(); }, []);
 
-  const reconnect = useCallback(() => { setAttempt(0); setGen((g) => g + 1); }, []);
+  const reconnect = useCallback(() => { waiting.current = false; setTakenOver(false); setAttempt(0); setGen((g) => g + 1); }, []);
+
+  // Coming back to the tab is the moment to take the session again — and the
+  // only moment, so whichever window somebody actually looks at is the one that
+  // holds it.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden || !waiting.current) return;
+      reconnect();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [reconnect]);
 
   return (
     <div className={`flex min-h-0 flex-col ${className}`}>
@@ -312,8 +347,9 @@ export default function TermView({
         </span>
         <Button variant="secondary" className="h-7 px-2 text-xs" disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>Copy</Button>
         <Button variant="secondary" className="h-7 px-2 text-xs" disabled={status !== "open"} onClick={() => void paste()}>Paste</Button>
+        {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
-          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>Reconnect</Button>
+          <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>{takenOver ? "Take it back" : "Reconnect"}</Button>
         )}
       </div>
       {/*

@@ -263,7 +263,10 @@ func (s *Server) handleWorkspaceAttach(w http.ResponseWriter, r *http.Request) {
 		s.workspaceErr(w, err)
 		return
 	}
-	s.servePTY(w, r, terminal.Options{Command: argv, Dir: ws.Directory}, "workspace", ws.Name)
+	// The seat is the tmux session, not the route: a workspace and any of its
+	// agent windows are one session, and attaching to any of them detaches the
+	// rest whatever the URL said.
+	s.servePTYSeat(w, r, terminal.Options{Command: argv, Dir: ws.Directory}, "workspace", ws.Name, "ws:"+ws.ID)
 }
 
 // workspaceMCPPath is used by the page to show where the agent's credentials
@@ -434,6 +437,6 @@ func (s *Server) handleWorkspaceAgentAttach(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s.workspaces.Touch(r.Context(), id)
-	s.servePTY(w, r, terminal.Options{Command: s.workspaces.AttachAgentArgv(id, a.Name), Dir: ws.Directory},
-		"workspace", ws.Name+"/"+a.Name)
+	s.servePTYSeat(w, r, terminal.Options{Command: s.workspaces.AttachAgentArgv(id, a.Name), Dir: ws.Directory},
+		"workspace", ws.Name+"/"+a.Name, "ws:"+id)
 }

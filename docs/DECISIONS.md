@@ -2625,3 +2625,42 @@ new account with an old name would otherwise inherit what the old one could
 reach. Where that empties a list — the deleted person was the only name on it —
 the route still asks for a login but no longer asks for a particular person, and
 a notification says so rather than the panel changing who may enter in silence.
+
+## 2026-09-16 — Two tabs on one workspace took it from each other forever
+
+Reported as "session detached continuously": leave a workspace open on a
+desktop, come back to it later or open it elsewhere, and the terminal detaches
+over and over instead of letting anybody work.
+
+Both halves of the loop were behaving exactly as written. tmux attaches with
+`-d`, so a new client detaches every other one — that is deliberate, because a
+session is sized to its smallest client and a phone left open would otherwise
+squeeze a desktop down to its width. And the panel reconnects when its socket
+closes, backing off from half a second, because a dropped terminal that stays
+dropped is the thing people complained about before. Put together: two tabs take
+the session from each other as fast as they can reconnect, forever, and neither
+is wrong on its own.
+
+What was missing is that a displaced client could not tell "somebody else is
+using this" from "the connection dropped". The first is a thing to say and stop;
+the second is a thing to retry. So the daemon now keeps one seat per tmux
+session — the workspace, not the route, because a workspace and its agent
+windows are one session and attaching to any of them detaches the rest. Taking
+the seat closes the previous holder with WebSocket status 4001 and a reason, and
+that client says "Open in another tab or device" with a button to take it back,
+rather than racing for it.
+
+The other half is that nothing reconnects out of sight. A tab whose connection
+drops while `document.hidden` waits for `visibilitychange` instead of retrying,
+so the window somebody is actually looking at is the one that holds the session.
+That alone fixes the common case — a forgotten window on another screen — and it
+is why the seat is a courtesy rather than a fight: by the time two tabs are both
+visible, the person meant to move.
+
+Measured rather than reasoned about, in both directions: two WebSocket clients
+against a real workspace, where the first receives 4001 and the second stays
+open; and two browser tabs, where the older shows "Open in another tab or
+device" and is still showing it four seconds later instead of having retried. The
+hidden case was proved by stopping the daemon under a hidden tab — it waits,
+stays waiting when the daemon returns, and reconnects the moment the tab is
+brought back on screen.

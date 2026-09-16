@@ -265,6 +265,17 @@ func (s *Server) handleContainerExec(w http.ResponseWriter, r *http.Request) {
 
 // servePTY is shared by the host terminal and container exec.
 func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, opts terminal.Options, auditAction, target string) {
+	s.servePTYSeat(w, r, opts, auditAction, target, "")
+}
+
+// servePTYSeat is servePTY for a terminal that can only have one live viewer.
+//
+// A workspace is one tmux session and tmux attaches with -d, so a second
+// connection detaches the first whether anybody meant it to or not. seat names
+// what is being contested — the session, not the connection — so the one that
+// loses it is closed with StatusTakenOver and can say so, instead of seeing a
+// dropped socket and reconnecting into a fight that never ends.
+func (s *Server) servePTYSeat(w http.ResponseWriter, r *http.Request, opts terminal.Options, auditAction, target, seat string) {
 	u := userFrom(r.Context())
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
@@ -281,6 +292,15 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, opts terminal.
 		return
 	}
 	defer sess.Close()
+	if seat != "" {
+		// Taken only once the PTY is up: displacing the current viewer for a
+		// connection that then fails to start would take the session away and
+		// give nothing back.
+		defer s.seats.take(seat, func() {
+			_ = conn.Close(StatusTakenOver, "taken over by a newer connection")
+			cancel()
+		})()
+	}
 	_ = s.store.Audit(ctx, u.Username, auditAction+".open", target, "ip="+clientIP(r))
 	// A terminal that is being read rather than typed into sends nothing for
 	// minutes at a time, and an idle WebSocket is exactly what a reverse proxy
