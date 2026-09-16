@@ -2355,3 +2355,42 @@ The release path's actions are deliberately not bumped with the rest. The Node
 20 deprecation named checkout, setup-go, setup-node and pnpm/action-setup;
 goreleaser, cosign and the attestation action were not in it, and a release that
 cannot publish is a worse outcome than a warning in a log.
+
+## 2026-09-16 — The documentation is published by the website, not beside it
+`isletdev.github.io/islet` was a 404 and had been since the workflow was
+written: Pages was never enabled. The docs now go to `islet.dev/docs`, which is
+where somebody looking for them would actually go.
+
+The arrangement is the important part. The text stays in this repository, beside
+the code it describes, and is rendered by this repository's own generator; the
+website's deploy workflow checks this repository out, runs that generator, and
+ships the output with the site. Nothing is copied by hand and nothing here
+pushes to the website. A documentation change is a push to this repository and
+the next deploy of the site carries it.
+
+`tools/docsite` needed three corrections before it could be a public manual
+rather than a convenient dump.
+
+Links. It rewrote every `.md` to `.html` regardless of whether that page
+existed, so the front page linked to AGENT_SETUP.html, CONTRIBUTING.html and
+.claude/CLAUDE.html — none of which are rendered. Every reference is resolved
+now: a file that is also a page becomes a link between pages, and anything else
+becomes a link to the file on GitHub, which is where it is.
+
+Images. The logo is written as raw HTML in the README, so the Markdown pass
+never saw it, and the first thing a reader would have met was a broken image.
+References inside raw HTML are resolved too, and an image is copied in and
+served from the site's own origin — it has to be, because that site's
+Content-Security-Policy allows no third-party origins, and a project whose
+argument is "own your infrastructure" should not be asking GitHub for its own
+wordmark.
+
+And then it checks itself: every relative link in the output must resolve to a
+file it wrote, or the render fails. That check is what found the logo.
+
+Two smaller things came from looking at it in a browser rather than reading the
+HTML. The index is written after the page in the document and put back on the
+left by the grid, so a phone shows the page you opened instead of twenty-seven
+links you did not ask for. And the index uses a short form of each title,
+because "Islet — Open-Source Roadmap" is a good heading for its own page and a
+bad one in a column that already says Islet at the top.
