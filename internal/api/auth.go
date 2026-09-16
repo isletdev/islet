@@ -18,6 +18,13 @@ import (
 
 const sessionCookie = "islet_session"
 
+// gateCookie carries the credential the forward-auth gate accepts. It is a
+// different value from the session, scoped to the parent domain the admin
+// chose, and the panel honours it at /_islet/auth and nowhere else — so an
+// application behind the gate receives something that proves who its visitor is
+// and opens nothing here. The session cookie stays on the panel's own host.
+const gateCookie = "islet_gate"
+
 type ctxKey int
 
 const (
@@ -208,14 +215,39 @@ func isSecure(r *http.Request) bool {
 }
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, exp time.Time) {
+	// No Domain: the panel's own session is for the panel's own host. What
+	// travels to a protected site is the gate cookie below, which is worth
+	// nothing here.
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: isSecure(r),
-		SameSite: http.SameSiteLaxMode, Expires: exp, Domain: currentCookieDomain(r),
+		SameSite: http.SameSiteLaxMode, Expires: exp,
 	})
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Domain: currentCookieDomain(r)})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	clearGateCookie(w, r, currentCookieDomain(r))
+}
+
+// setGateCookie offers the gate credential at the scope protected sites share.
+// With no cookie domain set there is nowhere for it to go, and nothing to
+// protect: a gate only works on a name the cookie can reach.
+func setGateCookie(w http.ResponseWriter, r *http.Request, token string, exp time.Time) {
+	dom := currentCookieDomain(r)
+	if dom == "" || token == "" {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: gateCookie, Value: token, Path: "/", HttpOnly: true, Secure: isSecure(r),
+		SameSite: http.SameSiteLaxMode, Expires: exp, Domain: dom,
+	})
+}
+
+func clearGateCookie(w http.ResponseWriter, r *http.Request, dom string) {
+	if dom == "" {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: gateCookie, Value: "", Path: "/", HttpOnly: true, Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Domain: dom})
 }
 
 func toAPIUser(u *auth.User) api.User {
@@ -271,6 +303,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, token, sess.ExpiresAt)
+	setGateCookie(w, r, sess.GateToken, sess.ExpiresAt)
 	au := toAPIUser(u)
 	writeJSON(w, http.StatusCreated, api.LoginResponse{User: &au})
 }
@@ -293,6 +326,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, token, sess.ExpiresAt)
+	setGateCookie(w, r, sess.GateToken, sess.ExpiresAt)
 	if s.notify != nil && !sess.MFAPending {
 		sev, title, msg := notify.Info, "Panel login: "+req.Username, "Signed in from "+clientIP(r)+"."
 		if s.newLoginIP(r.Context(), req.Username, clientIP(r)) {
@@ -334,6 +368,11 @@ func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		authError(w, err)
 		return
 	}
+	// The gate token is minted now rather than at the password: until the
+	// second factor is in, this session opens nothing.
+	if gate, err := s.auth.EnsureGate(r.Context(), sess.ID); err == nil {
+		setGateCookie(w, r, gate, sess.ExpiresAt)
+	}
 	u, err := s.auth.UserByID(r.Context(), sess.UserID)
 	if err != nil {
 		authError(w, err)
@@ -354,6 +393,22 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	sess := sessionFrom(r.Context())
+	// Hand this browser a gate cookie if it does not have one. The panel asks
+	// this on every load, so a session that predates the column, one that was
+	// signed in before an admin set the cookie domain, and one whose cookie was
+	// lost all heal here rather than being told to sign in again.
+	//
+	// The test is the cookie, not the column: a session can hold a gate token
+	// the browser never received, which is exactly what happens to everybody
+	// who was already signed in when the domain was set.
+	if sess != nil && u != nil && currentCookieDomain(r) != "" {
+		if c, err := r.Cookie(gateCookie); err != nil || c.Value == "" {
+			if gate, err := s.auth.EnsureGate(r.Context(), sess.ID); err == nil {
+				sess.HasGate = true
+				setGateCookie(w, r, gate, sess.ExpiresAt)
+			}
+		}
+	}
 	left, _ := s.auth.RecoveryCodesLeft(r.Context(), u.ID)
 	writeJSON(w, http.StatusOK, api.Me{User: toAPIUser(u), SessionID: sess.ID, RecoveryCodesLeft: left})
 }

@@ -379,11 +379,11 @@ function SSO() {
   const [d, setD] = useState<string | null>(null); const [v, setV] = useState(""); const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => { void api.cookieDomain().then((r) => { setD(r.cookieDomain); setV(r.cookieDomain); }).catch(() => {}); }, []);
   if (d === null) return null;
-  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Sessions now cover *.${r.cookieDomain}, including the one you are using. Tick "Protect with Islet login" on a domain under it.` : "Sessions are scoped to the panel host again."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Protected sites under *.${r.cookieDomain} can now see that you are signed in, including from the session you are using. Set the access rules on a domain under it.` : "Nothing under a parent domain can see this panel's sign-ins any more."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
     <Card title="Protect apps with Islet login" description="Route the panel to a domain (say panel.example.com), set the parent domain here, and any domain marked &quot;Protect with Islet login&quot; only opens for people signed in to this panel.">
       <form onSubmit={save} className="flex flex-wrap items-start gap-2">
-        <Field label="Session cookie domain" hint="The parent of the panel and the protected apps, for example example.com."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-64 font-mono" placeholder="example.com" /></Field>
+        <Field label="Session cookie domain" hint="The parent of the panel and the protected apps, for example example.com. A browser hands every site under this name a cookie saying who is signed in — it is not the panel's own session, which never leaves this host, but it does name you."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-64 font-mono" placeholder="example.com" /></Field>
         <FieldAction className="flex items-center gap-2"><Button type="submit" className="h-9">Save</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</FieldAction>
       </form>
     </Card>

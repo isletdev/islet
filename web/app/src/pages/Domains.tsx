@@ -78,7 +78,7 @@ function Locations({ value, containers, onChange }: { value: DomainLocation[]; c
  * Why protecting this host will not work, or "" when it will.
  *
  * Forward auth asks the panel whether the visitor is signed in, and the visitor
- * proves that with the session cookie the browser sent to the protected host.
+ * proves that with the gate cookie the browser sent to the protected host.
  * A cookie can only be scoped to a parent of the panel's own name, so a host
  * outside that parent never receives one and the login redirects forever. It
  * is worth saying at the moment the box is ticked rather than discovering it
@@ -87,15 +87,15 @@ function Locations({ value, containers, onChange }: { value: DomainLocation[]; c
 function protectWarning(host: string, cookieDom: string, tls: Domain["tls"] = "letsencrypt"): string {
   const h = host.trim().toLowerCase().replace(/^\*\./, "");
   if (!h) return "";
-  // A session cookie issued over HTTPS carries Secure, and a browser will not
+  // A cookie issued over HTTPS carries Secure, and a browser will not
   // send a Secure cookie to an http:// address at all — so the gate never sees
   // a session here, sends the visitor to sign in, and is no wiser when they
   // come back. It loops, and nothing about the loop says why.
   if (tls === "none") {
-    return `${h} is served over plain HTTP, and the panel's session cookie is marked Secure, so a browser will never send it to an http:// address. The gate would never see a signed-in visitor and the login would loop. Give this host a certificate first.`;
+    return `${h} is served over plain HTTP, and the cookie that proves a visitor is signed in is marked Secure, so a browser will never send it to an http:// address. The gate would never see a signed-in visitor and the login would loop. Give this host a certificate first.`;
   }
   if (!cookieDom) {
-    return `This needs a session cookie domain, and none is set. Without one the panel's cookie is only sent to ${location.hostname}, so ${h} can never tell that a visitor is signed in and the login will loop. Set one under Settings, Sessions.`;
+    return `This needs a session cookie domain, and none is set. Without one there is no cookie a browser would send to ${h}, so it can never tell that a visitor is signed in and the login will loop. Set one under Settings, Sessions.`;
   }
   if (h === cookieDom || h.endsWith("." + cookieDom)) return "";
   return `${h} is not under ${cookieDom}, which is what the session cookie is scoped to, so a browser will never send it there and the login will loop. An Islet login can only protect names under ${cookieDom} — for ${h} you would need a panel on a name under ${h} instead.`;

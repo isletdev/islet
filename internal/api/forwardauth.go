@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/pkg/api"
 )
@@ -55,7 +56,7 @@ func currentCookieDomain(r *http.Request) string {
 // they have already completed would only loop.
 func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 	site := r.Header.Get("X-Forwarded-Host")
-	if u := userFrom(r.Context()); u != nil {
+	if u := s.gateUser(r); u != nil {
 		if !userAllowed(r.URL.Query().Get("u"), u.Username) {
 			s.denyProtected(w, r, u.Username, site)
 			return
@@ -87,6 +88,31 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 func userAllowed(list, username string) bool {
 	allowed := splitUsers(list)
 	return len(allowed) == 0 || slices.Contains(allowed, strings.ToLower(username))
+}
+
+// gateUser is who is asking, as far as the gate is concerned.
+//
+// The panel's own session cookie is host-only and will not be here: what the
+// browser sent to the protected site is the gate cookie, which is why it
+// exists. An API token still identifies its owner, and a session cookie is
+// honoured for the case where the panel and the protected route share a host.
+func (s *Server) gateUser(r *http.Request) *auth.User {
+	if u := userFrom(r.Context()); u != nil {
+		return u
+	}
+	c, err := r.Cookie(gateCookie)
+	if err != nil || c.Value == "" {
+		return nil
+	}
+	sess, err := s.auth.SessionByGate(r.Context(), c.Value)
+	if err != nil || sess.MFAPending {
+		return nil
+	}
+	u, err := s.auth.UserByID(r.Context(), sess.UserID)
+	if err != nil {
+		return nil
+	}
+	return u
 }
 
 // splitUsers reads an allow-list as the render path wrote it.
@@ -238,25 +264,18 @@ func (s *Server) handleCookieDomain(w http.ResponseWriter, r *http.Request) {
 	old, _ := cookieDomain.Load().(string)
 	cookieDomain.Store(d)
 
-	// Re-issue this session at the new scope, rather than telling somebody to
-	// sign out and back in. Widening the domain is nearly always done *because*
-	// a protected site just turned them away, and the old cookie is host-only —
-	// so without this the next attempt is refused again, by the same session
-	// they are sitting in, and the setting looks broken.
+	// Hand this session a gate cookie at the new scope, rather than telling
+	// somebody to sign out and back in. Changing the domain is nearly always
+	// done *because* a protected site just turned them away, and without this
+	// the next attempt is refused again, by the same session they are sitting
+	// in, and the setting looks broken.
 	//
-	// The value is unchanged: it is the same session, offered to the browser
-	// with a wider Domain. The stale cookie at the previous scope is cleared,
-	// or two would linger with different lifetimes and the older one would win
-	// on some paths.
-	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		if old != "" && old != d {
-			http.SetCookie(w, &http.Cookie{
-				Name: sessionCookie, Value: "", Path: "/", HttpOnly: true,
-				Secure: isSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: -1, Domain: old,
-			})
-		}
-		if sess := sessionFrom(r.Context()); sess != nil {
-			setSessionCookie(w, r, c.Value, sess.ExpiresAt)
+	// The old scope is cleared first, or two gate cookies would linger and the
+	// browser would offer both.
+	if sess := sessionFrom(r.Context()); sess != nil {
+		clearGateCookie(w, r, old)
+		if gate, err := s.auth.EnsureGate(r.Context(), sess.ID); err == nil {
+			setGateCookie(w, r, gate, sess.ExpiresAt)
 		}
 	}
 	_ = s.store.Audit(r.Context(), userFrom(r.Context()).Username, "auth.cookie_domain", d, "")

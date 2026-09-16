@@ -69,6 +69,13 @@ type Session struct {
 	CreatedAt  string
 	LastSeenAt string
 	ExpiresAt  time.Time
+	// GateToken is the credential the forward-auth gate accepts, in the clear
+	// and only on the way out: it is set when the token is minted and never
+	// read back from the database, which keeps only its hash.
+	GateToken string
+	// HasGate says whether this session has one at all. A session that
+	// predates the column, or one still waiting on a second factor, does not.
+	HasGate bool
 }
 
 // Service is the auth facade.
@@ -387,11 +394,66 @@ func (s *Service) createSession(ctx context.Context, userID string, mfaPending b
 	if len(ua) > 256 {
 		ua = ua[:256]
 	}
-	if _, err := s.st.DB.ExecContext(ctx, `INSERT INTO sessions (id, token_hash, user_id, mfa_pending, ip, user_agent, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, id, hashToken(token), userID, boolInt(mfaPending), ip, ua, exp.Format(time.RFC3339)); err != nil {
+	// No gate token while a second factor is outstanding: a half-signed-in
+	// session must not open a protected site, and minting one here would be
+	// the only way it could.
+	gate := ""
+	if !mfaPending {
+		if gate, err = randomHex(32); err != nil {
+			return "", nil, err
+		}
+	}
+	if _, err := s.st.DB.ExecContext(ctx, `INSERT INTO sessions (id, token_hash, user_id, mfa_pending, ip, user_agent, expires_at, gate_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, hashToken(token), userID, boolInt(mfaPending), ip, ua, exp.Format(time.RFC3339), hashOrEmpty(gate)); err != nil {
 		return "", nil, err
 	}
-	return token, &Session{ID: id, UserID: userID, MFAPending: mfaPending, IP: ip, UserAgent: ua, ExpiresAt: exp}, nil
+	return token, &Session{ID: id, UserID: userID, MFAPending: mfaPending, IP: ip, UserAgent: ua, ExpiresAt: exp, GateToken: gate, HasGate: gate != ""}, nil
+}
+
+// SessionByGate resolves the gate cookie to a live session.
+//
+// A separate lookup rather than a second use of SessionByToken: the two values
+// live in different columns precisely so that one cannot stand in for the
+// other, and a caller that could pass either would undo that.
+func (s *Service) SessionByGate(ctx context.Context, token string) (*Session, error) {
+	if token == "" {
+		return nil, ErrNoSession
+	}
+	var sess Session
+	var pending int
+	var exp string
+	err := s.st.DB.QueryRowContext(ctx, `SELECT id, user_id, mfa_pending, ip, user_agent, created_at, last_seen_at, expires_at
+		FROM sessions WHERE gate_hash = ?`, hashToken(token)).
+		Scan(&sess.ID, &sess.UserID, &pending, &sess.IP, &sess.UserAgent, &sess.CreatedAt, &sess.LastSeenAt, &exp)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoSession
+	}
+	if err != nil {
+		return nil, err
+	}
+	sess.ExpiresAt, _ = time.Parse(time.RFC3339, exp)
+	if !s.now().Before(sess.ExpiresAt) {
+		_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID)
+		return nil, ErrNoSession
+	}
+	sess.MFAPending, sess.HasGate = pending == 1, true
+	return &sess, nil
+}
+
+// EnsureGate gives a session a gate token and returns it in the clear.
+//
+// Sessions that existed before the column, and sessions that have just finished
+// a second factor, both arrive here — so an update does not sign anybody out,
+// and nobody has to be told to sign in again for a protected site to work.
+func (s *Service) EnsureGate(ctx context.Context, sessionID string) (string, error) {
+	gate, err := randomHex(32)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.st.DB.ExecContext(ctx, `UPDATE sessions SET gate_hash = ? WHERE id = ? AND mfa_pending = 0`, hashToken(gate), sessionID); err != nil {
+		return "", err
+	}
+	return gate, nil
 }
 
 // SessionByToken resolves a cookie value to a live session, touching last_seen.
@@ -402,9 +464,11 @@ func (s *Service) SessionByToken(ctx context.Context, token string) (*Session, e
 	var sess Session
 	var pending int
 	var exp string
-	err := s.st.DB.QueryRowContext(ctx, `SELECT id, user_id, mfa_pending, ip, user_agent, created_at, last_seen_at, expires_at
+	var gate string
+	err := s.st.DB.QueryRowContext(ctx, `SELECT id, user_id, mfa_pending, ip, user_agent, created_at, last_seen_at, expires_at, gate_hash
 		FROM sessions WHERE token_hash = ?`, hashToken(token)).
-		Scan(&sess.ID, &sess.UserID, &pending, &sess.IP, &sess.UserAgent, &sess.CreatedAt, &sess.LastSeenAt, &exp)
+		Scan(&sess.ID, &sess.UserID, &pending, &sess.IP, &sess.UserAgent, &sess.CreatedAt, &sess.LastSeenAt, &exp, &gate)
+	sess.HasGate = gate != ""
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoSession
 	}
@@ -671,6 +735,15 @@ func newRecoveryCodes() (codes, hashes []string, err error) {
 }
 
 // ---- helpers ----
+
+// hashOrEmpty keeps the empty string empty, so "no gate token" stays
+// distinguishable from "the hash of nothing".
+func hashOrEmpty(t string) string {
+	if t == "" {
+		return ""
+	}
+	return hashToken(t)
+}
 
 func hashToken(t string) string {
 	sum := sha256.Sum256([]byte(t))

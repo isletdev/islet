@@ -24,12 +24,21 @@ outside world from ever seeing it.
    panel's login and come back to the page you asked for. Signed in as somebody
    not on the list, you get a page saying so rather than a loop.
 
-**Two things to know about the paths you open.** A path left open is opened for
-what is under it — `/hooks` and `/hooks/...` — and for nothing else, so the
-neighbouring `/hooksecret` stays behind the gate. But an application that
-decodes `%2F` in a URL and then resolves the result can still walk out of an
-open path into a protected one; if yours does, do not open a path in front of
-it.
+**What an opened path covers.** Exactly that path and what is under it —
+`/hooks` and `/hooks/...` — so the neighbouring `/hooksecret` stays behind the
+gate. A URL with an encoded slash in it (`%2F`) does not count as being under
+the opened path, because a proxy and an application can disagree about whether
+that is a separator; such a request is handled by the host's own rule instead,
+so a signed-in visitor still gets through and an anonymous one is sent to sign
+in.
+
+**What the protected app can see.** The browser hands it a cookie that says who
+is visiting, and the gate passes its name on in `X-Islet-User`. That cookie is
+not the panel's own session — the panel's session cookie never leaves the
+panel's hostname — so an application behind the gate, or anything that
+compromises one, cannot use it to reach Islet. It can still say "this visitor is
+alice" to another protected site under the same parent domain, which is what
+single sign-on means; protect only sites you would trust with that.
 
 **Where it does not apply.** Islet's login protects names under the session
 cookie domain. For a name in another zone, run a panel on a name inside that

@@ -230,3 +230,28 @@ func TestRenderStripsIdentityHeaders(t *testing.T) {
 		}
 	}
 }
+
+// An encoded slash is not a separator to Traefik and may be one to the app
+// behind it, so a path that was opened does not carry one: the request falls
+// through to the host's own rule instead.
+func TestRenderOpenPathRefusesAnEncodedSlash(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "a", Host: "shop.example.com", TargetType: "url", Target: "http://web", TLS: "none", Protect: true, Enabled: true,
+			Locations: []Location{
+				{ID: "l1", Path: "/hooks", TargetType: "url", Target: "http://hooks", Protect: "off"},
+				{ID: "l2", Path: "/api", TargetType: "url", Target: "http://api"},
+			}},
+	}, "http://panel:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := flat(string(raw))
+	if !strings.Contains(out, "(Path(`/hooks`) || PathPrefix(`/hooks/`)) && !PathRegexp(`(?i)%2f|%5c`)") {
+		t.Fatalf("an opened path still accepts an encoded slash:\n%s", out)
+	}
+	// A location that decides nothing about access is left alone: it is a
+	// routing rule, and an app may well use %2F in a path segment.
+	if strings.Contains(out, "PathPrefix(`/api`) && !PathRegexp") {
+		t.Fatalf("a plain location was given an access rule's restrictions:\n%s", out)
+	}
+}

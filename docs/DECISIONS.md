@@ -2567,3 +2567,61 @@ does — both of those were measured and both land on the protected router. But 
 backend that decodes `%2F` and then resolves the path reaches `/admin` through a
 route that was opened for `/hooks`. Nothing Islet writes can fix an application
 that does that; what it can do is say so, which is now in the recipe.
+
+## 2026-09-16 — Two cookies: the gate stops being a copy of the panel
+
+The audit above left one finding unfixed because it was not a slip: protecting a
+site handed that site the panel.
+
+It followed from the design. The gate asks the browser to prove a session on the
+*application's* hostname, so the session cookie had to be scoped to a parent
+domain both names share — and a reverse proxy forwards `Cookie` to the backend
+like every other header. So every protected application received, on every
+request, a token that was the panel as whoever was visiting. An admin browsing
+a protected app left an admin session in that app's request log.
+
+There are now two credentials. `islet_session` is the panel's own and goes back
+to being host-only. `islet_gate` is a different random value stored beside the
+session it belongs to, scoped to the parent domain, and the panel honours it at
+`/_islet/auth` and nowhere else. An application behind the gate holds something
+that proves who its visitor is and opens nothing here — verified in a browser,
+which is the only thing whose opinion about cookie scope counts: the jar shows
+`islet_session` on `panel.example.com` and `islet_gate` on `.example.com`, and
+the application received only the second.
+
+What this does not do is make the gate cookie harmless. A protected application
+can still replay it at *another* protected site under the same parent and be
+believed, because that is what single sign-on is. The blast radius went from
+"the panel, as an admin" to "the other sites you have protected, as this
+visitor", and the settings field says so now.
+
+Three details worth keeping:
+
+**No gate token until the second factor is in.** A session waiting on TOTP has
+none, and `EnsureGate` refuses to give it one, so a half-signed-in session
+cannot open a protected site by any path.
+
+**Nobody is signed out by the update, and nobody has to be told to sign in
+again.** The panel asks `/api/v1/auth/me` on every load; if that request has no
+gate cookie and a cookie domain is set, one is minted there. That covers three
+cases with one rule — sessions older than the column, sessions that existed
+before an admin set the cookie domain, and a cookie that was simply lost. The
+test is the cookie in the request, not the column in the row: a session can hold
+a gate token the browser never received, which is exactly what happens to
+everyone who was already signed in when the domain was set.
+
+**One row, one lifetime.** The gate token lives in the session's own row, so
+signing out, revoking a session or letting it expire takes both with it. No
+second table, no second expiry to drift.
+
+Two smaller things from the same audit are fixed here too. A path opened on a
+protected host no longer accepts an encoded slash — `/hooks/..%2fadmin` is
+matched by the host's rule rather than the opened path's, since Traefik matches
+`PathRegexp` against the escaped form, which is what makes this expressible at
+all; falling through to the gate rather than refusing outright means a
+signed-in visitor with a genuine `%2F` in a URL still gets there. And deleting a
+user takes their name off every allow-list, because usernames are reusable and a
+new account with an old name would otherwise inherit what the old one could
+reach. Where that empties a list — the deleted person was the only name on it —
+the route still asks for a login but no longer asks for a particular person, and
+a notification says so rather than the panel changing who may enter in silence.

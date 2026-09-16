@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
  *
  * A protected site sends its visitor to the panel with `?next=<the page they
  * asked for>`. Going back there is only useful if the browser will send the
- * session cookie to that host, which depends on the cookie being scoped to a
+ * sign-in cookie to that host, which depends on that cookie being scoped to a
  * parent domain both names share. Sending somebody to a host that will never
  * receive it starts the same redirect again, forever.
  *
@@ -50,7 +50,7 @@ export async function whereNext(search = location.search): Promise<ReturnTo> {
       host: target.hostname,
       cookieDomain: "",
       suggest,
-      why: `You are signed in, but ${target.hostname} has no way to see that. The panel's session cookie is scoped to this host alone, so a browser never sends it there and the site asks again.`,
+      why: `You are signed in, but ${target.hostname} has no way to see that. The cookie that proves it to a protected site is only issued once a session cookie domain is set, and none is, so a browser has nothing to send there and the site asks again.`,
     };
   }
   return {
@@ -58,7 +58,7 @@ export async function whereNext(search = location.search): Promise<ReturnTo> {
     host: target.hostname,
     cookieDomain: dom,
     suggest: suggest && suggest !== dom ? suggest : "",
-    why: `You are signed in, but ${target.hostname} is not under ${dom}, which is what the session cookie is scoped to, so a browser will never send it there. An Islet login can only protect names under ${dom}.`,
+    why: `You are signed in, but ${target.hostname} is not under ${dom}, which is what the sign-in cookie is scoped to, so a browser will never send it there. An Islet login can only protect names under ${dom}.`,
   };
 }
 

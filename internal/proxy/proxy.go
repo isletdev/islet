@@ -1328,7 +1328,16 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			// else. Locations that only tighten keep nginx's prefix matching,
 			// which is what people import from and rely on.
 			if relaxes(d, l) {
-				lrule = hostRule + fmt.Sprintf(" && (Path(`%s`) || PathPrefix(`%s/`))", l.Path, l.Path)
+				// And an encoded slash sends the request back to the host's
+				// own rule. Traefik normalises ".." and "%2e%2e" before it
+				// matches, but "%2F" is not a separator to a proxy and may be
+				// one to the application behind it — so /hooks/..%2fadmin
+				// would arrive at an app that resolves it as /admin, through a
+				// path opened for something else. Matching on the escaped form
+				// is what makes this expressible at all, and falling through to
+				// the gate rather than refusing means a signed-in visitor with
+				// a genuine %2F in a URL still gets there.
+				lrule = hostRule + fmt.Sprintf(" && (Path(`%s`) || PathPrefix(`%s/`)) && !PathRegexp(`(?i)%%2f|%%5c`)", l.Path, l.Path)
 			}
 			lpri := priority + 1 + min(len(l.Path), 98)
 
@@ -1486,6 +1495,80 @@ func (m *Manager) certsFrom(path string) ([]Cert, error) {
 		}
 	}
 	return out, nil
+}
+
+// Forgotten says what taking a username off the allow-lists did.
+type Forgotten struct {
+	// Rules is how many lists named them.
+	Rules int
+	// Widened names the routes whose list held nobody else. An empty list
+	// means "any signed-in user", so those routes still ask for a login but no
+	// longer ask for a particular person — which is a change worth telling
+	// somebody about rather than making quietly.
+	Widened []string
+}
+
+// ForgetUser takes a username off every allow-list and reconciles, so a
+// deleted account leaves no rule behind that a new account with the same name
+// would inherit.
+//
+// Nothing breaks if it is never called — a name nobody can sign in as opens
+// nothing — but a list that still names somebody who left is a list nobody can
+// read honestly, and usernames are reusable.
+func (m *Manager) ForgetUser(ctx context.Context, actor, username string) (Forgotten, error) {
+	var res Forgotten
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		return res, nil
+	}
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		return res, err
+	}
+	drop := func(list string) (string, bool) {
+		var kept []string
+		for _, u := range splitList(list) {
+			if u != username {
+				kept = append(kept, u)
+			}
+		}
+		out := strings.Join(kept, ",")
+		return out, out != list
+	}
+	for i := range doms {
+		d := doms[i]
+		changed := false
+		if out, ok := drop(d.ProtectUsers); ok {
+			d.ProtectUsers, changed = out, true
+			res.Rules++
+			if out == "" {
+				res.Widened = append(res.Widened, d.Host)
+			}
+		}
+		for j := range d.Locations {
+			if out, ok := drop(d.Locations[j].ProtectUsers); ok {
+				d.Locations[j].ProtectUsers, changed = out, true
+				res.Rules++
+				if out == "" && d.Locations[j].Protect == "on" {
+					res.Widened = append(res.Widened, d.Host+d.Locations[j].Path)
+				}
+			}
+		}
+		if !changed {
+			continue
+		}
+		if err := m.writeDomain(ctx, &d); err != nil {
+			return res, err
+		}
+		if err := m.saveLocations(ctx, d.ID, d.Locations); err != nil {
+			return res, err
+		}
+		_ = m.st.Audit(ctx, actor, "domain.protect.forget", d.Host, "removed "+username)
+	}
+	if res.Rules > 0 {
+		return res, m.Reconcile(ctx)
+	}
+	return res, nil
 }
 
 // ProtectionEquals reports whether two versions of a domain would let the same

@@ -83,3 +83,74 @@ func TestDomainRoundTrip(t *testing.T) {
 		t.Errorf("an update was lost: %q %+v", again.ProtectUsers, again.Locations[1])
 	}
 }
+
+// A deleted account leaves no rule behind. Nothing would let it in — there is
+// nobody to sign in as — but usernames are reusable, so a new account with an
+// old name would otherwise inherit whatever the old one could reach.
+func TestForgetUserClearsEveryList(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "islet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	m := New(nil, st, t.TempDir(), "")
+
+	for _, d := range []*Domain{
+		{Host: "a.example.com", TargetType: "url", Target: "http://a", TLS: "none", Protect: true, ProtectUsers: "alice,bob", Enabled: true,
+			Locations: []Location{{Path: "/admin", TargetType: "url", Target: "http://x", Protect: "on", ProtectUsers: "bob"}}},
+		{Host: "b.example.com", TargetType: "url", Target: "http://b", TLS: "none", Protect: true, ProtectUsers: "carol", Enabled: true},
+	} {
+		if err := d.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.writeDomain(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.saveLocations(ctx, d.ID, d.Locations); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The rules are rewritten before anything is reconciled, and reconciling
+	// needs Docker, which a unit test does not have: the error is the proxy
+	// reload, not the change being tested.
+	res, err := m.ForgetUser(ctx, "admin", "Bob")
+	if err != nil {
+		t.Logf("reconcile (expected without docker): %v", err)
+	}
+	if res.Rules != 2 {
+		t.Errorf("rewrote %d rules, want 2", res.Rules)
+	}
+	// The location named nobody else, so it now names nobody at all — still a
+	// login, no longer a particular person. The caller is told so it can say so.
+	if len(res.Widened) != 1 || res.Widened[0] != "a.example.com/admin" {
+		t.Errorf("widened = %v, want [a.example.com/admin]", res.Widened)
+	}
+
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range doms {
+		switch d.Host {
+		case "a.example.com":
+			if d.ProtectUsers != "alice" {
+				t.Errorf("host list is %q, want alice", d.ProtectUsers)
+			}
+			if got := d.Locations[0].ProtectUsers; got != "" {
+				t.Errorf("location list is %q, want empty", got)
+			}
+			// An emptied list means "any signed-in user", which is a widening
+			// nobody asked for — but the path still asks for a login, and the
+			// alternative is a rule that silently names a ghost.
+			if d.Locations[0].Protect != "on" {
+				t.Errorf("the location stopped asking for a login: %q", d.Locations[0].Protect)
+			}
+		case "b.example.com":
+			if d.ProtectUsers != "carol" {
+				t.Errorf("an unrelated list was rewritten: %q", d.ProtectUsers)
+			}
+		}
+	}
+}

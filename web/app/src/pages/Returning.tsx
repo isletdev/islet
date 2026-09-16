@@ -63,7 +63,7 @@ export default function Returning() {
               Both names sit under <code className="font-mono">{to.suggest}</code>. Scoping the panel's session
               cookie there lets a sign-in here count at <code className="font-mono">{to.host}</code> — and at every
               other host under <code className="font-mono">{to.suggest}</code>, which is the part worth deciding
-              deliberately: any site under that name will be handed the session cookie by the browser.
+              deliberately: any site under that name will be handed the cookie that proves who is visiting. It is not the panel's own session — that stays on this host — but it does say who you are.
             </p>
             {err && <Alert>{err}</Alert>}
             <Button onClick={() => void fix()} disabled={busy} className="w-full">
