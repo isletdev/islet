@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+// block returns the router stanza a rule belongs to, by working back from the
+// rule line to the name that opened it.
+func block(out string, idx int) string {
+	start := strings.LastIndex(out[:idx], "\n        d-")
+	if start < 0 {
+		return ""
+	}
+	return out[start:idx]
+}
+
 func TestRenderProtect(t *testing.T) {
 	raw, err := Render([]Domain{
 		{ID: "a1", Host: "app.example.com", TargetType: "url", Target: "http://127.0.0.1:9999", TLS: "none", Protect: true, Enabled: true},
@@ -22,38 +32,117 @@ func TestRenderProtect(t *testing.T) {
 	if !strings.Contains(out, "address: http://host.docker.internal:9443/_islet/auth") {
 		t.Fatalf("forwardAuth middleware missing:\n%s", out)
 	}
-	// the router block precedes its rule line; find the block by working back from the rule
-	block := func(idx int) string {
-		start := strings.LastIndex(out[:idx], "\n        d-")
-		return out[start:idx]
+	if !strings.Contains(block(out, i), "d-a1-protect") {
+		t.Fatalf("protected router lacks forward auth:\n%s", block(out, i))
 	}
-	if !strings.Contains(block(i), "islet-forward-auth") {
-		t.Fatalf("protected router lacks forward auth:\n%s", block(i))
-	}
-	if strings.Contains(block(j), "islet-forward-auth") {
-		t.Fatalf("open router has forward auth:\n%s", block(j))
+	if strings.Contains(block(out, j), "-protect") {
+		t.Fatalf("open router has forward auth:\n%s", block(out, j))
 	}
 }
 
-// The www redirect must not share a certificate with the host it redirects to:
-// a missing www DNS record would otherwise fail the whole ACME request.
-func TestRenderWWWSeparateRouter(t *testing.T) {
+// The allow-list travels in the address Traefik calls, so the daemon never has
+// to work out for itself which rule a request matched.
+func TestRenderProtectUsers(t *testing.T) {
 	raw, err := Render([]Domain{
-		{ID: "a1", Host: "example.com", TargetType: "url", Target: "http://127.0.0.1:3000", TLS: "letsencrypt", RedirectWWW: true, Enabled: true},
-	}, "https://host.docker.internal:9443")
+		{ID: "a1", Host: "app.example.com", TargetType: "url", Target: "http://x", TLS: "none", Protect: true, ProtectUsers: "alice,bob", Enabled: true},
+	}, "http://panel:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := string(raw); !strings.Contains(out, "address: http://panel:9443/_islet/auth?u=alice%2Cbob") {
+		t.Fatalf("allow-list is not in the auth address:\n%s", out)
+	}
+}
+
+// A path may ask for a login on a site that does not, and each path may name
+// people of its own.
+func TestRenderProtectPerLocation(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "a", Host: "shop.example.com", TargetType: "url", Target: "http://web", TLS: "none", Enabled: true,
+			Locations: []Location{
+				{ID: "l1", Path: "/admin", TargetType: "url", Target: "http://admin", Protect: "on", ProtectUsers: "alice"},
+				{ID: "l2", Path: "/api", TargetType: "url", Target: "http://api", Protect: "inherit"},
+			}},
+	}, "http://panel:9443")
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := string(raw)
-	if strings.Contains(out, "Host(`example.com`) || Host(`www.example.com`)") {
-		t.Fatal("the two hosts still share one router:\n" + out)
+	admin := block(out, strings.Index(out, "PathPrefix(`/admin`)"))
+	api := block(out, strings.Index(out, "PathPrefix(`/api`)"))
+	root := block(out, strings.Index(out, "rule: Host(`shop.example.com`)\n"))
+	if !strings.Contains(admin, "d-a-l0-protect") {
+		t.Fatalf("/admin is not protected:\n%s", admin)
 	}
-	if !strings.Contains(out, "Host(`www.example.com`)") {
-		t.Fatal("www router missing:\n" + out)
+	if strings.Contains(api, "-protect") {
+		t.Fatalf("/api inherited protection from an open host:\n%s", api)
 	}
-	// The main router keeps exactly its own host.
-	i := strings.Index(out, "rule: Host(`example.com`)")
-	if i < 0 {
-		t.Fatal("main router rule changed:\n" + out)
+	if strings.Contains(root, "-protect") {
+		t.Fatalf("the open root became protected:\n%s", root)
+	}
+	if !strings.Contains(out, "address: http://panel:9443/_islet/auth?u=alice") {
+		t.Fatalf("the location's allow-list is missing:\n%s", out)
+	}
+}
+
+// And the other direction: one path left open on a protected host, which is
+// what a webhook receiver needs — the service calling it has no session.
+func TestRenderProtectLocationOptOut(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "a", Host: "shop.example.com", TargetType: "url", Target: "http://web", TLS: "none", Protect: true, Enabled: true,
+			Locations: []Location{
+				{ID: "l1", Path: "/hooks", TargetType: "url", Target: "http://hooks", Protect: "off"},
+				{ID: "l2", Path: "/api", TargetType: "url", Target: "http://api"},
+			}},
+	}, "http://panel:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	hooks := block(out, strings.Index(out, "PathPrefix(`/hooks`)"))
+	api := block(out, strings.Index(out, "PathPrefix(`/api`)"))
+	if strings.Contains(hooks, "-protect") {
+		t.Fatalf("/hooks is still protected:\n%s", hooks)
+	}
+	if !strings.Contains(api, "d-a-protect") {
+		t.Fatalf("/api did not inherit the host's protection:\n%s", api)
+	}
+}
+
+func TestProtectValidate(t *testing.T) {
+	d := Domain{Host: "a.example.com", TargetType: "url", Target: "http://x", ProtectUsers: " Alice, bob ,alice,",
+		Locations: []Location{{Path: "/admin", TargetType: "url", Target: "http://y", Protect: "on"}}}
+	if err := d.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if d.ProtectUsers != "alice,bob" {
+		t.Fatalf("allow-list not normalised: %q", d.ProtectUsers)
+	}
+	if d.Locations[0].Protect != "on" {
+		t.Fatalf("location protect changed: %q", d.Locations[0].Protect)
+	}
+	// An empty value is the old meaning, not an error.
+	d.Locations[0].Protect = ""
+	if err := d.Validate(); err != nil || d.Locations[0].Protect != "inherit" {
+		t.Fatalf("empty protect should become inherit: %v %q", err, d.Locations[0].Protect)
+	}
+	d.Locations[0].Protect = "maybe"
+	if err := d.Validate(); err == nil {
+		t.Fatal("a nonsense protect value was accepted")
+	}
+}
+
+// The panel serves the login the gate redirects to. Putting the gate in front
+// of the panel's own host sends an anonymous visitor to a page that triggers
+// the gate again, and the browser gives up after twenty hops.
+func TestRenderProtectSkipsThePanelHost(t *testing.T) {
+	raw, err := Render([]Domain{
+		{ID: "p", Host: "panel.example.com", TargetType: "panel", TLS: "none", Protect: true, Enabled: true},
+	}, "http://panel:9443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := string(raw); strings.Contains(out, "-protect") {
+		t.Fatalf("the panel host got a forward-auth gate in front of its own login:\n%s", out)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -600,7 +601,10 @@ type Domain struct {
 	Headers     string `json:"headers"`
 	Maintenance bool   `json:"maintenance"`
 	Protect     bool   `json:"protect"` // require a panel session (forward auth)
-	Enabled     bool   `json:"enabled"`
+	// ProtectUsers narrows that to named accounts, comma separated. Empty
+	// means any signed-in Islet user, which is what Protect alone always did.
+	ProtectUsers string `json:"protectUsers"`
+	Enabled      bool   `json:"enabled"`
 	// PassHost sends the visitor's hostname to the app rather than the
 	// upstream's own, which is what nginx and Nginx Proxy Manager do and what
 	// anything checking Host or Origin — every WebSocket library among them —
@@ -630,6 +634,14 @@ type Location struct {
 	// StripPath sends /api/things on as /things. nginx does this when
 	// proxy_pass ends in a slash, Caddy when the block is handle_path.
 	StripPath bool `json:"stripPath"`
+	// Protect is inherit, on or off. It is three-state rather than a boolean
+	// because a path has to be able to disagree with its host in both
+	// directions: /admin asking for a login on an open site, and /webhooks
+	// staying open on a protected one.
+	Protect string `json:"protect"`
+	// ProtectUsers is this path's own allow-list, comma separated, used only
+	// when Protect is on. Empty means any signed-in Islet user.
+	ProtectUsers string `json:"protectUsers"`
 }
 
 // validateTarget checks the three ways to name a backend. It is shared so a
@@ -682,6 +694,14 @@ func (l *Location) Validate() error {
 	if err := validPath(l.Path); err != nil {
 		return err
 	}
+	switch l.Protect {
+	case "", "inherit":
+		l.Protect = "inherit"
+	case "on", "off":
+	default:
+		return errors.New("a location's protect must be inherit, on or off")
+	}
+	l.ProtectUsers = normUsers(l.ProtectUsers)
 	return validateTarget(l.TargetType, &l.Target, &l.Port)
 }
 
@@ -728,6 +748,7 @@ func (d *Domain) Validate() error {
 	if d.RateLimit < 0 {
 		return errors.New("rateLimit must be >= 0")
 	}
+	d.ProtectUsers = normUsers(d.ProtectUsers)
 	// A URL target used to be the one case that rewrote the Host, and nothing
 	// said so. Anything that reads its own hostname — a WebSocket origin
 	// check, an absolute redirect, a cookie domain — saw the upstream's name
@@ -765,6 +786,23 @@ func (d *Domain) Validate() error {
 	return nil
 }
 
+// normUsers tidies an allow-list: trimmed, lower-cased, deduplicated, in the
+// order given. Stored as one string because it is read and written whole, and
+// because the render path turns it straight back into a query parameter.
+func normUsers(s string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, u := range splitList(s) {
+		u = strings.ToLower(u)
+		if seen[u] {
+			continue
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	return strings.Join(out, ",")
+}
+
 func splitList(s string) []string {
 	var out []string
 	for _, p := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' }) {
@@ -775,12 +813,12 @@ func splitList(s string) []string {
 	return out
 }
 
-const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, pass_host, block_exploits, created_at, updated_at`
+const cols = `id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, protect_users, enabled, pass_host, block_exploits, created_at, updated_at`
 
 func scan(sc interface{ Scan(...any) error }) (*Domain, error) {
 	var d Domain
 	var www, maint, prot, en, pass, block int
-	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &prot, &en, &pass, &block, &d.CreatedAt, &d.UpdatedAt); err != nil {
+	if err := sc.Scan(&d.ID, &d.Host, &d.TargetType, &d.Target, &d.Port, &d.PathPrefix, &d.TLS, &www, &d.BasicAuth, &d.IPAllowlist, &d.RateLimit, &d.Headers, &maint, &prot, &d.ProtectUsers, &en, &pass, &block, &d.CreatedAt, &d.UpdatedAt); err != nil {
 		return nil, err
 	}
 	d.RedirectWWW, d.Maintenance, d.Protect, d.Enabled = www == 1, maint == 1, prot == 1, en == 1
@@ -820,7 +858,7 @@ func (m *Manager) Domains(ctx context.Context) ([]Domain, error) {
 
 // allLocations groups every location on this server by its domain.
 func (m *Manager) allLocations(ctx context.Context) (map[string][]Location, error) {
-	rows, err := m.st.DB.QueryContext(ctx, `SELECT l.id, l.domain_id, l.path, l.target_type, l.target, l.port, l.strip_path
+	rows, err := m.st.DB.QueryContext(ctx, `SELECT l.id, l.domain_id, l.path, l.target_type, l.target, l.port, l.strip_path, l.protect, l.protect_users
 		FROM domain_locations l JOIN domains d ON d.id = l.domain_id
 		WHERE d.server_id = ? ORDER BY l.domain_id, l.position, l.path`, m.st.ServerID)
 	if err != nil {
@@ -832,7 +870,7 @@ func (m *Manager) allLocations(ctx context.Context) (map[string][]Location, erro
 		var l Location
 		var domainID string
 		var strip int
-		if err := rows.Scan(&l.ID, &domainID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip); err != nil {
+		if err := rows.Scan(&l.ID, &domainID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip, &l.Protect, &l.ProtectUsers); err != nil {
 			return nil, err
 		}
 		l.StripPath = strip == 1
@@ -848,7 +886,7 @@ func (m *Manager) Domain(ctx context.Context, id string) (*Domain, error) {
 		return nil, err
 	}
 	rows, err := m.st.DB.QueryContext(ctx,
-		`SELECT id, path, target_type, target, port, strip_path FROM domain_locations
+		`SELECT id, path, target_type, target, port, strip_path, protect, protect_users FROM domain_locations
 		 WHERE domain_id = ? ORDER BY position, path`, id)
 	if err != nil {
 		return nil, err
@@ -857,7 +895,7 @@ func (m *Manager) Domain(ctx context.Context, id string) (*Domain, error) {
 	for rows.Next() {
 		var l Location
 		var strip int
-		if err := rows.Scan(&l.ID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip); err != nil {
+		if err := rows.Scan(&l.ID, &l.Path, &l.TargetType, &l.Target, &l.Port, &strip, &l.Protect, &l.ProtectUsers); err != nil {
 			return nil, err
 		}
 		l.StripPath = strip == 1
@@ -888,14 +926,51 @@ func (m *Manager) saveLocations(ctx context.Context, domainID string, locs []Loc
 		if l.StripPath {
 			strip = 1
 		}
+		if l.Protect == "" {
+			l.Protect = "inherit"
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_locations
-			(id, domain_id, path, target_type, target, port, strip_path, position)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			l.ID, domainID, l.Path, l.TargetType, l.Target, l.Port, strip, i); err != nil {
+			(id, domain_id, path, target_type, target, port, strip_path, protect, protect_users, position)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			l.ID, domainID, l.Path, l.TargetType, l.Target, l.Port, strip, l.Protect, l.ProtectUsers, i); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// writeDomain inserts or updates the row and nothing else. It is separate from
+// Save so the storage round trip can be tested without Docker: every column
+// added since has had to be listed in four places — the select, the scan, the
+// insert and the update — and a value missed in one of them is invisible until
+// somebody saves a domain.
+func (m *Manager) writeDomain(ctx context.Context, d *Domain) error {
+	b := func(v bool) int {
+		if v {
+			return 1
+		}
+		return 0
+	}
+	if d.ID == "" {
+		d.ID = newID()
+		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, protect_users, enabled, pass_host, block_exploits)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), d.ProtectUsers, b(d.Enabled), b(d.PassHost), b(d.BlockExploits))
+		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				return errors.New("that host is already routed")
+			}
+			return err
+		}
+	} else {
+		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, protect_users=?, enabled=?, pass_host=?, block_exploits=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+			WHERE id = ? AND server_id = ?`,
+			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), d.ProtectUsers, b(d.Enabled), b(d.PassHost), b(d.BlockExploits), d.ID, m.st.ServerID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Save inserts or updates a domain, connects the target to the proxy
@@ -912,30 +987,8 @@ func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, e
 		}
 		return nil, errors.New("the DNS challenge needs a DNS provider: set one under Domains, Settings, or issue this certificate over HTTP instead")
 	}
-	b := func(v bool) int {
-		if v {
-			return 1
-		}
-		return 0
-	}
-	if d.ID == "" {
-		d.ID = newID()
-		_, err := m.st.DB.ExecContext(ctx, `INSERT INTO domains (id, server_id, host, target_type, target, port, path_prefix, tls, redirect_www, basic_auth, ip_allowlist, rate_limit, headers, maintenance, protect, enabled, pass_host, block_exploits)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), b(d.PassHost), b(d.BlockExploits))
-		if err != nil {
-			if strings.Contains(err.Error(), "UNIQUE") {
-				return nil, errors.New("that host is already routed")
-			}
-			return nil, err
-		}
-	} else {
-		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, enabled=?, pass_host=?, block_exploits=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-			WHERE id = ? AND server_id = ?`,
-			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), b(d.Enabled), b(d.PassHost), b(d.BlockExploits), d.ID, m.st.ServerID)
-		if err != nil {
-			return nil, err
-		}
+	if err := m.writeDomain(ctx, d); err != nil {
+		return nil, err
 	}
 	if err := m.saveLocations(ctx, d.ID, d.Locations); err != nil {
 		return nil, err
@@ -1121,9 +1174,32 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		}},
 		"islet-security-headers": map[string]any{"headers": map[string]any{"stsSeconds": 31536000, "stsIncludeSubdomains": true, "browserXssFilter": true, "contentTypeNosniff": true}},
 		"islet-https-redirect":   map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}},
-		"islet-forward-auth":     map[string]any{"forwardAuth": map[string]any{"address": panelURL + "/_islet/auth", "trustForwardHeader": true, "authResponseHeaders": []string{"X-Islet-User", "X-Islet-Role"}, "tls": map[string]any{"insecureSkipVerify": true}}},
 	}
 	transports := map[string]any{"islet-insecure": map[string]any{"insecureSkipVerify": true}}
+
+	// One forwardAuth middleware per protected route, with that route's
+	// allow-list written into the address it calls.
+	//
+	// The alternative was one shared middleware and a lookup — the daemon
+	// matching the forwarded host and path back to a rule on every request, to
+	// arrive at a list it had itself just written into this file. Carrying the
+	// list in the address keeps the decision where the rule is: no second
+	// matcher to disagree with Traefik's, no cache to go stale, and a
+	// configuration anybody can read to see who is allowed where. The address
+	// is written by the daemon and never derived from a request, so a visitor
+	// has no way to influence it.
+	protectMW := func(id, users string) string {
+		addr := panelURL + "/_islet/auth"
+		if users != "" {
+			addr += "?u=" + url.QueryEscape(users)
+		}
+		middlewares[id+"-protect"] = map[string]any{"forwardAuth": map[string]any{
+			"address": addr, "trustForwardHeader": true,
+			"authResponseHeaders": []string{"X-Islet-User", "X-Islet-Role"},
+			"tls":                 map[string]any{"insecureSkipVerify": true},
+		}}
+		return id + "-protect"
+	}
 
 	for _, d := range domains {
 		if !d.Enabled {
@@ -1176,8 +1252,17 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 				mws = append(mws, name+"-headers")
 			}
 		}
-		if d.Protect {
-			mws = append(mws, "islet-forward-auth")
+		// Kept separately so a location can leave it out: "off" on a path of a
+		// protected host is how a webhook receiver stays reachable.
+		base := mws
+		hostProtect := ""
+		// Never in front of the panel itself. The login the gate sends people
+		// to is served by this very host, so the redirect lands back on the
+		// protected router and loops — and it buys nothing: the panel has
+		// asked for a session on every page since the first release.
+		if d.Protect && d.TargetType != "panel" {
+			hostProtect = protectMW(name, d.ProtectUsers)
+			mws = append(mws, hostProtect)
 		}
 		// The TLS block is settled once and reused by every router on this
 		// host — the root, each location, and www. A location presenting a
@@ -1219,9 +1304,22 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 			lrule := hostRule + fmt.Sprintf(" && PathPrefix(`%s`)", l.Path)
 			lpri := priority + 1 + min(len(l.Path), 98)
 
-			// A copy, not a reslice of mws: appending to a shared backing
-			// array would let one location's middleware appear on another's.
-			lmws := append([]string{}, mws...)
+			// A copy, not a reslice: appending to a shared backing array
+			// would let one location's middleware appear on another's.
+			//
+			// The nearer rule wins. A path that says nothing follows its host,
+			// which is what every location did before locations could carry a
+			// rule of their own.
+			lmws := append([]string{}, base...)
+			switch l.Protect {
+			case "on":
+				lmws = append(lmws, protectMW(ln, l.ProtectUsers))
+			case "off":
+			default:
+				if hostProtect != "" {
+					lmws = append(lmws, hostProtect)
+				}
+			}
 			if l.StripPath {
 				middlewares[ln+"-strip"] = map[string]any{"stripPrefix": map[string]any{"prefixes": []string{l.Path}}}
 				lmws = append(lmws, ln+"-strip")

@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `c3aef45`, tagged `v0.17.0`, 2026-09-15. 134 commits, 59 tags, CI green on `main`.
+**Head:** `ffa02db`, tagged `v0.18.4`, 2026-09-16. 146 commits, 67 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.17.0
+## Shipped since the plan ran out — v0.6.0 to v0.18.4
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -76,6 +76,11 @@ recent history, because it is the half that was found rather than designed.
 | v0.15.1 | `6855b35` | Traefik's compressor holds a response's first kilobyte back to decide whether compressing is worth it, and for a stream that kilobyte is however long the work takes — so the browser saw nothing and then a gateway timeout, while curl, which sends no `Accept-Encoding`, saw it stream perfectly. Every streaming endpoint was affected: logs, Compose, SQL, ping |
 | v0.16.0 | `defc6d7` | **Conversations.** Stored on the server, so one started on a laptop opens on a phone; titled from the first question; turns written as they complete. One run per conversation, no limit across them |
 | v0.17.0 | `c3aef45` | **The assistant had a root shell.** `--allowed-tools` says which tools need no approval, not which exist, so Claude Code's own Bash was there — and classified as safe, so it ran without asking. Asked to `id -u`, the assistant answered 0. Closed with a deny list in `--settings`, `--permission-prompts none` and `--strict-mcp-config`. Found by getting a browser and looking at the panel, which also produced the Markdown rendering, the tool lines, and the record of what a turn did |
+| v0.18.0 | `2ca0ec5` | **The panel worked when nobody was asking it anything.** Every page polled on a timer whether or not it was on screen, and a phone in a pocket kept a server busy. Polling now follows visibility |
+| v0.18.1 | `ceb9456` | The backup end-to-end check passed and then failed: its cleanup trap could not remove root-owned restic files as a non-root runner, and the trap's exit status became the job's |
+| v0.18.2 | `5ac4bef` | A "expires soon" badge read the clock while rendering, so it changed only when something unrelated re-rendered |
+| v0.18.3 | `168c261` | Tests for the two places a mistake costs the most: the database credentials path and uptime's state machine |
+| v0.18.4 | `ffa02db` | **"Protect with Islet login" sent signed-in people to the dashboard.** The gate was right; the panel renders `/login` only for an anonymous visitor, so a signed-in admin's `?next=` was thrown away by the catch-all. The decision now lives in one place and both paths ask it |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what

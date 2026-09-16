@@ -14,6 +14,7 @@ Short, ordered guides for the setups people ask about most. Each one uses only w
 | [Docker image with a domain](docker-image-with-a-domain.md) | 3 min |
 | [WordPress with a domain](wordpress-with-a-domain.md) | 5 min |
 | [Harden a fresh server](harden-a-fresh-server.md) | 10 min |
+| [Protect an app with the Islet login](protect-an-app-with-islet-login.md) | 5 min |
 | [Nightly backups off-site](nightly-backups-off-site.md) | 5 min |
 | [Umami analytics](umami-analytics.md) | 3 min |
 | [n8n automation](n8n-automation.md) | 3 min |

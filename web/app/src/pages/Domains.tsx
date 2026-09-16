@@ -7,7 +7,7 @@ import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { useDialog } from "@/lib/dialogs";
 import { DownloadIcon, PlusIcon, RefreshIcon, RenameIcon, TrashIcon } from "@/components/icons";
 
-const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, enabled: true, passHost: true, blockExploits: false, locations: [], createdAt: "", updatedAt: "" };
+const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, protectUsers: "", enabled: true, passHost: true, blockExploits: false, locations: [], createdAt: "", updatedAt: "" };
 
 /**
  * Extra paths on one host, each forwarded somewhere of its own.
@@ -94,6 +94,136 @@ function protectWarning(host: string, cookieDom: string): string {
   return `${h} is not under ${cookieDom}, which is what the session cookie is scoped to, so a browser will never send it there and the login will loop. An Islet login can only protect names under ${cookieDom} — for ${h} you would need a panel on a name under ${h} instead.`;
 }
 
+/**
+ * What the list should say about a host's protection.
+ *
+ * Once a path can disagree with its host, "login required" on the row is no
+ * longer true of the whole name — and the one case where that matters is the
+ * open path on a protected site, which is exactly the one somebody would want
+ * to notice from the list.
+ */
+function protectBadge(d: Domain): string {
+  const locs = d.locations ?? [];
+  if (d.protect) return locs.some((l) => l.protect === "off") ? "login on most paths" : "login required";
+  return locs.some((l) => l.protect === "on") ? "login on some paths" : "";
+}
+
+const listed = (l: string | undefined) => (l ?? "").split(",").map((u) => u.trim()).filter(Boolean);
+
+/** Add or remove one name, keeping the order people entered it in. */
+function toggleUser(list: string | undefined, u: string): string {
+  const cur = listed(list);
+  return (cur.includes(u) ? cur.filter((n) => n !== u) : [...cur, u]).join(",");
+}
+
+/**
+ * Who may reach what, as one grid.
+ *
+ * Protection has two axes and they are easiest to read crossed: down the side
+ * every route on this host — the site itself, then each custom location — and
+ * across the top every Islet account. A path says whether it wants a login,
+ * and the ticks say whose. A location can disagree with its host in both
+ * directions, because both cases are real: /admin asking for a login on an
+ * open site, and /webhooks staying open on a protected one, since the service
+ * calling it has no browser and no session to offer.
+ *
+ * An empty row of ticks means any signed-in Islet user, which is what the
+ * single "protect" switch always meant — so the grid has no state the old
+ * checkbox could not reach, and nothing to migrate.
+ */
+function Protection({ value, users, onChange, cookieDom }: { value: Domain; users: string[]; onChange: (patch: Partial<Domain>) => void; cookieDom: string }) {
+  const locs = value.locations ?? [];
+  const setLoc = (i: number, patch: Partial<DomainLocation>) =>
+    onChange({ locations: locs.map((l, n) => (n === i ? { ...l, ...patch } : l)) });
+
+  // Names already on a list stay in the grid even when no such account
+  // exists any more: a tick nobody can see is a tick nobody can remove.
+  const names = [...users];
+  for (const l of [value.protectUsers, ...locs.map((l) => l.protectUsers)]) {
+    for (const u of listed(l)) if (!names.includes(u)) names.push(u);
+  }
+
+  type Row = { key: string; label: string; protect: "on" | "off" | "inherit"; users: string; onProtect: (v: string) => void; onUsers: (v: string) => void };
+  const rows: Row[] = [
+    {
+      key: "root", label: "Whole site", protect: value.protect ? "on" : "off", users: value.protectUsers ?? "",
+      onProtect: (v) => onChange({ protect: v === "on" }), onUsers: (v) => onChange({ protectUsers: v }),
+    },
+    ...locs.map((l, i): Row => ({
+      key: `l${i}`, label: l.path || "(new location)", protect: l.protect ?? "inherit", users: l.protectUsers ?? "",
+      onProtect: (v) => setLoc(i, { protect: v as DomainLocation["protect"] }), onUsers: (v) => setLoc(i, { protectUsers: v }),
+    })),
+  ];
+  // The panel is the one target a gate cannot stand in front of: the login it
+  // would redirect to is served by this same host, so the redirect comes back
+  // through the gate. It has always asked for a session anyway.
+  const isPanel = value.targetType === "panel";
+  const on = (r: Row) => (isPanel && r.key === "root") || (r.protect === "inherit" ? !!value.protect : r.protect === "on");
+  // An inherited row shows its host's list, greyed: what it would enforce.
+  const effUsers = (r: Row) => (r.protect === "inherit" ? value.protectUsers ?? "" : r.users);
+  const anyOn = rows.some(on);
+  const warning = anyOn ? protectWarning(value.host, cookieDom) : "";
+
+  return (
+    <div className="rounded-md border border-border p-3">
+      <span className="text-sm font-medium">Protection</span>
+      <p className="mt-0.5 text-xs text-ink-muted">
+        A protected route asks for an Islet login before the request reaches the app. It does not replace
+        the app&rsquo;s own login — it keeps the outside world from ever seeing it.
+      </p>
+      {warning && <div className="mt-3"><Alert tone="warning">{warning}</Alert></div>}
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[26rem] border-collapse text-xs">
+          <thead>
+            <tr className="text-left text-ink-muted">
+              <th className="sticky left-0 z-10 w-full bg-surface py-1 pr-3 font-medium">Route</th>
+              <th className="py-1 pr-3 font-medium">Access</th>
+              {names.map((u) => <th key={u} className="px-2 py-1 text-center font-medium whitespace-nowrap">{u}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className="border-t border-border">
+                <td className={`sticky left-0 z-10 bg-surface py-1.5 pr-3 text-ink ${r.key === "root" ? "" : "font-mono"}`}>{r.label}</td>
+                <td className="py-1.5 pr-3">
+                  <Select value={isPanel && r.key === "root" ? "on" : r.protect} onChange={(e) => r.onProtect(e.target.value)} disabled={isPanel && r.key === "root"} className="h-7 w-36 text-xs" aria-label={`Access for ${r.label}`}>
+                    {r.key === "root"
+                      ? <><option value="off">Open to anyone</option><option value="on">{isPanel ? "Islet login (always)" : "Islet login"}</option></>
+                      : <>
+                          {/* What it inherits is the row above, in the same
+                              grid, so the option does not have to say it. */}
+                          <option value="inherit">Same as site</option>
+                          <option value="on">Islet login</option>
+                          <option value="off">Open to anyone</option>
+                        </>}
+                  </Select>
+                </td>
+                {names.map((u) => (
+                  <td key={u} className="px-2 py-1.5 text-center">
+                    <label className="-my-1 inline-flex py-1" title={on(r) ? `Let ${u} reach ${r.label}` : "This route does not ask for a login"}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${u} may reach ${r.label}`}
+                        disabled={!on(r) || r.protect === "inherit" || (isPanel && r.key === "root")}
+                        checked={on(r) && listed(effUsers(r)).includes(u)}
+                        onChange={() => r.onUsers(toggleUser(r.users, u))}
+                      />
+                    </label>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-ink-muted">
+        Tick nobody and a protected route lets in any signed-in Islet user. Tick names and only those
+        accounts get through; anyone else signed in is told so.
+      </p>
+    </div>
+  );
+}
+
 export default function Domains() {
   const ask = useDialog();
   const { state } = useAuth();
@@ -119,6 +249,10 @@ export default function Domains() {
   // The form is hidden once there is nothing to decide; this opens it again.
   const [settings, setSettings] = useState(false);
   const [cookieDom, setCookieDom] = useState("");
+  // Accounts to offer in the protection grid. Listing users is admin-only, and
+  // an editor may still open this form, so a refusal means the grid shows only
+  // the names already on a list rather than nothing at all.
+  const [userNames, setUserNames] = useState<string[]>([]);
   const formRef = useRef<HTMLDivElement>(null);
   // The form opens under the table, where it is off the bottom of the screen
   // once there are a few domains. Editing that looks like nothing happened is
@@ -127,6 +261,9 @@ export default function Domains() {
     if (editing) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [editing?.id, editing !== null]);
   useEffect(() => { void api.cookieDomain().then((r) => setCookieDom(r.cookieDomain)).catch(() => {}); }, []);
+  // Service accounts are left out: they authenticate with a token, never hold
+  // a browser session, and so could never pass a forward-auth check.
+  useEffect(() => { void api.users().then((us) => setUserNames(us.filter((u) => !u.isService).map((u) => u.username))).catch(() => {}); }, []);
   // What the last apply did, kept outside the form so closing it does not take
   // the only confirmation with it.
   const [note, setNote] = useState<string | null>(null);
@@ -305,7 +442,7 @@ export default function Domains() {
               const c = dns[d.id]; const cert = certFor(d.host);
               return (
                 <tr key={d.id} className={d.enabled ? "" : "opacity-60"}>
-                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="-my-1 inline-block py-1 font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{d.protect && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">login required</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
+                  <td className="px-4 py-2"><a href={`https://${d.host}`} target="_blank" rel="noreferrer" className="-my-1 inline-block py-1 font-medium hover:underline">{d.host}</a>{d.pathPrefix && <span className="ml-1 font-mono text-xs text-ink-muted">{d.pathPrefix}</span>}{d.maintenance && <span className="ml-2 rounded-sm bg-warning-soft px-1.5 py-0.5 text-[10px] text-warning">maintenance</span>}{protectBadge(d) && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">{protectBadge(d)}</span>}{!d.enabled && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">disabled</span>}</td>
                   <td className="py-2 font-mono text-xs text-ink-muted">{d.targetType === "container" ? `${d.target}:${d.port}` : d.targetType === "panel" ? "Islet panel" : d.target}</td>
                   <td className="py-2 text-xs"><DnsCell check={c} /></td>
                   <td className="py-2 text-xs">{d.tls === "none" ? <span className="text-ink-muted">HTTP only</span> : cert ? <span className={new Date(cert.notAfter).getTime() - now < 14 * 864e5 ? "text-warning" : "text-success"}>valid until {dmy(cert.notAfter)}</span> : d.tls === "self" ? <span className="text-ink-muted">self-signed</span> : <span className="text-ink-muted">pending issue</span>}</td>
@@ -393,6 +530,14 @@ export default function Domains() {
                 onChange={(locations) => setEditing({ ...editing, locations })}
               />
             </div>
+            <div className="md:col-span-2">
+              <Protection
+                value={editing}
+                users={userNames}
+                cookieDom={cookieDom}
+                onChange={(patch) => setEditing({ ...editing, ...patch })}
+              />
+            </div>
             <Field label="Basic auth (optional)" hint="user:password per line. Passwords are hashed on save."><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field>
             <Field label="IP allowlist (optional)" hint="CIDRs, comma separated. Everyone else gets 403."><Input value={editing.ipAllowlist} onChange={(e) => setEditing({ ...editing, ipAllowlist: e.target.value })} placeholder="203.0.113.7/32, 10.0.0.0/8" /></Field>
             <Field label="Rate limit (req/s, 0 = off)"><Input value={String(editing.rateLimit)} onChange={(e) => setEditing({ ...editing, rateLimit: Number(e.target.value) || 0 })} inputMode="numeric" /></Field>
@@ -400,7 +545,6 @@ export default function Domains() {
             <div className="flex flex-wrap gap-4 text-sm md:col-span-2">
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.redirectWww} onChange={(e) => setEditing({ ...editing, redirectWww: e.target.checked })} />Redirect www to this host</label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.maintenance} onChange={(e) => setEditing({ ...editing, maintenance: e.target.checked })} />Maintenance page</label>
-              <label className="flex items-center gap-1.5" title="Visitors must be signed in to the Islet panel. Set the session cookie domain in Settings first."><input type="checkbox" checked={!!editing.protect} onChange={(e) => setEditing({ ...editing, protect: e.target.checked })} />Protect with Islet login</label>
               <label className="flex items-center gap-1.5" title="Scanners look for .env, .git and similar within seconds of a new name appearing. This refuses them.">
                 <input type="checkbox" checked={editing.blockExploits ?? false} onChange={(e) => setEditing({ ...editing, blockExploits: e.target.checked })} />
                 Block common exploits
@@ -411,11 +555,6 @@ export default function Domains() {
               </label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />Enabled</label>
             </div>
-            {editing.protect && protectWarning(editing.host, cookieDom) && (
-              <div className="md:col-span-2">
-                <Alert tone="warning">{protectWarning(editing.host, cookieDom)}</Alert>
-              </div>
-            )}
             <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
           </form>
         </Card>

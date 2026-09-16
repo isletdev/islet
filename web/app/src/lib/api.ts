@@ -97,8 +97,9 @@ export interface TrashItem { id: string; original: string; name: string; isDir: 
 export interface ProxyStatus { dnsProvider?: string; installed: boolean; running: boolean; image: string; acmeEmail: string; httpPort: string; httpsPort: string; error?: string; needsRestart?: boolean; problems?: string[] }
 export type TargetType = "container" | "panel" | "url";
 /** One extra path on a host, forwarded somewhere of its own. */
-export interface DomainLocation { id?: string; path: string; targetType: TargetType; target: string; port: number; stripPath: boolean }
-export interface Domain { id: string; host: string; targetType: TargetType; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "letsencrypt-dns" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; enabled: boolean; passHost?: boolean; blockExploits?: boolean; locations?: DomainLocation[]; createdAt: string; updatedAt: string }
+export type LocationProtect = "inherit" | "on" | "off";
+export interface DomainLocation { id?: string; path: string; targetType: TargetType; target: string; port: number; stripPath: boolean; protect?: LocationProtect; protectUsers?: string }
+export interface Domain { id: string; host: string; targetType: TargetType; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "letsencrypt-dns" | "self" | "none"; redirectWww: boolean; basicAuth: string; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; protectUsers?: string; enabled: boolean; passHost?: boolean; blockExploits?: boolean; locations?: DomainLocation[]; createdAt: string; updatedAt: string }
 /** One host found in another proxy's configuration. */
 export interface FoundSite {
   hosts: string[]; upstream: string; root: string; rawUpstream?: string; tls: boolean; file: string; source?: string;

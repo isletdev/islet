@@ -2439,3 +2439,57 @@ What the gate does *not* do is worth stating, because it was asked: it does not
 replace the application's own login. Traefik forwards the request on unchanged
 apart from two headers the app may ignore, so the app still asks for its own
 credentials. It is a fence in front of the door, not a key to it.
+
+## 2026-09-16 — Protection gets a path and a person: the access grid
+
+The fence in front of the door was one switch per host, open to every account
+the panel had. Two asks did not fit it: a site where only `/staging` should ask
+for a login, and a site where only two of the panel's six people should get in.
+Both are the same missing axis — the rule had nowhere to say *which path* and
+*which people*.
+
+So a rule is now a row in a grid. Down the side, every route on the host: the
+site itself, then each custom location. Across the top, every Islet account. A
+row says whether it wants a login and the ticks say whose.
+
+**A location's setting is three-state, not a boolean.** `inherit` follows the
+host, `on` asks for a login, `off` opens the path back up. The third value
+exists because the interesting case is real in both directions: `/admin`
+guarded on an open site, and `/hooks` left open on a guarded one, since the
+service calling a webhook has no browser and no session to offer. A boolean
+could express neither without a second flag meaning "but not here".
+
+**An empty list means any signed-in user.** That is what the single switch
+always meant, so every rule saved before this — and every `{"protect": true}`
+from an MCP client — keeps working rather than turning into a site nobody can
+reach. It also gives the grid no state the old checkbox could not reach, and so
+nothing to migrate.
+
+**The allow-list travels in the address Traefik calls.** Each protected route
+gets a `forwardAuth` middleware of its own, pointed at
+`/_islet/auth?u=alice,bob`. The alternative was one shared middleware and a
+lookup: the daemon matching the forwarded host and path back to a rule, on
+every request, to arrive at a list it had itself just written into that file. A
+second matcher is a second opinion about which route a request belongs to, and
+the two would eventually disagree — Traefik's answer being the one that
+actually served the request. Carrying the list keeps the decision where the
+rule is: no cache to go stale, no lookup on the hot path, and a configuration
+anybody can read to see who is allowed where. The address is written by the
+daemon and never derived from a request, so a visitor cannot influence it.
+
+**Somebody signed in but not named gets a page, not a redirect.** Sending them
+to a login they have already completed would loop. The page says which site,
+which account they are using — it is usually the wrong one of two — and where
+the permission lives, so an admin can be asked for it by name.
+
+**There is no admin bypass.** An admin who ticks two names and is not one of
+them is locked out of that route, and can unlock it in the panel in ten
+seconds. The alternative is a list that does not mean what it says.
+
+One bug worth recording, because of where it was found. Adding a column meant
+listing it in four places — the select, the scan, the insert and the update —
+and the insert's placeholder count was left one short. Every unit test passed:
+they all start from a struct, and the fault was between the form and the row.
+It took saving a domain through the running daemon to see it, and there is now
+a round-trip test (`TestDomainRoundTrip`) that saves, reads back, updates and
+reads again, so the next column cannot be lost the same way.

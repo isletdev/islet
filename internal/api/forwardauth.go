@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
+	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -37,10 +41,20 @@ func currentCookieDomain(r *http.Request) string {
 }
 
 // handleForwardAuth answers Traefik's forwardAuth for protected routes.
-// A valid, MFA-complete panel session passes with X-Islet-User; anything
-// else is sent to the panel login with a return address.
+//
+// A valid, MFA-complete panel session passes with X-Islet-User; anything else
+// is sent to the panel login with a return address. When the rule names
+// particular people — the u parameter, written into the middleware's address
+// by the render path and never taken from the visitor — a session belonging to
+// somebody else is refused rather than redirected: sending them to a login
+// they have already completed would only loop.
 func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
+	site := r.Header.Get("X-Forwarded-Host")
 	if u := userFrom(r.Context()); u != nil {
+		if !userAllowed(r.URL.Query().Get("u"), u.Username) {
+			s.denyProtected(w, r, u.Username, site)
+			return
+		}
 		w.Header().Set("X-Islet-User", u.Username)
 		w.Header().Set("X-Islet-Role", u.Role)
 		w.WriteHeader(http.StatusOK)
@@ -50,9 +64,42 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 	if proto == "" {
 		proto = "https"
 	}
-	next := proto + "://" + r.Header.Get("X-Forwarded-Host") + r.Header.Get("X-Forwarded-Uri")
+	next := proto + "://" + site + r.Header.Get("X-Forwarded-Uri")
+	panel := s.panelURL(r.Context())
+	if panel == "" {
+		http.Error(w, "sign in to the Islet panel first", http.StatusUnauthorized)
+		return
+	}
+	http.Redirect(w, r, panel+"/login?next="+url.QueryEscape(next), http.StatusFound)
+}
+
+// userAllowed reports whether a rule's allow-list admits this account.
+//
+// An empty list means any signed-in Islet user. That is deliberate and is what
+// the single protect switch meant before lists existed, so a rule saved by an
+// older panel — or by an MCP client that sends only {"protect": true} — keeps
+// working rather than turning into a site nobody can reach.
+func userAllowed(list, username string) bool {
+	allowed := splitUsers(list)
+	return len(allowed) == 0 || slices.Contains(allowed, strings.ToLower(username))
+}
+
+// splitUsers reads an allow-list as the render path wrote it.
+func splitUsers(s string) []string {
+	var out []string
+	for _, u := range strings.Split(s, ",") {
+		if u = strings.ToLower(strings.TrimSpace(u)); u != "" {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// panelURL is where a visitor is sent to sign in, or "" if the panel has no
+// name of its own and the server has no public address either.
+func (s *Server) panelURL(ctx context.Context) string {
 	panel := ""
-	if doms, err := s.proxy.Domains(r.Context()); err == nil {
+	if doms, err := s.proxy.Domains(ctx); err == nil {
 		for _, d := range doms {
 			if d.TargetType == "panel" && d.Enabled {
 				scheme := "https"
@@ -67,15 +114,37 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if panel == "" {
-		if ip := proxy.PublicIP(r.Context()); ip != "" {
+		if ip := proxy.PublicIP(ctx); ip != "" {
 			panel = "https://" + ip + ":9443"
-		} else {
-			http.Error(w, "sign in to the Islet panel first", http.StatusUnauthorized)
-			return
 		}
 	}
-	http.Redirect(w, r, panel+"/login?next="+url.QueryEscape(next), http.StatusFound)
+	return panel
 }
+
+// denyProtected answers a signed-in visitor the rule does not name.
+//
+// A page rather than a bare 403: this is somebody with an Islet account
+// looking at a site they expected to reach, and the two things they need are
+// which account they are using — often the wrong one of two — and where the
+// permission lives, so an admin can be asked for it by name.
+func (s *Server) denyProtected(w http.ResponseWriter, r *http.Request, who, site string) {
+	_ = s.store.Audit(r.Context(), who, "proxy.protect.denied", site, "")
+	link := ""
+	if p := s.panelURL(r.Context()); p != "" {
+		link = `<p class="l"><a href="` + html.EscapeString(p) + `/domains">Open the Islet panel</a></p>`
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = fmt.Fprintf(w, deniedPage, html.EscapeString(site), html.EscapeString(who), link)
+}
+
+const deniedPage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Not allowed</title>
+<style>body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#0A0A0A;color:#FAFAFA;display:grid;place-items:center;min-height:100vh}main{max-width:32rem;padding:2rem}h1{font-size:1.5rem;margin:0 0 .5rem}p{color:#A3A3A3;margin:0 0 .75rem}code{color:#FAFAFA}a{color:#FAFAFA}</style>
+<main><h1>Not allowed</h1>
+<p><code>%s</code> is protected by Islet, and this account is not on its list.</p>
+<p>Signed in as <code>%s</code>. An Islet admin can add you under Domains &rarr; Protection.</p>
+%s</main>`
 
 func (s *Server) handleCookieDomain(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {

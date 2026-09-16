@@ -283,7 +283,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Cloudflare Tunnel and Tailscale in the catalog
 - [x] Diagnostics: ping, traceroute, dig, port check (Security page)
 - [x] Bandwidth per interface (Overview) and per container (Containers)
-- [x] "Protect this app with Islet login" forward-auth toggle on any route
+- [x] "Protect this app with Islet login" forward-auth toggle on any route, per host or per location, with a per-rule list of who may pass
 
 **Not in this phase:** nothing paid; everything here stays free forever.
 
