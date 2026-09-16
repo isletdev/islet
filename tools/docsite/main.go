@@ -59,7 +59,12 @@ func main() {
 		order             int
 	}{
 		{"README.md", "index.html", "Start", 0},
-		{"docs/VISION.md", "vision.html", "Project", 10},
+		// VISION.md is deliberately not published. It is a strategy document —
+		// competitor analysis, what might one day be sold and for how much —
+		// and a documentation site is read by people deciding whether to trust
+		// the software, not by people who want to know what it might cost in
+		// two years. It stays in the repository, where anybody who wants the
+		// reasoning can read it; it is not part of the manual.
 		{"docs/ROADMAP.md", "roadmap.html", "Project", 11},
 		{"docs/DECISIONS.md", "decisions.html", "Project", 12},
 		{"docs/STRUCTURE.md", "structure.html", "Project", 13},
@@ -425,7 +430,7 @@ footer { border-top: 1px solid var(--border); margin-top: 56px; padding-top: 20p
   <a class="brand" href="{{.Site}}/">Islet <span>docs</span></a>
   <nav>
     <a class="hide-sm" href="{{.Site}}/#features">Features</a>
-    <a class="hide-sm" href="{{.Site}}/#pricing">Pricing</a>
+    <a class="hide-sm" href="{{.Site}}/#install">Install</a>
     <a href="https://github.com/isletdev/islet">GitHub</a>
   </nav>
 </header>

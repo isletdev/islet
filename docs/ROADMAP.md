@@ -1,6 +1,6 @@
 # Islet — Open-Source Roadmap
 
-> Goal: ship a complete, free, single-server panel that people love before writing a single paid feature. Every phase ends with something a real user can install and use. Paid features start only after v1.0 and a real user base (see `VISION.md` section 4 for the eventual Pro list).
+> Goal: ship a complete, free, single-server panel that people love. Every phase ends with something a real user can install and use. Everything in this roadmap is free and stays free; whether anything is ever sold alongside it, and what, is not decided and is not scheduled.
 
 How to read this: each phase has a one-line goal, a list of what the user can do afterwards, the features as checkboxes, what is deliberately left out, and a definition of done. Tick boxes as you go.
 
@@ -333,11 +333,11 @@ After this phase a user can: adopt a server that already runs things, extend the
 
 ## After v1.0
 
-Grow the user base and the catalog for at least a release cycle before starting paid work. When the time comes, the Pro plan in `VISION.md` section 4 and the gating design in `REPOS_AND_MONETIZATION.md` are ready.
+Grow the user base and the catalog for at least a release cycle. Nothing is for sale, nothing is scheduled to be, and the panel described here is free in full — the question of whether something is eventually offered alongside it is deliberately left open rather than answered early and badly.
 
 A built-in SQL client shipped in v0.4.0: schema browser, editor with statement detection, results grid, table viewer with foreign-key navigation both ways, history, saved queries, transactions, production marking and `EXPLAIN`. `docs/SQL_CLIENT.md` records what is in and what is not.
 
-Managing more than one server shipped free in v0.3.0, so it is no longer the candidate for the first paid feature. What is still open above it: a hub that keeps working when the controlling server does not, moving an app between servers, and a shared view across a fleet rather than one server at a time.
+Managing more than one server shipped free in v0.3.0. What is still open above it: a hub that keeps working when the controlling server does not, moving an app between servers, and a shared view across a fleet rather than one server at a time.
 
 Ideas that stay free and can be picked up any time after launch, roughly in order of demand:
 - RHEL family support (AlmaLinux, Rocky, Fedora)
