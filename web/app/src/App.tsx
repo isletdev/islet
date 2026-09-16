@@ -33,6 +33,7 @@ const Servers = lazy(() => import("./pages/Servers"));
 const Sql = lazy(() => import("./pages/Sql"));
 import Setup from "./pages/Setup";
 import Login from "./pages/Login";
+import Returning from "./pages/Returning";
 import { useAuth } from "./lib/auth";
 import { NAV } from "./nav";
 import { t } from "./lib/i18n";
@@ -46,6 +47,11 @@ export default function App() {
   if (state.status === "setup") return <Setup />;
   if (state.status === "anonymous") return <Login />;
   if (state.status === "mfa") return <Login mfa />;
+  // Sent here by a protected site while already signed in. Without this the
+  // catch-all route below took them to the dashboard and threw the address they
+  // asked for away, which made "protect with Islet login" look like a link to
+  // the panel.
+  if (new URLSearchParams(location.search).get("next")) return <Returning />;
 
   return (
     <Suspense fallback={<div className="p-6 text-sm text-ink-muted">{t("shell.loading")}</div>}>

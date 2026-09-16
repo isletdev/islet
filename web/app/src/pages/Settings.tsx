@@ -379,7 +379,7 @@ function SSO() {
   const [d, setD] = useState<string | null>(null); const [v, setV] = useState(""); const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => { void api.cookieDomain().then((r) => { setD(r.cookieDomain); setV(r.cookieDomain); }).catch(() => {}); }, []);
   if (d === null) return null;
-  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Sessions now cover *.${r.cookieDomain}. Sign out and back in, then tick "Protect with Islet login" on a domain.` : "Sessions are scoped to the panel host again."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
+  const save = async (e: FormEvent) => { e.preventDefault(); setMsg(null); try { const r = await api.cookieDomainSet(v); setD(r.cookieDomain); setMsg(r.cookieDomain ? `Sessions now cover *.${r.cookieDomain}, including the one you are using. Tick "Protect with Islet login" on a domain under it.` : "Sessions are scoped to the panel host again."); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } };
   return (
     <Card title="Protect apps with Islet login" description="Route the panel to a domain (say panel.example.com), set the parent domain here, and any domain marked &quot;Protect with Islet login&quot; only opens for people signed in to this panel.">
       <form onSubmit={save} className="flex flex-wrap items-start gap-2">

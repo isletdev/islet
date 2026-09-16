@@ -2,43 +2,29 @@ import { useState, type FormEvent } from "react";
 import { api, RequestError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { t } from "@/lib/i18n";
+import { whereNext } from "@/lib/returnto";
 import { Alert, AuthFrame, Button, Field, Input } from "@/components/ui";
 
 /**
  * After forward-auth sends someone here, go back to the site they asked for.
  *
- * Only within the session cookie's domain, and that is not a formality: the
- * cookie is what the protected site is asked for, so sending somebody to a host
- * that will never receive it only starts the same redirect again.
+ * The decision lives in lib/returnto so that this page and the already-signed-in
+ * path answer it the same way — they used to differ, and the difference was the
+ * bug: signed out you were returned, signed in you were dropped on the
+ * dashboard.
  *
  * Returns a sentence when it cannot go. Landing on the dashboard with no
  * explanation reads as "the login failed", when the login in fact worked and
  * the problem is that these two names can never share a cookie.
  */
 async function followNext(): Promise<string | null> {
-  const next = new URLSearchParams(location.search).get("next");
-  if (!next) return null;
-  let target: URL;
-  try {
-    target = new URL(next);
-  } catch {
+  const to = await whereNext();
+  if (to.kind === "go") {
+    location.replace(to.url);
     return null;
   }
-  if (target.protocol !== "https:" && target.protocol !== "http:") return null;
-  let dom = "";
-  try {
-    dom = (await api.setupStatus()).cookieDomain ?? "";
-  } catch {
-    return null;
-  }
-  if (dom && (target.hostname === dom || target.hostname.endsWith("." + dom))) {
-    location.replace(target.toString());
-    return null;
-  }
-  if (!dom) {
-    return `You are signed in, but ${target.hostname} cannot be opened from here: this panel has no session cookie domain set, so that site has no way to see that you are signed in. Set one under Settings, Sessions.`;
-  }
-  return `You are signed in, but ${target.hostname} cannot be opened from here. The session cookie is scoped to ${dom}, and ${target.hostname} is not under it, so a browser will never send it there. An Islet login can only protect a site that shares a parent domain with the panel.`;
+  if (to.kind === "blocked") return to.why;
+  return null;
 }
 
 export default function Login({ mfa = false }: { mfa?: boolean }) {

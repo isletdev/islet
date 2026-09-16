@@ -2394,3 +2394,48 @@ left by the grid, so a phone shows the page you opened instead of twenty-seven
 links you did not ask for. And the index uses a short form of each title,
 because "Islet — Open-Source Roadmap" is a good heading for its own page and a
 bad one in a column that already says Islet at the top.
+
+## 2026-09-16 — "Protect with Islet login" sent people to the dashboard
+Reported from a real setup: turn the toggle on for an admin host, open it, and
+land on the Islet panel's front page. The feature reads as a link to Islet.
+
+The gate itself was right. Traefik asks `/_islet/auth`, the daemon answers 200
+with `X-Islet-User` for a live session and otherwise redirects to the panel's
+login with `?next=` carrying the address that was asked for. The login page
+knew what to do with that.
+
+What nobody had followed was the ordinary case. The person hitting a protected
+site is usually an admin who is *already signed in* somewhere — and the panel
+renders the login page only for an anonymous visitor. Signed in, `/login` is not
+a route at all, so the catch-all took them to the dashboard and threw `next`
+away. Signed out it worked; signed in it did not, which is why it looked like
+the feature had never been wired up.
+
+So the decision now lives in one place, `lib/returnto`, and both paths ask it.
+Signed in with a `next`, the panel either follows it or says why it cannot.
+
+Why it might not: the session cookie has to reach the protected host, which
+means being scoped to a parent domain both names share. That was already true
+and already explained — but only to somebody who had just typed a password.
+Everyone else got the dashboard and no explanation.
+
+Two things follow from making that path visible.
+
+Changing the cookie domain now re-issues the session that asked for the change.
+Widening it is nearly always done *because* a protected site just turned you
+away; leaving the old host-only cookie in place means the next attempt is
+refused again by the very session you are sitting in, and the setting looks
+broken. The value is unchanged — same session, wider Domain — and the cookie at
+the old scope is cleared so two do not linger with different lifetimes.
+
+And a cookie domain that is a public suffix is refused. "co.uk" saves happily,
+the browser silently declines to store the cookie, and every protected site goes
+on asking for a login that plainly worked. Not the public suffix list — that is
+thousands of entries and a dependency for a check that runs when somebody types
+in a settings field — but the shape that actually occurs: two labels, a country
+code, and one of the handful of second-level registries.
+
+What the gate does *not* do is worth stating, because it was asked: it does not
+replace the application's own login. Traefik forwards the request on unchanged
+apart from two headers the app may ignore, so the app still asks for its own
+credentials. It is a fence in front of the door, not a key to it.
