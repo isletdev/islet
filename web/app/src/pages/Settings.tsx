@@ -400,7 +400,11 @@ function CatalogSource() {
   return (
     <Card title="Catalog source" description="The catalog ships inside the daemon and works offline. Point it at the public catalog repository (or your own fork) to pick up new apps and recipes daily without updating Islet; fetched templates overlay the embedded ones.">
       <div className="flex flex-wrap items-start gap-2">
-        <Field label="Tarball URL" hint="A .tar.gz with apps/ and recipes/; GitHub archive links work."><Input value={url} onChange={(e) => setUrl(e.target.value)} className="w-[28rem] max-w-full font-mono" /></Field>
+        {/* basis with min-w-0, not a fixed width: a flex item's min-width is
+            its content by default, so a 28rem input in a wrapping row refuses
+            to shrink and hangs off the side of a phone — clipped rather than
+            scrollable, which is the worst of both. */}
+        <Field label="Tarball URL" hint="A .tar.gz with apps/ and recipes/; GitHub archive links work." className="min-w-0 basis-[28rem]"><Input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full font-mono" /></Field>
         <FieldAction className="flex items-center gap-2"><Button variant="secondary" className="h-9" disabled={busy} onClick={() => void refresh()}>{busy ? "Fetching…" : "Fetch now"}</Button>{st.source.url && <button type="button" onClick={() => void clear()} className="text-xs text-danger hover:underline">Use embedded only</button>}</FieldAction>
       </div>
       <p className="mt-2 text-xs text-ink-muted">{st.source.fetchedAt ? `Last fetched ${new Date(st.source.fetchedAt).toLocaleString()} (${st.source.apps} apps, ${st.source.recipes} recipes).` : "Not fetched yet; refreshes daily once set."}{st.source.lastError && <span className="text-danger"> Last error: {st.source.lastError}</span>}{msg && <span> {msg}</span>}</p>

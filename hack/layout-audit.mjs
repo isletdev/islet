@@ -42,6 +42,21 @@ const PROBE = `(() => {
     const txt = (el.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 34);
     return el.tagName.toLowerCase() + cls + (txt ? " :: " + txt : "");
   };
+  // Whether this element scrolls sideways on purpose.
+  //
+  // CSS says an element with overflow-y auto and overflow-x visible computes
+  // its overflow-x to auto, so the app's scrolling main column looks exactly
+  // like a deliberate horizontal scroller — and every field hanging off the
+  // right-hand edge inside it was forgiven. That is how a settings input 448px
+  // wide on a 390px phone passed this audit and reached a user instead.
+  const deliberateX = (p, ps) => {
+    const cls = typeof p.className === "string" ? p.className : "";
+    // overflow-x-auto and overflow-auto are both somebody asking; overflow-y-auto
+    // is not, and that is the whole distinction.
+    if (/(^|\\s)overflow-(x-)?(auto|scroll)(\\s|$)/.test(cls)) return true;
+    if (ps.overflowX === "scroll") return true;
+    return ps.overflowX === "auto" && ps.overflowY !== "auto" && ps.overflowY !== "scroll";
+  };
   for (const el of document.querySelectorAll("body *")) {
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") continue;
@@ -58,12 +73,13 @@ const PROBE = `(() => {
     if (canX && scrollsX > 0 && scrollsX <= 4) out.push({ kind: "stray-horizontal-scroll", by: scrollsX, el: label(el) });
 
     // Content wider than the viewport with no scroll container above it to
-    // reach it. An element inside a horizontal scroller is meant to be there.
+    // reach it. An element inside a horizontal scroller is meant to be there —
+    // but only if somebody asked for a horizontal scroller.
     if (!canX && r.right > document.documentElement.clientWidth + 1 && el.children.length === 0) {
       let scrollable = false;
       for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
         const ps = getComputedStyle(p);
-        if ((ps.overflowX === "auto" || ps.overflowX === "scroll") && p.scrollWidth > p.clientWidth) { scrollable = true; break; }
+        if (deliberateX(p, ps) && p.scrollWidth > p.clientWidth) { scrollable = true; break; }
       }
       if (!scrollable) out.push({ kind: "spills-past-viewport", by: Math.round(r.right - document.documentElement.clientWidth), el: label(el) });
     }
