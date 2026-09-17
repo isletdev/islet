@@ -2664,3 +2664,50 @@ device" and is still showing it four seconds later instead of having retried. Th
 hidden case was proved by stopping the daemon under a hidden tab — it waits,
 stays waiting when the daemon returns, and reconnects the moment the tab is
 brought back on screen.
+
+## 2026-09-17 — Blocklists without CrowdSec, and the entries that had to be thrown away
+
+The roadmap said "CrowdSec community blocklists, geo-blocking". What shipped is
+the blocklist and the geo-blocking, and not CrowdSec.
+
+CrowdSec is good software. Installing it here means a third-party apt
+repository, an agent parsing logs, and a bouncer writing firewall rules — on a
+box where Islet already owns the firewall and has spent real effort making
+Docker's published ports honour it, DOCKER-USER rules and all. Two programs
+writing iptables is how a server reaches a state nobody can explain, and the
+explaining would land on Islet either way. What people actually want from it is
+the community's list of bad addresses, refreshed, enforced at the edge: three
+published lists, a per-country zone file, one ipset, two DROP rules. That is
+what this is.
+
+Three decisions inside it are worth keeping.
+
+**The set is swapped, never rebuilt in place.** The rules point at a name;
+filling a second set beside it and swapping the two is atomic, so there is no
+moment where half a list is enforced or the rules match nothing. Verified
+against real ipset and iptables in a container with its own network namespace —
+load, match, swap, remove — because a firewall change that is only reasoned
+about is a firewall change nobody should ship.
+
+**Entries are filtered before they reach the kernel, and this is not
+theoretical.** FireHOL level 1 — the list offered first, and the most
+conservative of them — contains `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`,
+`127.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16`. It is a bogon list and
+those are bogons *at the edge*; dropped into an INPUT set on a Docker host they
+cut the machine off from its own containers, and `0.0.0.0/8` from rather more
+than that. Anything private, loopback, link-local, multicast, carrier-grade NAT
+or wider than a /8 is discarded, and the admin's own address is removed from
+whatever survives. A feature that can lock somebody out of their own server, run
+from lists somebody else maintains, has to be built assuming a list will one day
+be wrong.
+
+**The daemon puts it back after a reboot.** An ipset does not survive one, and
+the alternatives are ipset-persistent, a systemd unit, or the daemon doing at
+boot what it does on demand — from the list files it already cached. The daemon
+is already there and already reconciles the proxy and the containers. There is
+no saved firewall file that can drift from the running set, and a box that comes
+up without a network still comes up dropping what it dropped yesterday.
+
+It is deliberately not part of "Fix everything", and it is a warn rather than a
+fail in the score. Turning it on enforces other people's judgement about who is
+hostile; that is a choice to make on purpose, with the lists named on the page.

@@ -271,6 +271,20 @@ func (s *Service) Report(ctx context.Context) Report {
 			st = "pass"
 		}
 		add(Check{ID: "fail2ban", Title: "Brute-force protection (fail2ban)", Detail: "Bans IPs after repeated failed SSH logins.", Weight: 8, Status: st, Fix: "fail2ban", FixNote: "Installs fail2ban with an sshd jail"})
+		// Known-bad addresses. A warning rather than a failure, and with no
+		// one-click fix: it drops traffic from lists somebody else maintains,
+		// which is a choice to make deliberately and not something to switch on
+		// behind an admin's back with Fix everything.
+		bl := s.Blocklist(ctx)
+		st = "warn"
+		blDetail := "Known attackers and hijacked networks are refused before they reach anything. Choose the lists under Blocklist below."
+		if bl.Enabled && bl.Entries > 0 {
+			st = "pass"
+			blDetail = fmt.Sprintf("%d networks dropped at the edge.", bl.Entries)
+		} else if bl.Enabled {
+			blDetail = "Turned on, but nothing is loaded yet — check the error on the Blocklist card."
+		}
+		add(Check{ID: "blocklist", Title: "Known-bad addresses dropped", Detail: blDetail, Weight: 4, Status: st})
 		// Unattended upgrades
 		st = "fail"
 		if _, err := os.Stat("/etc/apt/apt.conf.d/20auto-upgrades"); err == nil && unitActive(ctx, s, "unattended-upgrades") {
@@ -388,6 +402,33 @@ func (s *Service) StartSchedules(ctx context.Context) {
 			}
 			if _, _, err := s.Lynis(ctx, "system"); err == nil {
 				_ = s.st.SetSetting(ctx, "security.lynis_at", time.Now().UTC().Format(time.RFC3339))
+			}
+		}
+	}()
+	// The blocklist goes back in as soon as the daemon is up, because an ipset
+	// does not survive a reboot and the rules that point at it would otherwise
+	// match nothing. Then it is refreshed daily: these lists change every day,
+	// and one that is a month old is mostly a list of addresses that have moved
+	// on.
+	go func() {
+		s.ReapplyBlocklist(ctx)
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			if en, _, _ := s.st.Setting(ctx, "security.blocklist.enabled"); en != "on" {
+				continue
+			}
+			last, _, _ := s.st.Setting(ctx, "security.blocklist.at")
+			if tm, err := time.Parse(time.RFC3339, last); err == nil && time.Since(tm) < 24*time.Hour {
+				continue
+			}
+			if _, err := s.RefreshBlocklist(ctx, "system"); err != nil {
+				s.log.Warn("blocklist refresh failed", "err", err)
 			}
 		}
 	}()

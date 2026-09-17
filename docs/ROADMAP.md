@@ -237,7 +237,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] UFW UI with the standard preset, allow and remove rules, Docker-aware DOCKER-USER rules so published ports honour the firewall
 - [x] Published database ports and Docker socket mounts flagged in the score
 - [x] fail2ban with sshd and recidive jails, live blocked-IP list with unban
-- [ ] CrowdSec community blocklists, geo-blocking
+- [x] Community blocklists and geo-blocking (Security → Blocklist: FireHOL level 1, Spamhaus DROP, IPsum and per-country zones into one ipset, dropped in INPUT and DOCKER-USER, refreshed daily, restored after a reboot). Built into Islet rather than by installing CrowdSec — see DECISIONS, 2026-09-17
 - [x] Listening ports correlated to the container publishing them
 
 **Audit and scanning**
@@ -306,9 +306,9 @@ After this phase a user can: adopt a server that already runs things, extend the
 - [x] Multi-user with Admin, Deployer and Viewer roles (Settings → Users)
 - [x] Roles scoped to projects (per-user app-name globs; containers, databases, domains and logs follow; files and terminal closed for scoped accounts)
 - [x] MCP server (Streamable HTTP) with scoped tokens, off by default, 16 tools
-- [ ] Plugin host (WASM) with the first two community-style plugins as examples
+- [ ] ~~Plugin host (WASM)~~ **deferred 2026-09-17.** The runtime is cheap; the host API is a surface maintained forever, and catalog templates, MCP and "add to sidebar" already cover three of the four reasons to want it
 - [x] "Add to sidebar" embedding of any app UI behind Islet login
-- [ ] Catalog moved to its own public MIT repo (needs `isletdev/catalog` created; runtime fetch with daily refresh and the contribution guide are in place, Settings → Catalog source)
+- [ ] ~~Catalog moved to its own public MIT repo~~ **deferred 2026-09-17.** The code is done and shipped — runtime fetch, daily refresh, contribution guide, Settings → Catalog source. All that is left is creating `isletdev/catalog` and seeding it, whenever that is wanted
 - [x] PWA install with a service worker for the app shell
 - [x] Dedicated mobile layouts for logs, deploys, notifications and the file explorer (drawer navigation, stacked panes, scrolling tables)
 - [x] i18n framework with English complete and two community languages (German and Macedonian seeded for the shell, navigation, login and overview; `web/app/src/locales`)

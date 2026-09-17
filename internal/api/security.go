@@ -184,3 +184,53 @@ func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
 	_ = s.auth.RevokeOthers(r.Context(), sess.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"output": out, "message": "Inbound traffic is blocked except from " + clientIP(r) + ". Every other session and all API tokens are revoked. Undo from the Firewall section when you are done."})
 }
+
+// handleBlocklist reads the blocklist, or applies a choice of lists.
+//
+// The address of whoever is asking goes in with the request: every list here is
+// maintained by somebody else, and a firewall feature that can drop the only
+// person able to turn it off is not one worth shipping.
+func (s *Server) handleBlocklist(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	if r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, s.security.Blocklist(r.Context()))
+		return
+	}
+	var opt security.BlocklistOptions
+	if err := decode(r, &opt); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		return
+	}
+	opt.AdminIP = clientIP(r)
+	st, err := s.security.EnableBlocklist(r.Context(), userFrom(r.Context()).Username, opt)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "blocklist", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleBlocklistRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	st, err := s.security.RefreshBlocklist(r.Context(), userFrom(r.Context()).Username)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "blocklist", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleBlocklistOff(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	if err := s.security.DisableBlocklist(r.Context(), userFrom(r.Context()).Username); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "blocklist", Message: err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

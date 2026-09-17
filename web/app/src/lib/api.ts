@@ -256,6 +256,8 @@ export interface FirewallRule { port: string; proto: string; from: string; comme
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
 export interface HostAudit { at: string; suid: string[]; worldWritable: string[]; etcChanged: string[]; etcAdded: string[]; etcRemoved: string[]; baselineAt: string; rkhunter: string; rkhunterRan: boolean; notes: string[] }
 export interface Scan { target: string; at: string; critical: number; high: number; medium: number; low: number; findings: { id: string; package: string; version: string; fixed: string; severity: string; title: string }[]; error?: string; truncated?: boolean }
+export interface BlocklistSource { id: string; title: string; url: string; note: string }
+export interface Blocklist { available: boolean; enabled: boolean; sources: string[]; countries: string[]; entries: number; updatedAt: string; lastError?: string; catalog: BlocklistSource[] }
 export interface SecurityState { panelCidr?: string; report: SecReport; firewall: { installed: boolean; active: boolean; rules: FirewallRule[]; dockerAware: boolean; missingRoutes?: string[] }; ssh: SSHSettings; sshHasKeys: boolean; sshRollback: boolean; banned: string[]; scans: Scan[]; clientIp: string }
 
 export interface BackupDestination { id: string; name: string; type: "s3" | "sftp" | "local" | "rest"; config: Record<string, string>; password?: string; lastCheck: string; checkOk: boolean; size: number; lastRestoreTest: string; restoreTestOk: boolean; createdAt: string; repo: string }
@@ -511,6 +513,10 @@ export const api = {
   firewallAllow: (b: { port: string; proto: string; from: string; comment: string; routed: boolean }) => post<void>("/api/v1/security/firewall/rules", b),
   firewallDelete: (b: { port: string; proto: string; from: string; routed: boolean }) => post<void>("/api/v1/security/firewall/rules", b, "DELETE"),
   unban: (ip: string) => post<void>("/api/v1/security/unban", { ip }),
+  blocklist: () => request<Blocklist>("/api/v1/security/blocklist"),
+  blocklistSet: (b: { sources: string[]; countries: string[] }) => post<Blocklist>("/api/v1/security/blocklist", b),
+  blocklistRefresh: () => post<Blocklist>("/api/v1/security/blocklist/refresh", {}),
+  blocklistOff: () => post<void>("/api/v1/security/blocklist", undefined, "DELETE"),
   sshApply: (cfg: SSHSettings) => post<{ message: string }>("/api/v1/security/ssh", cfg),
   sshConfirm: () => post<void>("/api/v1/security/ssh/confirm"),
   hostUser: (name: string, publicKey: string) => post<{ output: string }>("/api/v1/security/host/user", { name, publicKey }),

@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, RequestError, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
+import { api, RequestError, type Blocklist, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
@@ -108,14 +108,107 @@ export default function Security() {
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card title="Blocked IPs" description="fail2ban bans after repeated failed SSH logins.">
-          <ul className="divide-y divide-border text-xs">{s.banned.map((b) => <li key={b} className="flex items-center justify-between py-1.5"><span className="font-mono">{b}</span>{isAdmin && <button type="button" onClick={async () => { await api.unban(b.split(" ")[0]); await load(); }} className="text-ink-muted hover:text-ink">Unban</button>}</li>)}{s.banned.length === 0 && <li className="py-2 text-ink-muted">{r.linux ? "Nobody is banned right now." : "Available on Linux servers."}</li>}</ul>
+          <ul className="divide-y divide-border text-xs">{s.banned.map((b) => <li key={b} className="flex items-center justify-between py-1.5"><span className="font-mono">{b}</span>{isAdmin && <button type="button" onClick={async () => { await api.unban(b.split(" ")[0]); await load(); }} className="-my-1 py-1 text-ink-muted hover:text-ink">Unban</button>}</li>)}{s.banned.length === 0 && <li className="py-2 text-ink-muted">{r.linux ? "Nobody is banned right now." : "Available on Linux servers."}</li>}</ul>
         </Card>
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
+      {isAdmin && r.linux && <BlocklistCard onChanged={load} />}
       {isAdmin && r.linux && <div className="grid grid-cols-1 gap-4 lg:grid-cols-2"><ServerSetup onChanged={load} /><HostAuditCard /></div>}
       {isAdmin && r.linux && <LynisCard onChanged={load} />}
       <Diagnostics />
     </div>
+  );
+}
+
+// Countries worth offering by name. Anything else can be typed: this is the
+// short list of codes people actually reach for, not a atlas.
+const COUNTRIES = [
+  { cc: "cn", name: "China" }, { cc: "ru", name: "Russia" }, { cc: "kp", name: "North Korea" },
+  { cc: "ir", name: "Iran" }, { cc: "in", name: "India" }, { cc: "br", name: "Brazil" },
+  { cc: "vn", name: "Vietnam" }, { cc: "id", name: "Indonesia" }, { cc: "ng", name: "Nigeria" },
+];
+
+/**
+ * Lists of addresses to drop before they reach anything.
+ *
+ * Deliberately not part of "Fix everything": it enforces lists somebody else
+ * maintains, and one of them having a bad day is the server's bad day too. The
+ * page says what each list is, how many networks are loaded, and when they were
+ * last fetched, so the decision is made with the facts in view.
+ */
+function BlocklistCard({ onChanged }: { onChanged: () => Promise<void> }) {
+  const ask = useDialog();
+  const [b, setB] = useState<Blocklist | null>(null);
+  const [sources, setSources] = useState<string[]>([]);
+  const [countries, setCountries] = useState<string[]>([]);
+  const [extra, setExtra] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = useCallback(() => api.blocklist().then((x) => { setB(x); setSources(x.sources); setCountries(x.countries); }).catch(() => {}), []);
+  useEffect(() => { void load(); }, [load]);
+  if (!b) return null;
+
+  const toggle = (list: string[], set: (v: string[]) => void, id: string) =>
+    set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+
+  const apply = async () => {
+    const all = [...countries, ...extra.split(/[,\s]+/).map((c) => c.trim().toLowerCase()).filter((c) => c.length === 2)];
+    setBusy("apply"); setMsg(null);
+    try { const r = await api.blocklistSet({ sources, countries: [...new Set(all)] }); setB(r); setExtra(""); setMsg(`${r.entries} networks loaded.`); await onChanged(); }
+    catch (e) { setMsg(err(e)); } finally { setBusy(null); }
+  };
+  const refresh = async () => {
+    setBusy("refresh"); setMsg(null);
+    try { const r = await api.blocklistRefresh(); setB(r); setMsg(`${r.entries} networks loaded.`); await onChanged(); }
+    catch (e) { setMsg(err(e)); } finally { setBusy(null); }
+  };
+  const off = async () => {
+    if (!(await ask.confirm({ title: "Stop dropping these addresses?", body: "The rules and the list come out immediately. Nothing else about the firewall changes.", confirmLabel: "Turn off", tone: "danger" }))) return;
+    setBusy("off"); setMsg(null);
+    try { await api.blocklistOff(); await load(); await onChanged(); setMsg("Off. Nothing is being dropped by list."); }
+    catch (e) { setMsg(err(e)); } finally { setBusy(null); }
+  };
+
+  return (
+    <Card title="Blocklist" description="Drop connections from networks that are known to be hostile, and from countries this server has no reason to hear from, before they reach the proxy or any container.">
+      {!b.available && <Alert tone="warning">ipset is not installed yet. Turning this on installs it.</Alert>}
+      {b.lastError && <div className="mb-3"><Alert tone="warning">{b.lastError}</Alert></div>}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+        <span className={`inline-flex items-center gap-1.5 ${b.enabled ? "text-success" : ""}`}>
+          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${b.enabled ? "bg-success" : "bg-border-strong"}`} />
+          {b.enabled ? `${b.entries.toLocaleString()} networks dropped` : "Off"}
+        </span>
+        {b.updatedAt && <span>· fetched {new Date(b.updatedAt).toLocaleString()}</span>}
+      </div>
+      <div className="mt-3 space-y-2">
+        {b.catalog.map((src) => (
+          <label key={src.id} className="-my-1 flex items-start gap-2 py-1 text-sm">
+            <input type="checkbox" className="mt-1" checked={sources.includes(src.id)} onChange={() => toggle(sources, setSources, src.id)} />
+            <span><span className="font-medium">{src.title}</span><span className="block text-xs text-ink-muted">{src.note}</span></span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-4">
+        <span className="text-sm font-medium">Countries</span>
+        <p className="mt-0.5 text-xs text-ink-muted">Whole-country blocks are blunt: they stop customers and VPN exits as readily as attackers. Use them when a server only ever serves one part of the world.</p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {COUNTRIES.map((c) => (
+            <label key={c.cc} className="-my-1 flex items-center gap-1.5 py-1 text-xs">
+              <input type="checkbox" checked={countries.includes(c.cc)} onChange={() => toggle(countries, setCountries, c.cc)} />
+              {c.name}
+            </label>
+          ))}
+        </div>
+        <Input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="More codes, comma separated: pk, tr" className="mt-2 h-8 w-full max-w-sm text-xs" aria-label="More country codes" />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button className="h-8 text-xs" disabled={busy !== null} onClick={() => void apply()}>{busy === "apply" ? "Fetching…" : b.enabled ? "Save and fetch" : "Turn on"}</Button>
+        {b.enabled && <Button variant="secondary" className="h-8 text-xs" disabled={busy !== null} onClick={() => void refresh()}>{busy === "refresh" ? "Fetching…" : "Refresh now"}</Button>}
+        {b.enabled && <button type="button" className="-my-1 py-1 text-xs text-danger hover:underline" onClick={() => void off()}>Turn off</button>}
+        {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+      </div>
+      <p className="mt-2 text-xs text-ink-muted">Your own address is never dropped, whatever a list says. Lists refresh daily and are reloaded after a reboot.</p>
+    </Card>
   );
 }
 
@@ -231,7 +324,7 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: 
       {fw.active && (
         <>
           <table className="w-full text-xs"><tbody className="divide-y divide-border">
-            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">{r.routed ? <span title="Reaches a port published by a container" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to containers</span> : <span title="Reaches a port the server itself listens on" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to this server</span>}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (await ask.confirm({ title: `Remove the rule for port ${r.port}?`, body: "Whatever that rule was letting through stops reaching this server.", confirmLabel: "Remove rule", tone: "danger" })) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from, routed: !!r.routed }); await onChanged(); } }} className="text-danger hover:underline">Remove</button>}</td></tr>)}
+            {fw.rules.map((r, i) => <tr key={i}><td className="py-1.5 font-mono">{r.port}{r.proto && `/${r.proto}`}</td><td className="py-1.5 text-ink-muted">{r.routed ? <span title="Reaches a port published by a container" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to containers</span> : <span title="Reaches a port the server itself listens on" className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px]">to this server</span>}</td><td className="py-1.5 text-ink-muted">from {r.from}</td><td className="py-1.5 text-ink-muted">{r.comment}</td><td className="py-1.5 text-right">{isAdmin && <button type="button" onClick={async () => { if (await ask.confirm({ title: `Remove the rule for port ${r.port}?`, body: "Whatever that rule was letting through stops reaching this server.", confirmLabel: "Remove rule", tone: "danger" })) { await api.firewallDelete({ port: r.port, proto: r.proto, from: r.from, routed: !!r.routed }); await onChanged(); } }} className="-my-1 py-1 text-danger hover:underline">Remove</button>}</td></tr>)}
           </tbody></table>
           {isAdmin && <PanelRestrict cidr={s.panelCidr ?? ""} onChanged={onChanged} />}
           {isAdmin && <form onSubmit={add} className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
