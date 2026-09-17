@@ -1,0 +1,47 @@
+name: Keycloak
+slug: keycloak
+category: security
+description: The full OpenID Connect and SAML server — realms, users, groups, roles, social and enterprise logins, and themes you can replace outright. Apache 2.0, no paid tier, nothing withheld from the version you run.
+website: https://www.keycloak.org
+service: keycloak
+port: 8080
+fields:
+  - key: ADMIN_USER
+    label: First administrator
+    type: text
+    default: admin
+    hint: Created once, on the very first start. Afterwards this is ignored and accounts are managed inside Keycloak.
+  - key: ADMIN_PASSWORD
+    label: Administrator password
+    type: secret
+    hint: Generated for you. Read it back under Vault, sign in, and change it from the account menu.
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+    hint: For Keycloak's own Postgres, which this install runs beside it.
+volumes:
+  - db
+notes: |
+  **One domain, and everything is under it.** Sign in at
+  `https://your-domain/admin` with the administrator above. The OpenID Connect
+  discovery document for the default realm is at
+  `https://your-domain/realms/master/.well-known/openid-configuration`, which is
+  the single URL most applications need.
+
+  **Make a realm before you make users.** `master` is the realm Keycloak
+  administers itself with; everything of your own belongs in a realm beside it.
+  Create one, add an OIDC client in it, and hand your application that realm's
+  discovery URL along with the client id and secret.
+
+  **Themes are files, not a licence.** Login pages, account pages and emails are
+  replaceable templates, and nothing about the build you are running withholds
+  branding, single sign-on, LDAP, SAML or anything else — Keycloak is Apache
+  2.0 with no editions and no cloud tier to be upsold to. That is why it is here
+  rather than one of the friendlier products whose open version asks you to keep
+  their name on your login page.
+
+  **It is the heaviest app in this catalog.** A JVM with a Postgres beside it
+  wants about a gigabyte to be comfortable and takes half a minute to start.
+  Pocket ID is the lighter answer if all you want is "sign in with passkeys";
+  this is the one to reach for when you need realms, SAML, an LDAP federation or
+  fine-grained authorisation.

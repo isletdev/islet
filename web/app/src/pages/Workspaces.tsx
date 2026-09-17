@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Agent, type AIProvider, type Workspace } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDialog, failure } from "@/lib/dialogs";
 import { postStream } from "@/lib/stream";
 import { pollInterval } from "@/lib/poll";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
-import { ExternalIcon, PlayIcon, PlusIcon, RefreshIcon, StopIcon, TrashIcon, RenameIcon } from "@/components/icons";
-import { openConsole } from "./Console";
+import { PlusIcon } from "@/components/icons";
 // Imported directly, as Terminal and Console do. Behind Suspense the pane
 // renders at nothing-height first, and anything that measures it then measures
 // a box that is not there yet.
@@ -58,14 +57,6 @@ const EMPTY_AGENT: Partial<Agent> = {
 /** The workspace's own shell window, which is not an agent and has no row. */
 const SHELL = "shell";
 
-function ago(ts: string) {
-  if (!ts) return "never";
-  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 172800) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} days ago`;
-}
 
 /**
  * Three states, not two. Filled and animated is running; filled and still is a
@@ -73,6 +64,108 @@ function ago(ts: string) {
  * started. Conflating the middle one with "stopped" is how you end up pressing
  * Start on something that is already there.
  */
+/**
+ * The one row that selects an agent and acts on it.
+ *
+ * It lives inside the terminal's own control row rather than above it. The page
+ * used to stack three bars over a terminal that wanted the height — the tabs,
+ * a line describing the agent, and the terminal's status — and the description
+ * was the least useful of them: the command is in the agent's own form, and
+ * "started 4m ago" is visible in the scrollback.
+ *
+ * One action is inline, and it is the one that applies: Start when the agent is
+ * down, Stop when it is up. The rest are in a menu, because restarting,
+ * renaming and removing are not things to put a click away from a terminal
+ * somebody is typing into.
+ */
+function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onRestart, onEdit, onRemove }: {
+  agents: Agent[]; agent: Agent; busy: boolean;
+  onPick: (id: string) => void; onAdd: () => void;
+  onStart: () => void; onStop: () => void; onRestart: () => void; onEdit: () => void; onRemove: () => void;
+}) {
+  return (
+    <>
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {agents.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => onPick(a.id)}
+            aria-current={a.id === agent.id ? "true" : undefined}
+            className={
+              "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors " +
+              (a.id === agent.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
+            }
+          >
+            <Dot agent={a} />
+            {a.name}
+          </button>
+        ))}
+        <button type="button" onClick={onAdd} aria-label="Add an agent" className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
+          <PlusIcon className="h-3.5 w-3.5" />Add
+        </button>
+      </div>
+      {agent.running ? (
+        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={busy} onClick={onStop}>Stop</Button>
+      ) : (
+        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={busy} onClick={onStart}>Start</Button>
+      )}
+      <MoreMenu label={`More for ${agent.name}`} items={[
+        { label: "Restart", disabled: busy, onClick: onRestart },
+        { label: "Edit agent", disabled: busy, onClick: onEdit },
+        { label: "Remove agent", danger: true, disabled: busy, onClick: onRemove },
+      ]} />
+    </>
+  );
+}
+
+/**
+ * The rare actions, one click away instead of five buttons in a row.
+ *
+ * Closing on any outside click and on Escape, because a menu that stays open
+ * over a terminal eats the next keystroke somebody meant for the shell.
+ */
+function MoreMenu({ label, items }: { label: string; items: { label: string; onClick: () => void; danger?: boolean; disabled?: boolean }[] }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="-my-1 inline-flex h-7 items-center rounded-md px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 min-w-44 overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              disabled={it.disabled}
+              onClick={() => { setOpen(false); it.onClick(); }}
+              className={`block w-full px-3 py-1.5 text-left text-xs disabled:opacity-40 ${it.danger ? "text-danger hover:bg-danger-soft" : "text-ink hover:bg-surface-2"}`}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dot({ agent }: { agent: Agent }) {
   const title = agent.running ? `running ${agent.doing ?? ""}`.trim() : agent.present ? "idle at a prompt" : "not started";
   return (
@@ -91,26 +184,6 @@ function Dot({ agent }: { agent: Agent }) {
   );
 }
 
-/** One icon button, with the name it would have had as text. */
-function IconButton({ label, onClick, disabled = false, danger = false, children }: {
-  label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={
-        "inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-muted transition-colors disabled:opacity-40 " +
-        (danger ? "hover:bg-surface-2 hover:text-danger" : "hover:bg-surface-2 hover:text-ink")
-      }
-    >
-      {children}
-    </button>
-  );
-}
 
 export default function Workspaces() {
   const { state } = useAuth();
@@ -407,124 +480,72 @@ export default function Workspaces() {
             </ul>
           </nav>
 
-          {/* ---- the workspace on screen ---- */}
+          {/* ---- the workspace on screen ----
+              One card, not four stacked bars. The header says which workspace
+              this is; one row selects the agent, acts on it, and carries the
+              terminal's own controls; the rest is terminal, which is what the
+              page is for. Everything that is rare — editing, stopping the
+              session, removing, the SSH command — is one menu away rather than
+              a button somebody might press by accident. */}
           {ws && (
-            <section className="flex min-h-0 min-w-0 flex-col gap-3">
-              <header className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate font-semibold">{ws.name}</h2>
-                    <span className="text-xs text-ink-muted">{ws.running ? "session up" : "session down"}</span>
-                  </div>
-                  <p className="truncate font-mono text-xs text-ink-muted">{ws.directory}</p>
+            <section className="flex min-h-0 min-w-0 flex-col rounded-lg border border-border bg-surface">
+              <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={"inline-block h-1.5 w-1.5 shrink-0 rounded-full " + (ws.running ? "bg-success" : "bg-border-strong")} />
+                  <h2 className="truncate font-semibold">{ws.name}</h2>
                 </div>
-                <div className="flex items-center gap-1">
-                  <IconButton label="Open in a separate window" onClick={() => openConsole({ workspace: ws.id, agent: agent?.id })}>
-                    <ExternalIcon className="h-4 w-4" />
-                  </IconButton>
-                  <IconButton label={`Edit ${ws.name}`} onClick={() => setEditingWs({ ...ws })}>
-                    <RenameIcon className="h-4 w-4" />
-                  </IconButton>
-                  <IconButton label={`Stop ${ws.name}`} danger disabled={!ws.running || busy !== null} onClick={() => void stopWorkspace(ws)}>
-                    <StopIcon className="h-4 w-4" />
-                  </IconButton>
-                  <IconButton label={`Remove ${ws.name}`} danger disabled={busy !== null} onClick={() => void removeWorkspace(ws)}>
-                    <TrashIcon className="h-4 w-4" />
-                  </IconButton>
+                <p className="min-w-0 truncate font-mono text-xs text-ink-muted">{ws.directory}</p>
+                <div className="ml-auto">
+                  <MoreMenu label={`More for ${ws.name}`} items={[
+                    { label: "Edit workspace", onClick: () => setEditingWs({ ...ws }) },
+                    { label: "Copy the SSH command", onClick: () => void navigator.clipboard?.writeText(`tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-${ws.id}`).catch(() => {}) },
+                    { label: ws.running ? "Stop the session" : "Session is stopped", danger: true, disabled: !ws.running || busy !== null, onClick: () => void stopWorkspace(ws) },
+                    { label: "Remove workspace", danger: true, disabled: busy !== null, onClick: () => void removeWorkspace(ws) },
+                  ]} />
                 </div>
               </header>
 
               {!claude && agents.some((a) => a.preset === "claude") && (
-                <Alert tone="warning">
-                  Claude Code is not installed on this server, so its agents cannot start.{" "}
-                  <button type="button" className="underline" onClick={() => void install("claude")}>Install it</button>
-                  {installing && <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-code-bg p-2 text-xs">{installing.join("\n")}</pre>}
-                </Alert>
+                <div className="border-b border-border px-3 py-2">
+                  <Alert tone="warning">
+                    Claude Code is not installed on this server, so its agents cannot start.{" "}
+                    <button type="button" className="underline" onClick={() => void install("claude")}>Install it</button>
+                    {installing && <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-code-bg p-2 text-xs">{installing.join("\n")}</pre>}
+                  </Alert>
+                </div>
               )}
 
-              {/* ---- agent tabs ---- */}
-              {/* The workspace's own shell window is not offered here any more.
-                  A shell on this server is what the Terminal page is, and a tab
-                  for it sat in front of the agents this page exists for. The
-                  window is still there over SSH, as the line at the bottom says. */}
-              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-surface p-1">
-                {agents.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setTab(a.id)}
-                    aria-current={tab === a.id ? "true" : undefined}
-                    className={
-                      "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors " +
-                      (tab === a.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
-                    }
-                  >
-                    <Dot agent={a} />
-                    {a.name}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setEditingAgent({ ...EMPTY_AGENT })}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
-                >
-                  <PlusIcon className="h-3.5 w-3.5" />Add agent
-                </button>
+              <div className="flex min-h-0 flex-1 flex-col p-3">
+                {agent ? (
+                  <TermView
+                    key={termPath}
+                    path={termPath}
+                    reattaches
+                    className="min-h-[14rem] flex-1"
+                    toolbar={<AgentBar
+                      agents={agents}
+                      agent={agent}
+                      busy={busy !== null}
+                      onPick={setTab}
+                      onAdd={() => setEditingAgent({ ...EMPTY_AGENT })}
+                      onStart={() => void run(agent.id + "start", () => api.agentStart(ws.id, agent.id))}
+                      onStop={() => void stopAgent(agent)}
+                      onRestart={() => void restartAgent(agent)}
+                      onEdit={() => setEditingAgent({ ...agent })}
+                      onRemove={() => void removeAgent(agent)}
+                    />}
+                  />
+                ) : (
+                  <div className="flex min-h-[14rem] flex-1 flex-col items-center justify-center gap-3 text-center">
+                    <p className="text-sm text-ink-muted">
+                      Nothing is running in <span className="text-ink">{ws.name}</span> yet.
+                    </p>
+                    <Button className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => setEditingAgent({ ...EMPTY_AGENT })}>
+                      <PlusIcon className="h-3.5 w-3.5" />Add an agent
+                    </Button>
+                  </div>
+                )}
               </div>
-
-              {/* ---- what the selected agent is, and what can be done to it ---- */}
-              {agent && (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="font-mono text-ink">{agent.command || "(a shell)"}</span>
-                    <span className="text-ink-muted">
-                      {agent.resume ? "resumes its conversation" : "starts fresh each time"}
-                    </span>
-                    {agent.skipPermissions && <span className="text-warning">acts without asking</span>}
-                    <span className="text-ink-muted">started {ago(agent.lastStartedAt)}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <IconButton label={`Start ${agent.name}`} disabled={agent.running || busy !== null} onClick={() => void run(agent.id + "start", () => api.agentStart(ws.id, agent.id))}>
-                      <PlayIcon className="h-4 w-4" />
-                    </IconButton>
-                    <IconButton label={`Restart ${agent.name}`} disabled={busy !== null} onClick={() => void restartAgent(agent)}>
-                      <RefreshIcon className="h-4 w-4" />
-                    </IconButton>
-                    <IconButton label={`Stop ${agent.name}`} danger disabled={!agent.present || busy !== null} onClick={() => void stopAgent(agent)}>
-                      <StopIcon className="h-4 w-4" />
-                    </IconButton>
-                    <IconButton label={`Edit ${agent.name}`} disabled={busy !== null} onClick={() => setEditingAgent({ ...agent })}>
-                      <RenameIcon className="h-4 w-4" />
-                    </IconButton>
-                    <IconButton label={`Remove ${agent.name}`} danger disabled={busy !== null} onClick={() => void removeAgent(agent)}>
-                      <TrashIcon className="h-4 w-4" />
-                    </IconButton>
-                  </div>
-                </div>
-              )}
-
-              {/* ---- the terminal is the page ----
-                  It takes the room that is left rather than a fixed 60dvh: with
-                  a header, the tabs and the agent bar above it, a fixed height
-                  guaranteed a scrollbar and a terminal smaller than the space
-                  it was scrolling past. */}
-              {agent ? (
-                <TermView key={termPath} path={termPath} reattaches className="min-h-[14rem] flex-1" />
-              ) : (
-                <div className="flex min-h-[14rem] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-surface p-6 text-center">
-                  <p className="text-sm text-ink-muted">
-                    Nothing is running in <span className="text-ink">{ws.name}</span> yet.
-                  </p>
-                  <Button className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => setEditingAgent({ ...EMPTY_AGENT })}>
-                    <PlusIcon className="h-3.5 w-3.5" />Add an agent
-                  </Button>
-                </div>
-              )}
-
-              <p className="shrink-0 text-xs text-ink-muted">
-                The workspace's own shell window is still there over SSH:{" "}
-                <code>tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-{ws.id}</code>
-              </p>
             </section>
           )}
         </div>

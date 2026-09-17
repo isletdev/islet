@@ -2863,3 +2863,47 @@ endpoint cannot back a workspace agent. It answers HTTP and has no CLI on this
 server, so the picker does not offer it and the API says why, instead of
 accepting the choice and leaving somebody looking at a shell prompt wondering
 what happened.
+
+## 2026-09-17 — One card for a workspace, and a catalog entry withdrawn
+
+**The workspaces page was four bars over a terminal.** A header, an alert, the
+agent tabs, and a line describing the agent — then the terminal's own row, then
+the terminal, which is what the page is for. On a phone that left the thing
+people came to use in the bottom third of the screen.
+
+It is one card now. The header says which workspace; one row selects the agent,
+acts on it, and carries the terminal's own controls, because a terminal's status
+line has to exist and there is no reason for the tabs to have a bar of their
+own. `TermView` takes a `toolbar` node for exactly this: the page that owns the
+terminal puts its controls in the terminal's row rather than above it.
+
+What went with them is worth naming. The agent's description line — the command,
+"resumes its conversation", "started 4m ago" — was three facts that are in the
+agent's own form and in the scrollback. The "open in a separate window" button
+went because it was asked to. And the five icon buttons per agent became one
+inline action, Start or Stop depending on which applies, with restart, edit and
+remove behind a menu: a terminal somebody is typing into is the wrong place to
+put "remove this agent" one click away.
+
+**A revealed secret is a modal, not a banner.** The vault put the value in an
+alert at the top of the page, which wrapped across the full width, pushed the
+list down, and on a phone meant scrolling up to find what you had just asked
+for. It is a dialog with the value in a monospace box, a Copy button and a
+Close button — and closing it is the point, since it is the one thing on that
+page nobody wants left on screen.
+
+**Logto is out of the catalog; Keycloak is in.** Logto's open-source edition
+asks you to keep its name on your own login page unless you edit the source, and
+a catalog entry that leads somebody into that is not a favour. Keycloak is
+Apache 2.0 with no editions, no cloud tier and no feature withheld from the
+build you run: themes are files you replace, and SAML, LDAP federation and
+fine-grained authorisation are all simply there.
+
+The cost is honest and stated on the entry: it is the heaviest app in the
+catalog, a JVM with a Postgres beside it, about a gigabyte to be comfortable and
+half a minute to start. Pocket ID remains the light answer for "sign in with
+passkeys"; Keycloak is for realms and federation. ZITADEL was the other
+candidate and is a fine piece of software — AGPL, everything in the self-hosted
+build — but between a company-backed AGPL server with a cloud tier and the
+Apache-2.0 one with no tiers at all, the second is the one to put in front of
+somebody who has just been burned by the first kind.

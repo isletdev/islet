@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type VaultSecret } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Input } from "@/components/ui";
+import Modal from "@/components/Modal";
 import { useDialog } from "@/lib/dialogs";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
@@ -69,12 +70,7 @@ export default function Vault() {
       </div>
 
       {error && <Alert>{error}</Alert>}
-      {shown && (
-        <Alert tone="warning">
-          <span className="font-mono">{shown.name}</span> = <span className="font-mono break-all">{shown.value}</span>
-          <button type="button" onClick={() => setShown(null)} className="ml-2 -my-1 py-1 underline">hide</button>
-        </Alert>
-      )}
+      {shown && <Revealed name={shown.name} value={shown.value} onClose={() => setShown(null)} />}
 
       <Card title="Secrets" description="Names only. A value is never sent back to this page unless you ask for it.">
         <ul className="divide-y divide-border">
@@ -110,5 +106,33 @@ export default function Vault() {
         </form>
       </Card>
     </div>
+  );
+}
+
+/**
+ * A revealed secret, on top of the page rather than pushed into a banner above
+ * it.
+ *
+ * It used to be an alert at the top of the list: the value wrapped across the
+ * width of the page, a long one pushed everything else down, and on a phone
+ * somebody had to scroll up to find what they had just asked for. It is also
+ * the one thing on this page nobody wants left on screen, so it closes with
+ * Escape, with a button, and takes the value to the clipboard on the way out if
+ * that is what was wanted.
+ */
+function Revealed({ name, value, onClose }: { name: string; value: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { /* a browser that refuses the clipboard still shows the value */ }
+  };
+  return (
+    <Modal title={name} description="On screen until you close it. Revealing a secret is in the audit log." onClose={onClose}>
+      <pre className="max-h-64 overflow-auto rounded-md border border-border bg-bg p-3 font-mono text-sm break-all whitespace-pre-wrap">{value}</pre>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button type="button" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
   );
 }

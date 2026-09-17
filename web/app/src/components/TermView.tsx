@@ -32,10 +32,20 @@ export default function TermView({
   path,
   className = "",
   reattaches = false,
+  toolbar,
 }: {
   path: string;
   className?: string;
   reattaches?: boolean;
+  /**
+   * Controls that belong to whatever is running in this terminal, rendered in
+   * the terminal's own row rather than in a bar of their own above it.
+   *
+   * The workspaces page had three stacked bars over a terminal that wanted the
+   * height: the agent tabs, what the agent was, and this row. They are one row
+   * now, which is the only one of the four that was ever load-bearing.
+   */
+  toolbar?: ReactNode;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm | null>(null);
@@ -335,17 +345,18 @@ export default function TermView({
           could not be opened at all, which left no way to paste on the device
           where typing a long command is hardest. */}
       <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-muted sm:mb-2 sm:gap-2">
+        {toolbar}
         {/* A dot and a word, rather than a word on its own at one end of an
             otherwise empty row: on a phone that read as a stray label instead
             of the state of the connection. */}
-        <span className="mr-auto flex items-center gap-1.5">
+        <span className={`flex items-center gap-1.5 ${toolbar ? "" : "mr-auto"}`}>
           <span
             aria-hidden
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === "open" ? "bg-success" : status === "connecting" ? "bg-warning" : "bg-danger"}`}
           />
           {status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}
         </span>
-        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>Copy</Button>
+        <Button variant="secondary" className={`h-7 px-2 text-xs ${toolbar ? "ml-auto" : ""}`} disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>Copy</Button>
         <Button variant="secondary" className="h-7 px-2 text-xs" disabled={status !== "open"} onClick={() => void paste()}>Paste</Button>
         {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
