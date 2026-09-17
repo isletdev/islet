@@ -24,6 +24,17 @@ func (s *Server) handleGitHubConfig(w http.ResponseWriter, r *http.Request) {
 		} else {
 			out["error"] = err.Error()
 		}
+		// What the App is allowed to do, and what it is missing. Without this
+		// a missing permission reaches somebody as "Resource not accessible by
+		// integration" in a log, while every page says the App is configured
+		// and installed — both of which are true and neither of which helps.
+		if info, err := s.github.App(r.Context()); err == nil {
+			out["app"] = info
+			out["missing"] = github.Missing(info)
+		}
+		if n, err := s.github.RepoCount(r.Context()); err == nil {
+			out["repoCount"] = n
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

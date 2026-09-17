@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -377,4 +378,123 @@ func (c *Client) RunnerToken(ctx context.Context, scopeURL string) (string, erro
 		return "", err
 	}
 	return res.Token, nil
+}
+
+// AppInfo is what GitHub says this App may do.
+//
+// It exists because the errors on the other side of a missing permission are
+// unactionable: "Resource not accessible by integration" with a 403, over and
+// over in a log, while the panel says the App is configured and installed —
+// which it is. What it is not is *allowed*, and only this endpoint says which
+// of the permissions Islet needs are absent.
+type AppInfo struct {
+	Name        string            `json:"name"`
+	Permissions map[string]string `json:"permissions"`
+	Events      []string          `json:"events"`
+}
+
+// Need is one permission or event Islet uses, and what stops working without it.
+type Need struct {
+	Kind  string `json:"kind"`  // permission | event
+	Name  string `json:"name"`  // contents, metadata, organization_self_hosted_runners, push…
+	Level string `json:"level"` // read | write, empty for an event
+	Label string `json:"label"` // what to tick, in GitHub's own words
+	For   string `json:"for"`   // what it is for, in Islet's
+}
+
+// Needs is everything the App is asked to carry. Order is the order of the
+// sections on GitHub's permissions page, so somebody fixing this reads down the
+// list once rather than hunting.
+var Needs = []Need{
+	{Kind: "permission", Name: "metadata", Level: "read", Label: "Repository → Metadata (read)", For: "listing the repositories you can deploy"},
+	{Kind: "permission", Name: "contents", Level: "read", Label: "Repository → Contents (read)", For: "cloning private repositories without a token"},
+	{Kind: "permission", Name: "administration", Level: "write", Label: "Repository → Administration (read and write)", For: "registering a runner for one repository"},
+	{Kind: "permission", Name: "organization_self_hosted_runners", Level: "write", Label: "Organization → Self-hosted runners (read and write)", For: "registering runners for a whole organisation"},
+	{Kind: "event", Name: "push", Label: "Subscribe to events → Push", For: "deploying when you push"},
+	{Kind: "event", Name: "workflow_job", Label: "Subscribe to events → Workflow job", For: "starting a runner when a job queues"},
+}
+
+// permLevel finds a permission whichever way GitHub spelled it.
+//
+// The key vocabulary is not consistent about organisation permissions: the
+// documentation names one of them "organization_self_hosted_runners" and
+// another plain "members", and a public App carrying the first could not be
+// found to check against. Both spellings are accepted, because the cost of
+// guessing wrong is a diagnostic that tells somebody to grant a permission they
+// have already granted — which is worse than saying nothing at all.
+func permLevel(info *AppInfo, name string) string {
+	for _, k := range []string{name, "organization_" + name, strings.TrimPrefix(name, "organization_")} {
+		if v, ok := info.Permissions[k]; ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// RepoCount is how many repositories every installation together can see.
+//
+// An installation that was granted access to nothing is indistinguishable, from
+// the repository picker, from an App that was never installed: an empty list
+// either way. One call per installation, asking for a single row, is enough to
+// tell those two apart and say so.
+func (c *Client) RepoCount(ctx context.Context) (int, error) {
+	insts, err := c.Installations(ctx)
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, in := range insts {
+		tok, err := c.InstallationToken(ctx, in.ID)
+		if err != nil {
+			return total, err
+		}
+		var res struct {
+			TotalCount int `json:"total_count"`
+		}
+		if err := c.call(ctx, tok, "GET", "/installation/repositories?per_page=1", nil, &res); err != nil {
+			return total, err
+		}
+		total += res.TotalCount
+	}
+	return total, nil
+}
+
+// App reads the App's own record, which is the only place its permissions are
+// written down.
+func (c *Client) App(ctx context.Context) (*AppInfo, error) {
+	tok, err := c.jwt(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var info AppInfo
+	if err := c.call(ctx, tok, "GET", "/app", nil, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+// Missing lists what Islet needs and the App does not carry.
+//
+// A permission granted at "write" satisfies a need for "read": GitHub's levels
+// are a ladder, and somebody who ticked more than was asked for should not be
+// told they ticked too little.
+func Missing(info *AppInfo) []Need {
+	if info == nil {
+		return nil
+	}
+	out := []Need{}
+	for _, n := range Needs {
+		if n.Kind == "event" {
+			if !slices.Contains(info.Events, n.Name) {
+				out = append(out, n)
+			}
+			continue
+		}
+		got := permLevel(info, n.Name)
+		if got == "write" || got == "admin" || (got == "read" && n.Level == "read") {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }

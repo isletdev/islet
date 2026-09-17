@@ -430,6 +430,29 @@ function GitHubApp() {
           <div className="text-success">Configured as App {st.config.appId}{st.installations && ` · installed on ${st.installations.map((i) => i.account).join(", ") || "nobody yet"}`}</div>
           {st.error && <div className="mt-1 text-danger">{st.error}</div>}
           <div className="mt-1 text-xs text-ink-muted">Webhook URL for the app: <span className="font-mono">{location.origin}{st.hookUrl}</span> (events: push, workflow_job). {st.config.slug && <>Install it on more accounts at <a className="underline" href={`https://github.com/apps/${st.config.slug}/installations/new`} target="_blank" rel="noreferrer">github.com/apps/{st.config.slug}</a>.</>}</div>
+          {/* A missing permission reaches a log as "Resource not accessible by
+              integration" and reaches nobody at all as anything actionable.
+              GitHub knows exactly what the app may do; this asks, and says
+              which box to tick. */}
+          {st.missing && st.missing.length > 0 && (
+            <div className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-warning">
+              <div className="font-medium">This app cannot do everything Islet asks of it.</div>
+              <ul className="mt-1 space-y-0.5">
+                {st.missing.map((m) => <li key={m.kind + m.name}>• <span className="font-medium">{m.label}</span> — {m.for}</li>)}
+              </ul>
+              {st.config.slug && <div className="mt-1">Change them at <a className="underline" href={`https://github.com/settings/apps/${st.config.slug}/permissions`} target="_blank" rel="noreferrer">the app&rsquo;s permissions page</a>, then approve the request on each installation.</div>}
+            </div>
+          )}
+          {/* Installed on somebody, granted nothing: the repository picker is
+              as empty as it is for an app nobody installed, and the two look
+              identical from here unless it is said out loud. */}
+          {!!st.installations?.length && st.repoCount === 0 && (
+            <div className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-warning">
+              Installed, but with access to no repositories, so nothing can be picked or cloned.
+              {st.config.slug && <> Open <a className="underline" href={`https://github.com/apps/${st.config.slug}/installations/new`} target="_blank" rel="noreferrer">the installation</a> and set Repository access to all repositories, or add the ones you deploy.</>}
+            </div>
+          )}
+          {st.installations?.length === 0 && <div className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-warning">Configured, but not installed on any account yet — so it can see no repositories. {st.config.slug && <a className="underline" href={`https://github.com/apps/${st.config.slug}/installations/new`} target="_blank" rel="noreferrer">Install it</a>}.</div>}
           <button type="button" onClick={() => void clear()} className="mt-2 text-xs text-danger hover:underline">Remove</button>
         </div>
       )}

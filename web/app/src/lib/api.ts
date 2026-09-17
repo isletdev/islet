@@ -272,7 +272,8 @@ export interface BackupOverview { kitDownloadedAt?: string; destinations: Backup
 export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
 
 export interface GitHubRepo { fullName: string; defaultBranch: string; private: boolean; url: string; installation: number }
-export interface GitHubState { config: { appId: string; clientId: string; slug: string; configured: boolean }; hookUrl: string; installations?: { id: number; account: string; type: string }[]; error?: string }
+export interface GitHubNeed { kind: "permission" | "event"; name: string; level?: string; label: string; for: string }
+export interface GitHubState { config: { appId: string; clientId: string; slug: string; configured: boolean }; hookUrl: string; installations?: { id: number; account: string; type: string }[]; app?: { name: string; permissions: Record<string, string>; events: string[] }; missing?: GitHubNeed[]; repoCount?: number; error?: string }
 
 export class RequestError extends Error {
   status: number;

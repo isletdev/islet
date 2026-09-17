@@ -2711,3 +2711,42 @@ up without a network still comes up dropping what it dropped yesterday.
 It is deliberately not part of "Fix everything", and it is a warn rather than a
 fail in the score. Turning it on enforces other people's judgement about who is
 hostile; that is a choice to make on purpose, with the lists named on the page.
+
+## 2026-09-17 — A GitHub App that is installed, authenticating, and not allowed
+
+The App was registered, the credentials verified on save, the panel said
+"Configured", and every org runner start failed in a loop with
+
+    GitHub POST /orgs/…/actions/runners/registration-token: 403 Resource not
+    accessible by integration
+
+which is GitHub's way of saying a permission was never granted. Nothing in the
+panel could say so, because nothing had asked. Before that, the same App was
+installed nowhere and the repository picker was simply empty — and an App
+installed on nobody, an App installed with access to no repositories, and an App
+that is not allowed to read repositories all look identical from the picker: an
+empty list.
+
+So the panel now asks. `GET /app` returns the App's own permissions and events;
+`Missing()` compares them against what Islet uses and names each gap the way
+GitHub's own settings page names it, alongside what stops working without it.
+`RepoCount` asks each installation for one row, which separates "installed on
+nobody" from "installed and granted nothing".
+
+Two details are deliberate.
+
+**A permission granted more widely than asked for counts as granted.** Write
+satisfies a need for read. Telling somebody to tick a box they ticked is how a
+diagnostic loses the benefit of the doubt.
+
+**Either spelling of an organisation permission is accepted.** GitHub's
+vocabulary is not consistent — the documentation names one organisation
+permission `organization_self_hosted_runners` and another plain `members` — and
+no public App carrying the first could be found to check against. The lookup
+tries the name, the prefixed name and the unprefixed name. Guessing wrong here
+would mean telling somebody to grant what they have already granted, which is
+worse than saying nothing.
+
+The shape of `/app` was confirmed against GitHub rather than assumed, using the
+public record of an App anybody can read: `name`, `events` as a list, and
+`permissions` as a map of name to read or write.
