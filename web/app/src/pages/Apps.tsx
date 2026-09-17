@@ -9,6 +9,7 @@ import { useDialog, failure } from "@/lib/dialogs";
 import { postStream } from "@/lib/stream";
 import { Alert, Button, Card, Field, Input, Select, Tab, Tabs } from "@/components/ui";
 import AppIcon from "@/components/AppIcon";
+import Markdown from "@/components/Markdown";
 import { ExternalIcon, TrashIcon } from "@/components/icons";
 
 export default function Apps() {
@@ -303,12 +304,32 @@ function Installer({ app, canInstall, existing, onClose, onDone, onSeeApps }: { 
         </Field>
         )}
         {domain && app.category !== "database" && <Field label="Certificate"><Select value={tls} onChange={(e) => setTls(e.target.value as typeof tls)}><option value="letsencrypt">Let's Encrypt</option><option value="self">Self-signed</option><option value="none">HTTP only</option></Select></Field>}
-        {(detail?.fields ?? []).map((f) => (
-          <Field key={f.key} label={f.label} hint={f.type === "secret" ? "Leave empty to generate a strong value." : f.hint}>
-            <Input value={fields[f.key] ?? (f.type === "secret" ? "" : f.default)} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })} type={f.type === "password" ? "password" : "text"} placeholder={f.type === "secret" ? "generated" : ""} />
-          </Field>
-        ))}
-        {detail?.notes && <p className="text-sm text-ink-muted md:col-span-2">{detail.notes}</p>}
+        {(detail?.fields ?? []).map((f) => {
+          // A generated secret still has something worth saying about what it
+          // protects; that used to be thrown away and replaced with the same
+          // sentence on every app.
+          const hint = f.type === "secret" ? ["Leave empty to generate a strong value.", f.hint].filter(Boolean).join(" ") : f.hint;
+          const value = fields[f.key] ?? (f.type === "secret" ? "" : f.default);
+          const chosen = f.options?.find((o) => o.value === value);
+          return (
+            <Field key={f.key} label={f.label + (f.required ? " (required)" : "")} hint={chosen?.hint ?? hint}>
+              {f.type === "select" && f.options ? (
+                <Select value={value} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })}>
+                  {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              ) : (
+                <Input value={value} onChange={(e) => setFields({ ...fields, [f.key]: e.target.value })} type={f.type === "password" ? "password" : "text"} placeholder={f.type === "secret" ? "generated" : ""} required={f.required} />
+              )}
+            </Field>
+          );
+        })}
+        {/* Notes are where an app says the thing that is not obvious — which
+            page to open first, which command puts you back in. They are written
+            as Markdown and used to be rendered into a single paragraph, so a
+            list read as one run-on line and a command lost its line breaks
+            entirely. The panel's own renderer builds React nodes, so there is
+            no innerHTML in this path. */}
+        {detail?.notes && <Markdown text={detail.notes} className="text-sm text-ink-muted md:col-span-2" />}
         <div className="flex flex-wrap items-center gap-2 md:col-span-2">
           {canInstall && <Button type="submit" disabled={busy}>{busy ? "Installing…" : "Install"}</Button>}
           <Button type="button" variant="secondary" onClick={() => setShowCompose((v) => !v)}>{showCompose ? "Hide" : "Show"} compose file</Button>

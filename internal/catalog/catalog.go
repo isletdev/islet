@@ -27,11 +27,26 @@ import (
 
 // Field is one input on the install form.
 type Field struct {
-	Key     string `yaml:"key" json:"key"`
-	Label   string `yaml:"label" json:"label"`
-	Type    string `yaml:"type" json:"type"` // text, number, password, secret (generated)
+	Key   string `yaml:"key" json:"key"`
+	Label string `yaml:"label" json:"label"`
+	// Type is text, number, password, secret (generated) or select.
+	Type    string `yaml:"type" json:"type"`
 	Default string `yaml:"default" json:"default"`
 	Hint    string `yaml:"hint" json:"hint,omitempty"`
+	// Options are the choices for a select. A setting with three valid spellings
+	// — Pocket ID's signup mode is disabled, withToken or open — is a list to
+	// pick from, not a box to retype one of them into.
+	Options []Option `yaml:"options" json:"options,omitempty"`
+	// Required refuses an empty value at install time rather than letting the
+	// container start without something it cannot run without.
+	Required bool `yaml:"required" json:"required,omitempty"`
+}
+
+// Option is one choice on a select field.
+type Option struct {
+	Value string `yaml:"value" json:"value"`
+	Label string `yaml:"label" json:"label"`
+	Hint  string `yaml:"hint" json:"hint,omitempty"`
 }
 
 // App is one catalog entry.
@@ -164,6 +179,23 @@ func (s *Service) Install(ctx context.Context, actor string, req InstallRequest)
 			values[f.Key] = randomSecret(24)
 		default:
 			values[f.Key] = f.Default
+		}
+		// A select may only carry one of its own options: the values end up in
+		// an environment variable the app parses, and a typo there is a
+		// container that will not start with nothing on the page to say why.
+		if f.Type == "select" && len(f.Options) > 0 {
+			ok := false
+			for _, o := range f.Options {
+				if o.Value == values[f.Key] {
+					ok = true
+				}
+			}
+			if !ok {
+				return nil, nil, fmt.Errorf("%s: %q is not one of the choices", f.Label, values[f.Key])
+			}
+		}
+		if f.Required && values[f.Key] == "" {
+			return nil, nil, errors.New(f.Label + " is needed")
 		}
 	}
 	values["ISLET_DOMAIN"] = req.Domain

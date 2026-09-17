@@ -140,7 +140,9 @@ export interface Agent {
 
 export interface DNSCheck { host: string; expected: string; resolved: string[]; ok: boolean; proxiedBy?: string; suggestion: string }
 
-export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: { key: string; label: string; type: string; default: string; hint?: string }[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
+export interface CatalogOption { value: string; label: string; hint?: string }
+export interface CatalogField { key: string; label: string; type: string; default: string; hint?: string; options?: CatalogOption[]; required?: boolean }
+export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: CatalogField[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface MailRelay { domain: string; hostname: string; relayhost?: string; installed: boolean; running: boolean; publicIp: string; panelSmtp: string; appSmtp: string; records: { name: string; type: string; value: string; found?: string; ok: boolean; purpose: string }[] }
 export interface Recipe { name: string; slug: string; category: string; description: string; time: string; inputs: { key: string; label: string; type?: string; default?: string; hint?: string; optional?: boolean; options?: string }[]; steps: { type: string; label?: string }[]; done: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }

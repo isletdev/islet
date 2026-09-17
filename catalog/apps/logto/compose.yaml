@@ -1,0 +1,42 @@
+services:
+  logto:
+    image: svhd/logto:1
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Logto will not start against an empty database, and the seed is a
+    # separate command. Running it on every start is what upstream's own compose
+    # does: --swe means "skip when exists", so the second start is a no-op
+    # rather than an error or a wipe.
+    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    environment:
+      DB_URL: postgres://logto:${DB_PASSWORD}@db:5432/logto
+      # Two addresses, because Logto is two applications: the provider your apps
+      # talk to on 3001, and the admin console on 3002. They cannot share a
+      # hostname — Logto refuses a request whose origin is not the endpoint it
+      # was told about, and it has no path-prefix mode — so the console needs a
+      # domain of its own, pointed at this container's port 3002.
+      ENDPOINT: https://${ISLET_DOMAIN}
+      ADMIN_ENDPOINT: https://${ADMIN_DOMAIN}
+      # Behind Islet's proxy the visitor's address and scheme arrive in headers.
+      # Without this Logto builds redirect URLs as http:// and every sign-in
+      # bounces.
+      TRUST_PROXY_HEADER: "1"
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    user: postgres
+    environment:
+      POSTGRES_USER: logto
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: logto
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logto"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  db:

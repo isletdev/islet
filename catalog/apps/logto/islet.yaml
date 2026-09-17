@@ -1,0 +1,42 @@
+name: Logto
+slug: logto
+category: security
+description: A full OAuth 2.0 and OpenID Connect provider with its own admin console — sign-in flows, social and enterprise connectors, roles and permissions, and a user directory your apps can authenticate against.
+website: https://logto.io
+service: logto
+port: 3001
+fields:
+  - key: ADMIN_DOMAIN
+    label: Admin console domain
+    type: text
+    required: true
+    hint: A second hostname for the console, for example admin-auth.example.com. Logto serves the provider and the console as two applications on two ports and refuses to share one name between them, so this cannot be the domain above. Add it under Domains after installing, pointed at this app's container on port 3002.
+  - key: DB_PASSWORD
+    label: Database password
+    type: secret
+    hint: For Logto's own Postgres, which this install runs beside it.
+volumes:
+  - db
+notes: |
+  **Two domains, and the second one is a manual step.** The domain you gave
+  above is the provider — the issuer your apps point at. The admin console is a
+  separate application on port 3002 of the same container, and Logto will only
+  answer it on the name you put in "Admin console domain". After installing, go
+  to Domains → Add domain, enter that name, choose this app's container and set
+  the port to 3002. Until you do, the console is not reachable and nothing can
+  be configured.
+
+  **Then open the console and create the account, promptly.** The first visit
+  shows a welcome page that creates the single administrator. The open-source
+  edition supports exactly one admin account and offers no way to add a second,
+  so treat those credentials as the keys to the building.
+
+  **Point an app at it** with the issuer `https://your-domain/oidc`, plus the
+  application id and secret from the console. Logto issues standard OIDC
+  discovery at `/oidc/.well-known/openid-configuration`, so anything that speaks
+  OpenID Connect can be wired up from that one URL.
+
+  Heavier than Pocket ID and considerably more capable: connectors for Google,
+  GitHub and SAML, role-based access control, organisations and multi-tenancy,
+  and a management API. It runs a Node process and a Postgres beside it —
+  comfortable on 2 GB, tight on 1 GB alongside much else.

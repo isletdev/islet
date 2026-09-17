@@ -9,14 +9,55 @@ fields:
   - key: ENCRYPTION_KEY
     label: Encryption key
     type: secret
-    hint: Encrypts the passkey material at rest. Generated for you; losing it means every credential has to be enrolled again.
+    hint: Encrypts the passkey material at rest. Losing it means every credential has to be enrolled again.
+  - key: STATIC_API_KEY
+    label: Admin API key
+    type: secret
+    hint: An always-available way back in. It grants admin access to Pocket ID's API, which is the only way to make somebody an administrator after the first account exists. Keep it; read it under Vault.
+  - key: ALLOW_USER_SIGNUPS
+    label: Who may create an account
+    type: select
+    default: disabled
+    options:
+      - value: disabled
+        label: Nobody — an admin creates every account
+        hint: Pocket ID's own default. People are added from the admin area, and that is the only way in.
+      - value: withToken
+        label: Anyone holding a signup link
+        hint: An admin generates a link per person; the link is the invitation.
+      - value: open
+        label: Anyone who can reach the page
+        hint: Anybody who can open the domain can make themselves an account. Only sensible when the domain is not reachable from the internet.
+  - key: APP_NAME
+    label: Name shown on the sign-in page
+    type: text
+    default: Pocket ID
 volumes:
   - data
 notes: |
-  Open the domain you gave it and create the first account — whoever does that
-  becomes the administrator, so do it now rather than later.
+  **Open https://your-domain/setup first, before anyone else opens anything.**
+  That page — and only that page — creates the administrator, and it stops
+  working the moment any account exists. It is not linked from the sign-in
+  page, which is the single most common way to get stuck here: sign up normally
+  first and you get an ordinary user, /setup then says "setup already
+  completed", and there is no wizard, no CLI command and no first-user rule to
+  promote you. Pocket ID has none of those.
 
-  To let an app sign people in with it: add an OIDC client in Pocket ID, then
+  If that has already happened, the admin API key above is the way out. From
+  this server:
+
+  ```
+  curl -s https://your-domain/api/users -H "X-API-KEY: $KEY"
+  curl -X PUT https://your-domain/api/users/<id> -H "X-API-KEY: $KEY" \
+    -H 'content-type: application/json' \
+    -d '{"username":"you","email":"you@example.com","firstName":"You","isAdmin":true}'
+  ```
+
+  The key is in Islet's Vault under the name this install generated. It works by
+  standing in for an admin account of its own, so it keeps working even when no
+  human administrator exists — which is exactly the hole it is here to cover.
+
+  To let an app sign people in with this: add an OIDC client in Pocket ID, then
   give the app the issuer URL (your domain), the client id and the client
   secret. Islet's own "Protect this app with Islet login" is the simpler option
   when you only want a door in front of something; this is for apps that

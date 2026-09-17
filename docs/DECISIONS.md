@@ -2750,3 +2750,65 @@ worse than saying nothing.
 The shape of `/app` was confirmed against GitHub rather than assumed, using the
 public record of an App anybody can read: `name`, `events` as a list, and
 `permissions` as a map of name to read or write.
+
+## 2026-09-17 — A catalog note that was wrong about the thing it existed to explain
+
+Pocket ID's entry said the first account to sign up becomes the administrator.
+It does not. There is no first-user rule, no setup wizard behind the sign-in
+page, and nothing in `pocket-id --help` that promotes anybody — the CLI has
+export, import, key rotation, a healthcheck and one-time access tokens, and
+that is all. Signing up gives an ordinary user whether the database is empty or
+not. The same note also implied signups were open; `ALLOW_USER_SIGNUPS`
+defaults to `disabled`.
+
+What is true, read out of Pocket ID's own source rather than its marketing:
+
+- `/setup` creates the administrator, and only before any account exists.
+  It is not linked from anywhere, which is why people find it after they are
+  already stuck. Once a user exists it answers "setup already completed".
+- `STATIC_API_KEY` grants admin access to the API by standing in for an admin
+  account of its own — `initStaticApiKeyUser` creates a user with `IsAdmin: true`
+  the first time the key is used, and deletes it again if the key is unset.
+- `PUT /api/users/{id}` with `isAdmin: true`, authenticated with `X-API-KEY`,
+  is therefore the way to promote somebody when no human administrator exists.
+
+So the entry now generates a `STATIC_API_KEY` on every install and says what it
+is for. It costs one environment variable and means the recovery path exists
+before it is needed, rather than requiring somebody to edit a compose file and
+restart the container at the moment they are locked out. The note leads with
+`/setup`, because the failure it prevents is the one this note got wrong.
+
+The signup mode is a field now rather than a paragraph, which needed the
+install form to grow a `select`: three valid spellings — disabled, withToken,
+open — is a list to choose from, not a box to retype one into. `required` came
+with it, and a generated secret keeps its own hint instead of having it
+replaced by the same sentence on every app.
+
+And the notes render as Markdown. They were going into a single `<p>`, so a
+list read as one run-on line and the two commands above lost their line breaks
+entirely — a recovery procedure nobody could copy. The panel's own renderer
+builds React nodes, so there is no innerHTML in that path.
+
+## 2026-09-17 — Logto, and the second hostname
+
+Added as asked, with the friction stated on the form rather than discovered
+afterwards: Logto is two applications, a provider on 3001 and an admin console
+on 3002, and it refuses a request whose origin is not the endpoint it was
+configured with. There is no path-prefix mode. So an Islet install cannot be
+one domain, and the form asks for the second hostname up front and explains
+what to do with it — Domains, this container, port 3002 — instead of leaving
+somebody with a console that answers nothing.
+
+The seed step is upstream's own: `npm run cli db seed -- --swe && npm start` as
+the entrypoint, where `--swe` means skip-when-exists, so the second start is a
+no-op rather than an error. Postgres rides in the same stack with a generated
+password, the way Umami's entry already does it.
+
+Worth saying what was considered. Zitadel would have been the easier fit —
+one hostname, console at `/ui/console`, first admin declared in environment
+variables, and Go rather than Node. Logto was asked for, it is the more
+approachable product, and its single limitation that matters here is stated on
+the form: the open-source edition supports exactly one admin account. Zitadel
+remains the better answer for somebody who needs several administrators or is
+short on memory, and that is the sentence to reach for when this comes up
+again.

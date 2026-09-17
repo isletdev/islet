@@ -8,6 +8,15 @@ services:
       # credentials enrol against a name that will not work later.
       APP_URL: https://${ISLET_DOMAIN}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # The way back in when no administrator exists. Pocket ID treats this key
+      # as an admin account of its own ("Static API User"), created the first
+      # time the key is used and deleted again if it is ever unset — so the
+      # promote-a-user call below works even though nobody can sign in to do it.
+      STATIC_API_KEY: ${STATIC_API_KEY}
+      # disabled | withToken | open. Pocket ID's own default is disabled: an
+      # admin creates every account.
+      ALLOW_USER_SIGNUPS: ${ALLOW_USER_SIGNUPS}
+      APP_NAME: ${APP_NAME}
       # It sits behind Islet's proxy, so the client address arrives in a header
       # rather than on the connection. Without this every sign-in looks like it
       # came from the proxy.
