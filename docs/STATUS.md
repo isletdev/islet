@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `6c6b47c`, tagged `v0.20.0`, 2026-09-16. 149 commits, 69 tags, CI green on `main`.
+**Head:** `eed5c59`, tagged `v0.21.0`, 2026-09-17. 155 commits, 72 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.20.0
+## Shipped since the plan ran out — v0.6.0 to v0.21.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -83,6 +83,9 @@ recent history, because it is the half that was found rather than designed.
 | v0.18.4 | `ffa02db` | **"Protect with Islet login" sent signed-in people to the dashboard.** The gate was right; the panel renders `/login` only for an anonymous visitor, so a signed-in admin's `?next=` was thrown away by the catch-all. The decision now lives in one place and both paths ask it |
 | v0.19.0 | `517375d` | **Protection per path and per person.** One switch per host became a grid: every route on the host down the side, every account across the top. A location is three-state — inherit, on, off — because /admin guarded on an open site and /hooks open on a guarded one are both real. An empty list still means any signed-in user, so nothing had to be migrated |
 | v0.20.0 | `6c6b47c` | **The gateway audit.** Seven faults, five found only by putting a real Traefik in front of a real backend: an opened path also opened `/hooksecret` (PathPrefix is a string prefix); `X-Islet-User` was forgeable on any ungated route; an `Authorization` header broke the gate for everybody; the API let a deployer change who may reach a site; one refusal wrote one audit row per request; and a protected app was handed the panel's session cookie — now a separate gate cookie that opens the gate and nothing else |
+| v0.20.1 | `c473211` | Every browser signed in before v0.20.0 still held a session cookie scoped to the parent domain, and went on handing it to protected sites until it expired. The wide cookie is deleted by name and the session re-issued host-only on the first panel load without a gate cookie |
+| v0.20.2 | `0a7e1ad` | **Two tabs on one workspace took it from each other forever.** tmux attaches with `-d`, the panel reconnects on close, and together that is a loop. One seat per session now: the displaced tab is told (status 4001) and stops, and nothing reconnects while its tab is hidden. Also: runner containers could not resolve the address their own generated workflow tells them to call, and the catalog URL field hung off the side of a phone |
+| v0.21.0 | `eed5c59` | **Blocklists and geo-blocking**, built into Islet rather than by installing a second firewall manager: three community lists and per-country zones in one ipset, dropped in INPUT and DOCKER-USER, refreshed daily, restored after a reboot — with every private and bogon range filtered out, because FireHOL level 1 contains `10.0.0.0/8` and loading it raw cuts a Docker host off from its own containers. Plus: the panel now says which GitHub App permission is missing instead of leaving "Resource not accessible by integration" in a log, Pocket ID's note no longer claims a first-user admin rule it never had, and Logto joins the catalog |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what

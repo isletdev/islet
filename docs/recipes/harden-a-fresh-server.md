@@ -7,4 +7,5 @@ Ten minutes from a default image to a Security Score of 90.
 3. **SSH.** Make sure your public key is in `authorized_keys` (the card says whether one was found). Then untick password authentication and root password login, **Apply with 5-minute rollback**, open a *new* SSH session to prove you still get in, and press **Confirm**.
 4. **Databases.** If any instance shows a public port you do not need, stop publishing it. Use an SSH tunnel or Tailscale instead.
 5. **Backups.** Add a destination and a plan; a server without backups caps the score.
-6. Optional: install **Tailscale** or **WireGuard** from the catalog and allow the panel port only from the VPN range, then remove the public rule.
+6. **Blocklist** (Security, near the bottom). Tick FireHOL level 1 and press **Turn on**: about twenty thousand networks that are known to be hostile stop reaching the proxy or any container. It refreshes daily and comes back after a reboot. Your own address is never dropped. Whole countries can be blocked from the same card, which is blunt — it stops customers and VPN exits as readily as attackers — so reach for it only when a server serves one part of the world.
+7. Optional: install **Tailscale** or **WireGuard** from the catalog and allow the panel port only from the VPN range, then remove the public rule.
