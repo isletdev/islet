@@ -35,3 +35,6 @@ internal/web/dist/*.png
 internal/web/dist/*.ico
 internal/web/dist/*.webmanifest
 internal/web/dist/theme.js
+
+# Agent and CLI state that happens to land in the working tree
+.local/
