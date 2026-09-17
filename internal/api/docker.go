@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/docker"
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/internal/terminal"
@@ -241,11 +242,37 @@ func streamLines(w http.ResponseWriter, r *http.Request, rc io.ReadCloser, wait 
 		fl.Flush()
 	}
 	err := wait()
-	msg := "done"
-	if err != nil && r.Context().Err() == nil {
-		msg = "error: " + err.Error()
+	if r.Context().Err() != nil {
+		err = nil // the client left; the command was not what failed
 	}
-	fmt.Fprintf(w, "event: end\ndata: %q\n\n", msg)
+	endEvent(w, fl, err)
+}
+
+// endEvent writes the one terminal event a line stream finishes with.
+//
+// It is JSON, like every other event, because it was not: the payload used to
+// be written with %q, which is Go quoting rather than JSON. A command whose
+// stderr carried an ANSI colour escape — docker compose, every build tool,
+// every package manager, by default — produced `\x1b`, which JSON.parse
+// rejects. The panel parses this inside its read loop with no recovery, so a
+// coloured build failure was reported to the user as a dropped connection and
+// the real error was never shown. The event that says whether the work
+// succeeded was the one event that could not be read.
+//
+// `ok` is what a client branches on. What it replaces was a prefix match on
+// the English word "error" inside the message, which was never a contract and
+// could not survive translation or rewording.
+func endEvent(w io.Writer, fl http.Flusher, err error) {
+	end := map[string]any{"ok": err == nil}
+	if err != nil {
+		end["error"] = "command_failed"
+		// Redact again here rather than trust the producer: the message is the
+		// tail of a command's stderr, and a tool that fails while printing its
+		// own connection string is exactly the case this guards.
+		end["message"] = cmdrun.Redact(err.Error())
+	}
+	b, _ := json.Marshal(end)
+	fmt.Fprintf(w, "event: end\ndata: %s\n\n", b)
 	fl.Flush()
 }
 

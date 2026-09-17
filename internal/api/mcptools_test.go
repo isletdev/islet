@@ -262,8 +262,8 @@ func TestTheRecorderCanBeFlushed(t *testing.T) {
 func TestSSEFramesComeBackAsTheTextTheyCarried(t *testing.T) {
 	body := "event: line\ndata: \"PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\"\n\n" +
 		"event: line\ndata: \"64 bytes from 1.1.1.1: icmp_seq=1 ttl=54 time=7.37 ms\"\n\n" +
-		"event: end\ndata: \"done\"\n\n"
-	want := "PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\n64 bytes from 1.1.1.1: icmp_seq=1 ttl=54 time=7.37 ms\ndone"
+		"event: end\ndata: {\"ok\":true}\n\n"
+	want := "PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\n64 bytes from 1.1.1.1: icmp_seq=1 ttl=54 time=7.37 ms"
 	if got := unwrapSSE(body); got != want {
 		t.Errorf("unwrapSSE gave\n%q\nwant\n%q", got, want)
 	}

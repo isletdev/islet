@@ -28,7 +28,7 @@ export default function Logs() {
     setLines([]); setState("streaming"); setError(null);
     const stop = streamLines(`/api/v1/logs/stream?source=${encodeURIComponent(source)}&tail=${tail}&follow=${follow ? 1 : 0}`,
       (l) => setLines((p) => (p.length >= MAX_LINES ? [...p.slice(-MAX_LINES + 1), l] : [...p, l])),
-      (msg) => { setState("ended"); if (msg !== "done") setError(msg === "connection lost" ? "The source could not be opened or the connection dropped. Pick another source or reload." : msg); });
+      (end) => { setState("ended"); if (!end.ok) setError(end.error === "connection_lost" ? "The source could not be opened or the connection dropped. Pick another source or reload." : (end.message ?? "The stream ended before the source did.")); });
     return stop;
   }, [source, tail, follow, gen]);
 

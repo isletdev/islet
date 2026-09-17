@@ -144,8 +144,7 @@ func (s *Server) handleServerJoinEvents(w http.ResponseWriter, r *http.Request) 
 		fmt.Fprintf(w, "event: progress\ndata: %s\n\n", b)
 		fl.Flush()
 	})
-	fmt.Fprintf(w, "event: end\ndata: %q\n\n", "done")
-	fl.Flush()
+	endEvent(w, fl, nil)
 }
 
 func (s *Server) handleServerForget(w http.ResponseWriter, r *http.Request) {

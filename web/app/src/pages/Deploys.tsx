@@ -77,7 +77,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
   useEffect(() => {
     if (!app.deploying || busy) return;
     setLog([]); setBusy(true);
-    const stop = streamLines(`/api/v1/apps/${app.id}/deploy/log`, (l) => setLog((p) => capLines(p, l)), async (m) => { if (m !== "done") setLog((p) => [...(p ?? []), `[islet] ${m}`]); setBusy(false); await loadRel(); await onChanged(); });
+    const stop = streamLines(`/api/v1/apps/${app.id}/deploy/log`, (l) => setLog((p) => capLines(p, l)), async (end) => { if (!end.ok) setLog((p) => [...(p ?? []), `[islet] ${end.message ?? "the command failed"}`]); setBusy(false); await loadRel(); await onChanged(); });
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.id, app.deploying]);

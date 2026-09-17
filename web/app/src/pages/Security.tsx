@@ -288,7 +288,7 @@ function Diagnostics() {
     e.preventDefault(); setOut([]); setBusy(true);
     stop.current?.();
     if (tool === "port") { try { const r = await api.portCheck(host, +port); setOut([`${host}:${port} is ${r.message}`]); } catch (er) { setOut([err(er)]); } setBusy(false); return; }
-    stop.current = streamLines(`/api/v1/diagnostics?tool=${tool}&host=${encodeURIComponent(host)}`, (l) => setOut((p) => capLines(p, l)), (m) => { if (m !== "done") setOut((p) => capLines(p, m)); setBusy(false); stop.current = null; });
+    stop.current = streamLines(`/api/v1/diagnostics?tool=${tool}&host=${encodeURIComponent(host)}`, (l) => setOut((p) => capLines(p, l)), (end) => { if (!end.ok) setOut((p) => capLines(p, end.message ?? "the command failed")); setBusy(false); stop.current = null; });
   };
   return (
     <Card title="Network diagnostics" description="Run from this server, so you see what the server sees.">

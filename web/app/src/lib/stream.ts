@@ -1,15 +1,26 @@
 import { apiPath } from "@/lib/api";
 
+/**
+ * How a line stream finishes.
+ *
+ * `ok` is the thing to branch on. It used to be a string, and failure was
+ * detected by testing whether it started with the English word "error" — which
+ * was never a contract, and broke the moment the message was anything else.
+ */
+export type StreamEnd = { ok: boolean; error?: string; message?: string };
+
+const connectionLost: StreamEnd = { ok: false, error: "connection_lost", message: "The connection to the daemon dropped." };
+
 /** Subscribe to an SSE endpoint that emits "line" events and one "end" event. */
-export function streamLines(path: string, onLine: (l: string) => void, onEnd?: (msg: string) => void): () => void {
+export function streamLines(path: string, onLine: (l: string) => void, onEnd?: (end: StreamEnd) => void): () => void {
   const es = new EventSource(apiPath(path));
   es.addEventListener("line", (ev) => onLine(JSON.parse((ev as MessageEvent).data) as string));
-  es.addEventListener("end", (ev) => { onEnd?.(JSON.parse((ev as MessageEvent).data) as string); es.close(); });
+  es.addEventListener("end", (ev) => { onEnd?.(JSON.parse((ev as MessageEvent).data) as StreamEnd); es.close(); });
   // EventSource retries on its own. Closing on the first error turned one
   // dropped packet into a permanently dead log follow; only give up once the
   // browser itself has, which is what CLOSED means here.
   es.onerror = () => {
-    if (es.readyState === EventSource.CLOSED) onEnd?.("connection lost");
+    if (es.readyState === EventSource.CLOSED) onEnd?.(connectionLost);
   };
   return () => es.close();
 }
@@ -41,9 +52,13 @@ export async function postStream(path: string, onLine: (l: string) => void, body
       const ev = /^event: (\w+)/m.exec(chunk)?.[1];
       const data = /^data: (.*)$/m.exec(chunk)?.[1];
       if (!data) continue;
-      const text = JSON.parse(data) as string;
-      if (ev === "end") { ended = true; if (text.startsWith("error")) failed = text; }
-      else onLine(text);
+      if (ev === "end") {
+        ended = true;
+        const end = JSON.parse(data) as StreamEnd;
+        if (!end.ok) failed = end.message ?? "the command failed";
+      } else {
+        onLine(JSON.parse(data) as string);
+      }
     }
   }
   if (failed) throw new Error(failed);

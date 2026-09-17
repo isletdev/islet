@@ -126,6 +126,19 @@ func unwrapSSE(body string) string {
 			out = append(out, s)
 			continue
 		}
+		// The terminal event is an object rather than a line of output. An
+		// agent wants the verdict, not the envelope: success adds nothing to
+		// what it already read, and a failure is the whole point of reading.
+		var end struct {
+			OK      *bool  `json:"ok"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(data), &end); err == nil && end.OK != nil {
+			if !*end.OK {
+				out = append(out, "error: "+end.Message)
+			}
+			continue
+		}
 		out = append(out, data)
 	}
 	return strings.Join(out, "\n")
