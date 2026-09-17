@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
-import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig } from "@/lib/api";
+import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig, type AIKind, type AIProvider } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
@@ -8,10 +8,13 @@ import AuditLog from "@/components/AuditLog";
 import CommandLog from "@/components/CommandLog";
 import { useDialog } from "@/lib/dialogs";
 
+function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
+
 const SECTIONS: { id: string; label: string; description: string; adminOnly?: boolean }[] = [
   { id: "account", label: "Account", description: "Your sign-in, your sessions and your tokens." },
   { id: "team", label: "Team", description: "Who can sign in, and what they may do.", adminOnly: true },
   { id: "panel", label: "Panel", description: "How Islet itself behaves on this server." },
+  { id: "ai", label: "AI", description: "The models this server can use, and which one is picked by default.", adminOnly: true },
   { id: "integrations", label: "Integrations", description: "Services Islet talks to on your behalf.", adminOnly: true },
   { id: "activity", label: "Activity", description: "What has happened on this server." },
 ];
@@ -74,10 +77,11 @@ export default function Settings() {
           {admin && <WeeklyReport />}
         </>}
 
+        {tab === "ai" && <AIProviders />}
+
         {tab === "integrations" && <>
           <CatalogSource />
           <GitHubApp />
-          <AssistantCard />
           <MCP />
         </>}
 
@@ -468,55 +472,100 @@ function GitHubApp() {
   );
 }
 
-function AssistantCard() {
-  const [c, setC] = useState<AssistantConfig | null>(null);
-  const [key, setKey] = useState("");
+const KINDS: { value: AIKind; label: string; hint: string }[] = [
+  { value: "subscription", label: "Claude subscription on this server", hint: "Spends the subscription somebody signed Claude Code into here. No key, and it can drive a workspace agent as well as the assistant." },
+  { value: "anthropic", label: "Anthropic API key", hint: "Billed per token. Works for the assistant and for workspace agents, which get the key in their environment." },
+  { value: "openai", label: "OpenAI-compatible API", hint: "OpenAI, Groq, OpenRouter or a local model. The assistant only: there is no terminal agent to put in a workspace." },
+];
+
+const blankProvider = (): Partial<AIProvider> & { key?: string } => ({ name: "", kind: "subscription", model: "", baseUrl: "", command: "", mcpConfig: "", key: "", default: false });
+
+/**
+ * The models this server can use, as a list rather than as one setting.
+ *
+ * It used to be a single provider: one kind, one key, one model, and every
+ * conversation had it whether or not it suited. Somebody paying for a
+ * subscription and also holding an API key had to choose once, globally, and
+ * edit a setting to change their mind. Here they are things you set up and
+ * name, and the choosing happens where the work starts — a new chat, a new
+ * agent — which is also the only place anybody knows which one they want.
+ */
+function AIProviders() {
+  const ask = useDialog();
+  const [list, setList] = useState<AIProvider[] | null>(null);
+  const [form, setForm] = useState<(Partial<AIProvider> & { key?: string }) | null>(null);
+  const [cfg, setCfg] = useState<AssistantConfig | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const load = () => { void api.assistant().then(setC).catch(() => {}); };
-  useEffect(load, []);
-  if (!c) return null;
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api.aiProviders().then(setList).catch((e) => setMsg(err(e))), []);
+  useEffect(() => { void load(); void api.assistant().then(setCfg).catch(() => {}); }, [load]);
+  if (!list) return null;
+
+  const kind = (form?.kind ?? "subscription") as AIKind;
   const save = async (e: FormEvent) => {
-    e.preventDefault(); setMsg(null);
-    try {
-      await api.assistantSave({ provider: c.provider, model: c.model, baseUrl: c.baseUrl, key, mcpConfig: c.mcpConfig });
-      setKey(""); setMsg("Saved."); load();
-    } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+    e.preventDefault(); setBusy(true); setMsg(null);
+    try { await api.aiProviderSave(form!); setForm(null); await load(); setMsg("Saved."); }
+    catch (er) { setMsg(err(er)); } finally { setBusy(false); }
   };
+  const remove = async (p: AIProvider) => {
+    if (!(await ask.confirm({ title: `Remove ${p.name}?`, body: "Conversations and agents that used it fall back to the default. Nothing else is deleted.", confirmLabel: "Remove", tone: "danger" }))) return;
+    try { await api.aiProviderDelete(p.id); await load(); } catch (er) { setMsg(err(er)); }
+  };
+
   return (
-    <Card title="Assistant" description="The model behind Ask. It acts as whoever is asking and can do no more than they can.">
-      <form onSubmit={save} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <label className="sm:col-span-3">
-          <span className="mb-1 block text-sm font-medium">Where the model runs</span>
-          <Select value={c.provider} onChange={(e) => setC({ ...c, provider: e.target.value as AssistantConfig["provider"] })}>
-            <option value="anthropic">Anthropic — an API key, billed per token</option>
-            <option value="subscription">Claude subscription on this server{c.claudeInstalled ? "" : " (claude is not installed)"}</option>
-            <option value="openai">Any OpenAI-compatible API — OpenAI, Groq, OpenRouter, or a local model</option>
-          </Select>
-        </label>
-        <Input value={c.model} onChange={(e) => setC({ ...c, model: e.target.value })} placeholder={c.provider === "anthropic" ? c.defaultModel : "model name"} className="font-mono" aria-label="Model" />
-        {c.provider === "openai" && (
-          <Input value={c.baseUrl} onChange={(e) => setC({ ...c, baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" className="font-mono sm:col-span-2" aria-label="Base URL" />
-        )}
-        {c.provider === "subscription" && (
-          <Input value={c.mcpConfig} onChange={(e) => setC({ ...c, mcpConfig: e.target.value })} placeholder="/var/lib/islet/workspaces/<id>/mcp.json" className="font-mono sm:col-span-2" aria-label="MCP config path" />
-        )}
-        {c.provider !== "subscription" && (
-          <Input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={c.keySet ? "key is set — leave blank to keep it" : "API key"} className="font-mono sm:col-span-2" aria-label="API key" />
-        )}
-        <Button type="submit" className="h-9 text-xs">Save</Button>
-        <p className="text-xs text-ink-muted sm:col-span-3">
-          {c.tools} tools are available to it. A subscription runs Claude Code on this server and is bounded by the token in its MCP configuration, not by who is asking.
-          {c.provider === "subscription" && (
-            <>
-              {" "}That token is the only fence around it: Claude Code&apos;s own tools are denied, so everything it can do,
-              it does through Islet under those scopes, and every call is in the audit log. A token with every scope means
-              an assistant with every scope. Issue a narrower one under API tokens below if that is more authority than
-              you meant to hand it.
-            </>
-          )}
-        </p>
-        {msg && <p className="text-sm text-ink-muted sm:col-span-3">{msg}</p>}
-      </form>
+    <Card title="Models" description="What Islet can think with. The assistant picks one per conversation and a workspace agent picks one when it is created; with a single model configured, neither asks.">
+      {list.length === 0 && <p className="text-sm text-ink-muted">Nothing is set up yet, so the assistant cannot answer and an agent has nothing to run.</p>}
+      {list.length > 0 && (
+        <ul className="divide-y divide-border">
+          {list.map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+              <span className="font-medium">{p.name}</span>
+              {p.default && <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">default</span>}
+              <span className="text-xs text-ink-muted">{KINDS.find((k) => k.value === p.kind)?.label ?? p.kind}{p.model && ` · ${p.model}`}{p.kind !== "subscription" && !p.keySet && " · no key"}</span>
+              <span className="ml-auto flex items-center gap-3 text-xs">
+                {!p.default && <button type="button" className="-my-1 py-1 text-ink-muted hover:text-ink" onClick={async () => { await api.aiProviderDefault(p.id); await load(); }}>Make default</button>}
+                <button type="button" className="-my-1 py-1 text-ink-muted hover:text-ink" onClick={() => setForm({ ...p, key: "" })}>Edit</button>
+                <button type="button" className="-my-1 py-1 text-danger hover:underline" onClick={() => void remove(p)}>Remove</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!form && <div className="mt-3 flex items-center gap-2"><Button type="button" variant="secondary" className="h-8 text-xs" onClick={() => setForm(blankProvider())}>Add a model</Button>{msg && <span className="text-xs text-ink-muted">{msg}</span>}</div>}
+
+      {form && (
+        <form onSubmit={save} className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-border p-3 sm:grid-cols-2">
+          <Field label="Name" hint="What you will pick it by later."><Input value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></Field>
+          <Field label="Kind" hint={KINDS.find((k) => k.value === kind)?.hint}>
+            <Select value={kind} onChange={(e) => setForm({ ...form, kind: e.target.value as AIKind })}>
+              {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}{k.value === "subscription" && cfg && !cfg.claudeInstalled ? " (claude is not installed)" : ""}</option>)}
+            </Select>
+          </Field>
+          <Field label="Model" hint={kind === "anthropic" ? `Leave empty for ${cfg?.defaultModel ?? "the default"}.` : "Leave empty for the provider's own default."}>
+            <Input value={form.model ?? ""} onChange={(e) => setForm({ ...form, model: e.target.value })} className="font-mono" placeholder={kind === "anthropic" ? cfg?.defaultModel : "model name"} />
+          </Field>
+          {kind === "openai" && <Field label="Base URL" hint="Where the OpenAI-compatible API lives."><Input value={form.baseUrl ?? ""} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className="font-mono" placeholder="https://api.openai.com/v1" /></Field>}
+          {kind !== "subscription" && <Field label="API key" hint={form.keySet ? "A key is stored. Leave empty to keep it." : "Stored encrypted, and never shown again."}><Input type="password" value={form.key ?? ""} onChange={(e) => setForm({ ...form, key: e.target.value })} className="font-mono" placeholder={form.keySet ? "key is set" : "sk-…"} /></Field>}
+          {kind === "subscription" && <Field label="MCP configuration" hint="The file that hands Claude Code Islet's tools. The token inside it is what bounds them."><Input value={form.mcpConfig ?? ""} onChange={(e) => setForm({ ...form, mcpConfig: e.target.value })} className="font-mono" placeholder="/var/lib/islet/workspaces/<id>/mcp.json" /></Field>}
+          {kind === "subscription" && <Field label="Claude Code path" hint="Optional. Empty means wherever it is installed."><Input value={form.command ?? ""} onChange={(e) => setForm({ ...form, command: e.target.value })} className="font-mono" placeholder="/root/.local/bin/claude" /></Field>}
+          <label className="flex items-center gap-1.5 text-sm sm:col-span-2">
+            <input type="checkbox" checked={!!form.default} onChange={(e) => setForm({ ...form, default: e.target.checked })} />
+            Use this one unless something says otherwise
+          </label>
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+            <Button type="submit" className="h-8 text-xs" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+            <Button type="button" variant="secondary" className="h-8 text-xs" onClick={() => { setForm(null); setMsg(null); }}>Cancel</Button>
+            {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+          </div>
+        </form>
+      )}
+
+      <p className="mt-3 text-xs text-ink-muted">
+        {cfg?.tools ?? 0} tools are available to the assistant, and it acts as whoever is asking — it can do no more than they can.
+        A subscription is the exception: it runs Claude Code on this server, bounded by the token in its MCP configuration rather than by who asked.
+        Claude Code&rsquo;s own tools are denied, so everything it does goes through Islet under those scopes and lands in the audit log.
+      </p>
     </Card>
   );
 }

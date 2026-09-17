@@ -132,6 +132,8 @@ export interface WorkspaceMCP { enabled: boolean; path: string; tools: number; s
 export interface Agent {
   id: string; workspaceId: string; name: string;
   preset: "claude" | "shell" | "custom";
+  /** Which configured model filled this agent's command in. */
+  providerId?: string;
   command: string; resume: boolean; skipPermissions: boolean;
   sessionUuid?: string;
   createdAt: string; updatedAt: string; lastStartedAt: string;
@@ -180,6 +182,12 @@ export interface Detection { strategy: string; framework: string; summary: strin
 
 export interface VaultSecret { id: string; name: string; description: string; createdAt: string; updatedAt: string; lastUsedAt?: string }
 
+export type AIKind = "anthropic" | "openai" | "subscription";
+export interface AIProvider {
+  id: string; name: string; kind: AIKind; model: string; baseUrl: string;
+  command: string; mcpConfig: string; default: boolean; keySet: boolean;
+  createdAt: string; updatedAt: string;
+}
 export interface AssistantConfig {
   provider: "anthropic" | "openai" | "subscription";
   model: string; baseUrl: string; keySet: boolean; defaultModel: string;
@@ -226,6 +234,8 @@ export type AssistantEvent =
 export interface AssistantChat {
   id: string;
   title: string;
+  /** Which configured model this conversation is having. Empty means the default. */
+  providerId?: string;
   messages: number;
   createdAt: string;
   updatedAt: string;
@@ -407,9 +417,13 @@ export const api = {
   vaultDelete: (name: string) => post<void>(`/api/v1/vault/${encodeURIComponent(name)}`, undefined, "DELETE"),
   vaultReveal: (name: string) => post<{ name: string; value: string }>(`/api/v1/vault/${encodeURIComponent(name)}/reveal`, {}),
   assistant: () => request<AssistantConfig>("/api/v1/assistant"),
+  aiProviders: () => request<AIProvider[]>("/api/v1/ai/providers"),
+  aiProviderSave: (p: Partial<AIProvider> & { key?: string }) => post<AIProvider>("/api/v1/ai/providers", p),
+  aiProviderDefault: (id: string) => post<AIProvider[]>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, {}),
+  aiProviderDelete: (id: string) => post<void>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, undefined, "DELETE"),
   assistantRuns: () => request<AssistantRun[]>("/api/v1/assistant/runs"),
   assistantChats: () => request<AssistantChat[]>("/api/v1/assistant/chats"),
-  assistantChatNew: () => post<AssistantChat>("/api/v1/assistant/chats", {}),
+  assistantChatNew: (providerId?: string) => post<AssistantChat>("/api/v1/assistant/chats", { providerId }),
   assistantChatOpen: (id: string) => request<AssistantChatDetail>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`),
   assistantChatRename: (id: string, title: string) => post<{ ok: boolean }>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`, { title }),
   assistantChatDelete: (id: string) => post<void>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`, undefined, "DELETE"),

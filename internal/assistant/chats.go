@@ -16,11 +16,15 @@ import (
 
 // Chat is one conversation, as the panel lists it.
 type Chat struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Messages  int    `json:"messages"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// ProviderID is the model this conversation is having. Empty means the
+	// server's default, which is what every conversation started before there
+	// was a choice has — so an old chat carries on with what it was using.
+	ProviderID string `json:"providerId,omitempty"`
+	Messages   int    `json:"messages"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 // ErrNoChat is a conversation that is not there, or is not yours.
@@ -46,18 +50,27 @@ func NewChats(st *store.Store) *Chats {
 // when one is asked, so a new conversation does not demand to be named before
 // it can be used.
 func (c *Chats) Create(ctx context.Context, username, title string) (*Chat, error) {
+	return c.CreateWith(ctx, username, title, "")
+}
+
+// CreateWith starts a conversation against a particular model.
+//
+// The id is stored rather than resolved now, because "which model" is a
+// property of the conversation: changing the server's default later must not
+// quietly move a conversation that is already under way onto another model.
+func (c *Chats) CreateWith(ctx context.Context, username, title, providerID string) (*Chat, error) {
 	id, err := chatID()
 	if err != nil {
 		return nil, err
 	}
 	now := c.now().UTC().Format(time.RFC3339Nano)
 	_, err = c.st.DB.ExecContext(ctx,
-		`INSERT INTO assistant_chats (id, server_id, username, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, c.st.ServerID, username, Title(title), now, now)
+		`INSERT INTO assistant_chats (id, server_id, username, title, provider_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, c.st.ServerID, username, Title(title), providerID, now, now)
 	if err != nil {
 		return nil, err
 	}
-	return &Chat{ID: id, Title: Title(title), CreatedAt: now, UpdatedAt: now}, nil
+	return &Chat{ID: id, Title: Title(title), ProviderID: providerID, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // List is one person's conversations, newest activity first.
@@ -67,7 +80,7 @@ func (c *Chats) Create(ctx context.Context, username, title string) (*Chat, erro
 // listing — and another admin reading it would be reading those.
 func (c *Chats) List(ctx context.Context, username string) ([]Chat, error) {
 	rows, err := c.st.DB.QueryContext(ctx,
-		`SELECT c.id, c.title, c.created_at, c.updated_at, (SELECT COUNT(*) FROM assistant_messages m WHERE m.chat_id = c.id)
+		`SELECT c.id, c.title, c.provider_id, c.created_at, c.updated_at, (SELECT COUNT(*) FROM assistant_messages m WHERE m.chat_id = c.id)
 		 FROM assistant_chats c WHERE c.server_id = ? AND c.username = ? ORDER BY c.updated_at DESC`,
 		c.st.ServerID, username)
 	if err != nil {
@@ -77,7 +90,7 @@ func (c *Chats) List(ctx context.Context, username string) ([]Chat, error) {
 	out := []Chat{}
 	for rows.Next() {
 		var ch Chat
-		if err := rows.Scan(&ch.ID, &ch.Title, &ch.CreatedAt, &ch.UpdatedAt, &ch.Messages); err != nil {
+		if err := rows.Scan(&ch.ID, &ch.Title, &ch.ProviderID, &ch.CreatedAt, &ch.UpdatedAt, &ch.Messages); err != nil {
 			return nil, err
 		}
 		out = append(out, ch)
@@ -89,8 +102,8 @@ func (c *Chats) List(ctx context.Context, username string) ([]Chat, error) {
 func (c *Chats) Get(ctx context.Context, username, id string) (*Chat, []Message, error) {
 	var ch Chat
 	err := c.st.DB.QueryRowContext(ctx,
-		`SELECT id, title, created_at, updated_at FROM assistant_chats WHERE id = ? AND server_id = ? AND username = ?`,
-		id, c.st.ServerID, username).Scan(&ch.ID, &ch.Title, &ch.CreatedAt, &ch.UpdatedAt)
+		`SELECT id, title, provider_id, created_at, updated_at FROM assistant_chats WHERE id = ? AND server_id = ? AND username = ?`,
+		id, c.st.ServerID, username).Scan(&ch.ID, &ch.Title, &ch.ProviderID, &ch.CreatedAt, &ch.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNoChat
 	}

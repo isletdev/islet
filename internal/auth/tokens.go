@@ -316,6 +316,14 @@ func ScopeAllows(scopes, method, path string) bool {
 			return has("read")
 		}
 		return has("settings")
+	// Which models a server may use, and the keys they are reached with.
+	// Listing them is a read; adding one stores a credential, which is
+	// configuration like the GitHub App's key or the mail relay's password.
+	case strings.HasPrefix(path, "/api/v1/ai"):
+		if read {
+			return has("read")
+		}
+		return has("settings")
 	// Reading a file is reading anything on the server. The file API serves
 	// whatever path the daemon can open, and the daemon is root, so a scope
 	// that covered it would quietly include /etc/shadow, every .env an app was

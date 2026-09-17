@@ -118,6 +118,34 @@ func (s *Server) secret(ctx context.Context, key string) (string, error) {
 	return string(p), nil
 }
 
+// seal and unseal are secret and setSecret without the settings table, for
+// credentials that live in a row of their own. Same encryption, same base64.
+func (s *Server) seal(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	enc, err := s.keys.Encrypt([]byte(value))
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(enc), nil
+}
+
+func (s *Server) unseal(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	b, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return "", err
+	}
+	p, err := s.keys.Decrypt(b)
+	if err != nil {
+		return "", err
+	}
+	return string(p), nil
+}
+
 func (s *Server) setSecret(ctx context.Context, key, value string) error {
 	if value == "" {
 		return s.store.SetSetting(ctx, key, "")
@@ -129,8 +157,48 @@ func (s *Server) setSecret(ctx context.Context, key, value string) error {
 	return s.store.SetSetting(ctx, key, base64.StdEncoding.EncodeToString(enc))
 }
 
-// providerFor builds the provider from stored settings.
-func (s *Server) providerFor(ctx context.Context) (assistant.Provider, error) {
+// pickProvider is providerFor plus the id it settled on, which is what a new
+// conversation records. Storing the resolved id rather than the empty one means
+// changing the server's default later does not move a conversation that is
+// already under way.
+func (s *Server) pickProvider(ctx context.Context, id string) (assistant.Provider, string, error) {
+	if s.ai != nil {
+		p, err := s.ai.Resolve(ctx, id)
+		if err != nil {
+			return nil, "", err
+		}
+		if p != nil {
+			built, err := s.build(ctx, p)
+			return built, p.ID, err
+		}
+	}
+	built, err := s.legacyProvider(ctx)
+	return built, "", err
+}
+
+// providerFor builds the model a conversation is having.
+//
+// The id names one; empty means the server's default. The settings-based
+// configuration underneath is the fallback for a server that has no provider
+// rows at all — which after the migration means one that never configured an
+// assistant, and which is left in place so that a half-applied upgrade is a
+// working assistant rather than a broken one.
+func (s *Server) providerFor(ctx context.Context, providerID string) (assistant.Provider, error) {
+	if s.ai != nil {
+		p, err := s.ai.Resolve(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			return s.build(ctx, p)
+		}
+	}
+	return s.legacyProvider(ctx)
+}
+
+// legacyProvider builds from the settings the assistant used before providers
+// were rows.
+func (s *Server) legacyProvider(ctx context.Context) (assistant.Provider, error) {
 	kind, _, _ := s.store.Setting(ctx, "assistant.provider")
 	model, _, _ := s.store.Setting(ctx, "assistant.model")
 	baseURL, _, _ := s.store.Setting(ctx, "assistant.base_url")
@@ -244,6 +312,9 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		// kept nowhere. A client still using it gets what it always got.
 		Messages []assistant.Message `json:"messages"`
 		MaxSteps int                 `json:"maxSteps"`
+		// ProviderID chooses the model, and only for a conversation that does
+		// not have one yet.
+		ProviderID string `json:"providerId"`
 	}
 	if err := decode(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
@@ -253,13 +324,25 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "send a question"})
 		return
 	}
-	p, err := s.providerFor(r.Context())
+	u := userFrom(r.Context())
+	actor, scopes, role := scopesForRequest(r.Context())
+
+	// Which model this conversation is having. An existing conversation keeps
+	// its own — it is part of what the transcript is — and only a new one takes
+	// what the composer asked for. Resolving before anything is written means a
+	// server with no model configured says so instead of leaving an empty
+	// conversation behind.
+	providerID := strings.TrimSpace(req.ProviderID)
+	if strings.TrimSpace(req.ChatID) != "" && s.chats != nil {
+		if ch, _, err := s.chats.Get(r.Context(), u.Username, req.ChatID); err == nil && ch.ProviderID != "" {
+			providerID = ch.ProviderID
+		}
+	}
+	p, providerID, err := s.pickProvider(r.Context(), providerID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "not_configured", Message: err.Error()})
 		return
 	}
-	u := userFrom(r.Context())
-	actor, scopes, role := scopesForRequest(r.Context())
 
 	// Writes to the conversation outlive the request as much as the run does,
 	// and must outlive the run being cancelled too: a stopped run still did
@@ -273,7 +356,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if chatID == "" {
-			ch, err := s.chats.Create(persist, u.Username, req.Text)
+			ch, err := s.chats.CreateWith(persist, u.Username, req.Text, providerID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 				return
@@ -380,10 +463,19 @@ func (s *Server) handleAssistantChats(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	if r.Method == http.MethodPost {
 		var req struct {
-			Title string `json:"title"`
+			Title      string `json:"title"`
+			ProviderID string `json:"providerId"`
 		}
 		_ = decode(r, &req)
-		ch, err := s.chats.Create(r.Context(), u.Username, req.Title)
+		// The resolved id, not the empty one: a conversation started today
+		// against the default keeps that model when the default changes.
+		providerID := strings.TrimSpace(req.ProviderID)
+		if s.ai != nil {
+			if p, err := s.ai.Resolve(r.Context(), providerID); err == nil && p != nil {
+				providerID = p.ID
+			}
+		}
+		ch, err := s.chats.CreateWith(r.Context(), u.Username, req.Title, providerID)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 			return
@@ -408,7 +500,8 @@ func (s *Server) handleAssistantChats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) withRun(ch *assistant.Chat) map[string]any {
 	out := map[string]any{
 		"id": ch.ID, "title": ch.Title, "messages": ch.Messages,
-		"createdAt": ch.CreatedAt, "updatedAt": ch.UpdatedAt,
+		"providerId": ch.ProviderID,
+		"createdAt":  ch.CreatedAt, "updatedAt": ch.UpdatedAt,
 	}
 	if rn := s.runs.activeFor(ch.ID); rn != nil {
 		_, events := rn.state()

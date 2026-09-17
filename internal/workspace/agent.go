@@ -23,7 +23,16 @@ type Agent struct {
 	WorkspaceID string `json:"workspaceId"`
 	Name        string `json:"name"`
 	Preset      string `json:"preset"` // claude | shell | custom
-	Command     string `json:"command"`
+	// ProviderID records which configured model filled this agent's command
+	// in. The command is still what runs — it always was — and this is what
+	// lets the panel say which model an agent is using and offer the same
+	// choice again. Empty is every agent that predates the idea.
+	ProviderID string `json:"providerId,omitempty"`
+	// Env is passed to tmux when the window is made, which is how an API key
+	// reaches the agent without being typed into a shell where it would sit in
+	// the scrollback and the history.
+	Env     map[string]string `json:"-"`
+	Command string            `json:"command"`
 	// Resume comes back into the same conversation after a stop, a crash or a
 	// reboot. Off means every start is a blank one.
 	Resume          bool   `json:"resume"`
@@ -149,8 +158,16 @@ func (s *Service) ensureWindow(ctx context.Context, actor string, w *Workspace, 
 			return nil
 		}
 	}
-	_, err := s.tmux(ctx, actor, "new-window", "-d", "-t", SessionName(w.ID),
-		"-n", a.Name, "-c", w.Directory)
+	args := []string{"new-window", "-d", "-t", SessionName(w.ID), "-n", a.Name, "-c", w.Directory}
+	// -e rather than an export typed into the pane: a key sent with send-keys
+	// lands in the scrollback, in the shell's history, and in anything that
+	// later attaches to the window.
+	for k, v := range a.Env {
+		if k != "" && v != "" {
+			args = append(args, "-e", k+"="+v)
+		}
+	}
+	_, err := s.tmux(ctx, actor, args...)
 	return err
 }
 
@@ -256,6 +273,9 @@ func (s *Service) StartAgent(ctx context.Context, actor, wsID, id string) error 
 	if err != nil {
 		return err
 	}
+	if s.AgentEnv != nil {
+		a.Env = s.AgentEnv(ctx, a.ProviderID)
+	}
 	if a.Preset == "claude" && s.ClaudePath(ctx) == "" {
 		return errors.New("Claude Code is not installed on this server. Install it from the Workspaces page, or run the installer yourself: curl -fsSL https://claude.ai/install.sh | bash")
 	}
@@ -309,12 +329,12 @@ func (s *Service) AgentHistory(ctx context.Context, actor, wsID, id string, line
 
 // ---- storage --------------------------------------------------------------
 
-const agentCols = `id, workspace_id, name, preset, command, resume, session_uuid, skip_permissions, created_at, updated_at, last_started_at`
+const agentCols = `id, workspace_id, name, preset, provider_id, command, resume, session_uuid, skip_permissions, created_at, updated_at, last_started_at`
 
 func scanAgent(sc interface{ Scan(...any) error }) (Agent, error) {
 	var a Agent
 	var res, skip int
-	err := sc.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.Preset, &a.Command, &res, &a.SessionUUID, &skip,
+	err := sc.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.Preset, &a.ProviderID, &a.Command, &res, &a.SessionUUID, &skip,
 		&a.CreatedAt, &a.UpdatedAt, &a.LastStarted)
 	a.Resume, a.SkipPermissions = res == 1, skip == 1
 	return a, err
@@ -383,9 +403,9 @@ func (s *Service) SaveAgent(ctx context.Context, actor, wsID string, a *Agent) (
 	if a.ID == "" {
 		a.ID = newID()
 		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO workspace_agents
-			(id, server_id, workspace_id, name, preset, command, resume, session_uuid, skip_permissions)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, s.st.ServerID, wsID, a.Name, a.Preset, a.Command, res, a.SessionUUID, skip)
+			(id, server_id, workspace_id, name, preset, provider_id, command, resume, session_uuid, skip_permissions)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, s.st.ServerID, wsID, a.Name, a.Preset, a.ProviderID, a.Command, res, a.SessionUUID, skip)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("this workspace already has an agent with that name")
@@ -403,10 +423,10 @@ func (s *Service) SaveAgent(ctx context.Context, actor, wsID string, a *Agent) (
 			_, _ = s.tmux(ctx, actor, "rename-window", "-t", target(wsID, old.Name), a.Name)
 		}
 		r, err := s.st.DB.ExecContext(ctx, `UPDATE workspace_agents
-			SET name=?, preset=?, command=?, resume=?, session_uuid=?, skip_permissions=?,
+			SET name=?, preset=?, provider_id=?, command=?, resume=?, session_uuid=?, skip_permissions=?,
 			    updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id = ? AND workspace_id = ? AND server_id = ?`,
-			a.Name, a.Preset, a.Command, res, a.SessionUUID, skip, a.ID, wsID, s.st.ServerID)
+			a.Name, a.Preset, a.ProviderID, a.Command, res, a.SessionUUID, skip, a.ID, wsID, s.st.ServerID)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return nil, errors.New("this workspace already has an agent with that name")

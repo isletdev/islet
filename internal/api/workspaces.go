@@ -313,6 +313,25 @@ func (s *Server) handleWorkspaceAgents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.ID = ""
+		// A chosen provider fills in the command, unless somebody wrote their
+		// own — the command has always been what actually runs, and a person
+		// who typed one meant it.
+		if in.ProviderID != "" && s.ai != nil {
+			p, err := s.ai.Get(r.Context(), in.ProviderID)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "no such model"})
+				return
+			}
+			cmd := AgentCommand(p)
+			if cmd == "" {
+				writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid",
+					Message: p.Name + " is an API endpoint with no command to run in a terminal. It can hold a conversation in the assistant; a workspace agent needs Claude Code, through a subscription or an Anthropic key."})
+				return
+			}
+			if in.Command == "" {
+				in.Command, in.Preset = cmd, "claude"
+			}
+		}
 		a, err := s.workspaces.SaveAgent(r.Context(), userFrom(r.Context()).Username, id, &in)
 		if err != nil {
 			s.workspaceErr(w, err)

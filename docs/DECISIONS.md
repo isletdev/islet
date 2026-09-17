@@ -2812,3 +2812,54 @@ the form: the open-source edition supports exactly one admin account. Zitadel
 remains the better answer for somebody who needs several administrators or is
 short on memory, and that is the sentence to reach for when this comes up
 again.
+
+## 2026-09-17 — Models are things you set up, not a setting
+
+The assistant had one provider: a kind, a key, a model and a base URL in the
+settings table. Workspaces had no notion of a provider at all — an agent ran a
+command and the command happened to be Claude Code. Between them they could not
+answer the question people actually have, which is "which of the models I pay
+for should this conversation use". Somebody holding a subscription *and* an API
+key had to choose once, globally, and edit a setting to change their mind.
+
+So a provider is a row with a name. The assistant picks one per conversation, a
+workspace agent picks one when it is created, and Settings grows a tab of its
+own where they are set up. Four decisions hold it together.
+
+**Nothing is asked when there is nothing to ask.** With one model configured,
+no picker appears anywhere — not on a new chat, not on a new agent. The first
+provider saved becomes the default whether or not anybody ticked the box, and
+resolution is "the id if it names one, otherwise the default". A server with one
+model behaves exactly as it did when a model was a setting.
+
+**A conversation records the model it resolved to, not the empty string.**
+Starting a chat today against the default and changing the default tomorrow must
+not move yesterday's conversation onto another model — a transcript is a record
+of what a particular model did. An agent's provider is stored for the same
+reason, though the command is still what actually runs: it always was, and
+somebody who typed their own command meant it.
+
+**The existing configuration is carried across by the migration, sealed key and
+all.** `0034` copies the settings row into a provider named for what it is and
+marks it default, and the key moves as the same base64 ciphertext — it is never
+decrypted, and nobody sets Claude up twice. Every conversation that predates the
+column points at nothing and resolves to that provider, so an upgrade changes no
+answer. Tested by configuring a server on the released binary, then opening the
+same data directory with the new one: the provider appears, the sealed value is
+byte-identical, the old chat still opens and the old agent still holds its
+command and its session id.
+
+**An API key reaches an agent through tmux, not through a shell.** A workspace
+agent backed by an Anthropic key needs `ANTHROPIC_API_KEY` in its environment,
+and `send-keys` would put it in the scrollback, in the shell's history, and in
+front of anybody who attaches later. tmux takes `-e` on `new-window`, so the
+value goes in at creation. The workspace package learns which key through a hook
+the API layer fills in — the same shape as deploy's `CloneAuth` — because
+unsealing belongs where the daemon's keys are, and no feature package imports
+another.
+
+One thing is deliberately refused rather than fudged: an OpenAI-compatible
+endpoint cannot back a workspace agent. It answers HTTP and has no CLI on this
+server, so the picker does not offer it and the API says why, instead of
+accepting the choice and leaving somebody looking at a shell prompt wondering
+what happened.

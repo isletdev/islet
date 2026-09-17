@@ -70,6 +70,14 @@ type Service struct {
 	dir  string // <dataDir>/workspaces
 	sock string // <dataDir>/tmux.sock — the server every session lives on
 
+	// AgentEnv, when set, is asked what environment an agent's provider needs
+	// — an API key, a base URL — and the answer is given to tmux when the
+	// window is created rather than typed into it. The hook is what keeps this
+	// package from knowing anything about providers or how a credential is
+	// sealed, the same way deploy learns about the GitHub App through
+	// CloneAuth.
+	AgentEnv func(ctx context.Context, providerID string) map[string]string
+
 	// serverMu serialises starting the tmux server. Every panel action reaches
 	// tmux, several can be in flight at once, and two processes racing to create
 	// a server on one socket is not a theoretical problem: it segfaulted tmux

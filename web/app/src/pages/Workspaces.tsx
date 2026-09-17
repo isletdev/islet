@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { api, RequestError, type Agent, type Workspace } from "@/lib/api";
+import { api, RequestError, type Agent, type AIProvider, type Workspace } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDialog, failure } from "@/lib/dialogs";
 import { postStream } from "@/lib/stream";
@@ -124,6 +124,10 @@ export default function Workspaces() {
   const [err, setErr] = useState<string | null>(null);
   const [wsID, setWsID] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  // The models this server is set up with. An agent picks one when it is
+  // created; with a single model there is nothing to pick and nothing is shown.
+  const [models, setModels] = useState<AIProvider[]>([]);
+  const defaultModel = models.find((m) => m.default)?.id ?? models[0]?.id ?? "";
   const [tab, setTab] = useState<string>(SHELL); // an agent id, or SHELL
   const [editingWs, setEditingWs] = useState<Workspace | null>(null);
   const [editingAgent, setEditingAgent] = useState<Partial<Agent> | null>(null);
@@ -154,6 +158,7 @@ export default function Workspaces() {
 
   useEffect(() => { void loadList(); return pollInterval(() => void loadList(), 15000); }, [loadList]);
   useEffect(() => { void loadAgents(wsID); }, [wsID, loadAgents]);
+  useEffect(() => { void api.aiProviders().then(setModels).catch(() => setModels([])); }, []);
   // Live state comes from tmux, so it is polled rather than pushed. Ten seconds
   // is often enough to see an agent finish without making the box busy.
   useEffect(() => {
@@ -580,6 +585,30 @@ export default function Workspaces() {
                 required
               />
             </Field>
+            {/* Which model, asked only when there is more than one to ask
+                about, and only for an agent that does not exist yet — an agent
+                already running has a command, and that is what it is. */}
+            {models.length > 1 && !editingAgent.id && (
+              <Field label="Model" hint={models.find((m) => m.id === (editingAgent.providerId || defaultModel))?.kind === "openai"
+                ? "An API endpoint with no command to run in a terminal. Pick one backed by Claude Code for a workspace agent."
+                : "Fills the command in below. Anything you type there wins."}>
+                <Select
+                  value={editingAgent.providerId || defaultModel}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const m = models.find((x) => x.id === id);
+                    const untouched = !editingAgent.command || Object.values(PRESETS).some((x) => x.command === editingAgent.command);
+                    setEditingAgent({
+                      ...editingAgent, providerId: id,
+                      command: untouched && m && m.kind !== "openai" ? (m.command || "claude") : editingAgent.command,
+                      preset: untouched && m && m.kind !== "openai" ? "claude" : editingAgent.preset,
+                    });
+                  }}
+                >
+                  {models.map((m) => <option key={m.id} value={m.id}>{m.name}{m.default ? " (default)" : ""}</option>)}
+                </Select>
+              </Field>
+            )}
             <Field label="Starts from" hint={PRESETS[editingAgent.preset ?? "claude"].blurb}>
               <Select
                 value={editingAgent.preset ?? "claude"}

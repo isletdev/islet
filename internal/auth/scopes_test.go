@@ -204,3 +204,24 @@ func TestEveryOfferedScopeIsUnderstood(t *testing.T) {
 		}
 	}
 }
+
+// Models and their keys: listing is a read, adding one is configuration —
+// a credential goes in, the same as the GitHub App's key.
+func TestAIProviderScopes(t *testing.T) {
+	cases := []struct {
+		method, path, scopes string
+		want                 bool
+	}{
+		{"GET", "/api/v1/ai/providers", "read", true},
+		{"POST", "/api/v1/ai/providers", "read", false},
+		{"POST", "/api/v1/ai/providers", "settings", true},
+		{"DELETE", "/api/v1/ai/providers/abc", "read", false},
+		{"DELETE", "/api/v1/ai/providers/abc", "settings", true},
+		{"GET", "/api/v1/ai/providers", "deploy", false},
+	}
+	for _, c := range cases {
+		if got := ScopeAllows(c.scopes, c.method, c.path); got != c.want {
+			t.Errorf("%s %s with %q = %v, want %v", c.method, c.path, c.scopes, got, c.want)
+		}
+	}
+}

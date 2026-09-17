@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/isletdev/islet/internal/ai"
 	"github.com/isletdev/islet/internal/assistant"
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/backup"
@@ -111,6 +112,8 @@ type Server struct {
 	runs *runs
 	// seats is the one live viewer each tmux session may have.
 	seats *seats
+	// ai holds the models this server is set up to use.
+	ai *ai.Service
 	// chats is where those conversations are kept afterwards, so one started on
 	// a laptop can be opened on a phone.
 	chats *assistant.Chats
@@ -125,9 +128,15 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats()}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
+	}
+	// The workspace service asks this when it starts an agent. It is wired
+	// here rather than in main because unsealing a key is the API layer's
+	// business, and this is the layer that holds the daemon's keys.
+	if s.workspaces != nil {
+		s.workspaces.AgentEnv = s.AgentEnv
 	}
 	// The SQL client costs a map and a ticker until somebody opens a
 	// connection, which is the whole argument for it living in the daemon.
@@ -198,6 +207,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/vault", requireJSON(s.requireAuth(s.handleVault)))
 	mux.HandleFunc("DELETE /api/v1/vault/{name}", s.requireAuth(s.handleVaultDelete))
 	mux.HandleFunc("POST /api/v1/vault/{name}/reveal", requireJSON(s.requireAuth(s.handleVaultReveal)))
+	mux.HandleFunc("GET /api/v1/ai/providers", s.requireAuth(s.handleAIProviders))
+	mux.HandleFunc("POST /api/v1/ai/providers", requireJSON(s.requireAuth(s.handleAIProviders)))
+	mux.HandleFunc("POST /api/v1/ai/providers/{id}", requireJSON(s.requireAuth(s.handleAIProvider)))
+	mux.HandleFunc("DELETE /api/v1/ai/providers/{id}", s.requireAuth(s.handleAIProvider))
 	mux.HandleFunc("GET /api/v1/assistant", s.requireAuth(s.handleAssistantConfig))
 	mux.HandleFunc("POST /api/v1/assistant", requireJSON(s.requireAuth(s.handleAssistantConfig)))
 	mux.HandleFunc("POST /api/v1/assistant/chat", requireJSON(s.requireAuth(s.handleAssistantChat)))

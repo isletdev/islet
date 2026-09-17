@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, RequestError, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
+import { api, RequestError, type AIProvider, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
 import { getNDJSON, postNDJSON } from "@/lib/stream";
 import { useDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Input } from "@/components/ui";
+import { Alert, Button, Input, Select } from "@/components/ui";
 import Markdown from "@/components/Markdown";
 
 function err(e: unknown) {
@@ -48,6 +48,10 @@ export default function Assistant() {
   const ask = useDialog();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const [cfg, setCfg] = useState<AssistantConfig | null>(null);
+  const [models, setModels] = useState<AIProvider[]>([]);
+  // Which model the next conversation will use. Empty means the default, which
+  // is the whole answer when only one is configured — then nothing is asked.
+  const [provider, setProvider] = useState("");
   const [chats, setChats] = useState<AssistantChat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<AssistantMessage[]>([]);
@@ -79,6 +83,12 @@ export default function Assistant() {
   }, []);
 
   useEffect(() => { void api.assistant().then(setCfg).catch(() => setCfg(null)); }, []);
+  useEffect(() => {
+    void api.aiProviders().then((list) => {
+      setModels(list);
+      setProvider((p) => p || list.find((m) => m.default)?.id || list[0]?.id || "");
+    }).catch(() => setModels([]));
+  }, []);
   // A new turn belongs on screen without being scrolled to.
   useEffect(() => { foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, activity, running]);
 
@@ -298,8 +308,17 @@ export default function Assistant() {
     setText("");
     setActivity([]);
     await follow((onEvent, signal) =>
-      postNDJSON<AssistantEvent>("/api/v1/assistant/chat", onEvent, { chatId: chatId ?? undefined, text: q }, signal));
+      postNDJSON<AssistantEvent>("/api/v1/assistant/chat", onEvent,
+        // The model goes with the first message only. After that the
+        // conversation has one of its own and the daemon uses that, so
+        // changing the picker cannot move a chat that is under way.
+        { chatId: chatId ?? undefined, text: q, providerId: chatId ? undefined : (provider || undefined) }, signal));
   };
+
+  // Which model a new conversation will use. Only asked when there is more
+  // than one to ask about; with one configured the answer is never in doubt.
+  // What the open conversation is using, for the line beside the title.
+  const chatModel = models.find((m) => m.id === chats.find((c) => c.id === chatId)?.providerId)?.name ?? "";
 
   const newChat = () => {
     window.clearTimeout(retry.current);
@@ -314,6 +333,7 @@ export default function Assistant() {
     setError(null);
     setRunning(false);
     setListOpen(false);
+    setProvider("");
   };
 
   const stop = async () => {
@@ -361,7 +381,16 @@ export default function Assistant() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {cfg && <span className="hidden text-xs text-ink-muted sm:inline">{cfg.tools} tools · {cfg.provider}</span>}
+          {/* The picker is for the conversation that has not started yet. An
+              open one already has a model, and changing it halfway through
+              would make the transcript a record of two different things. */}
+          {models.length > 1 && !chatId && (
+            <Select value={provider} onChange={(e) => setProvider(e.target.value)} className="h-8 w-52 max-w-[45vw] text-xs" aria-label="Model for this conversation">
+              {models.map((m) => <option key={m.id} value={m.id}>{m.name}{m.default ? " (default)" : ""}</option>)}
+            </Select>
+          )}
+          {models.length > 1 && chatId && chatModel && <span className="hidden text-xs text-ink-muted sm:inline">{chatModel}</span>}
+          {cfg && models.length <= 1 && <span className="hidden text-xs text-ink-muted sm:inline">{cfg.tools} tools · {models[0]?.name ?? cfg.provider}</span>}
           <Button type="button" variant="secondary" className="h-8 text-xs md:hidden" onClick={() => setListOpen((v) => !v)}>
             {listOpen ? "Close" : `Chats${chats.length ? ` (${chats.length})` : ""}`}
           </Button>
