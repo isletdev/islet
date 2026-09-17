@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `eed5c59`, tagged `v0.21.0`, 2026-09-17. 155 commits, 72 tags, CI green on `main`.
+**Head:** `8b65f78`, tagged `v0.22.0`, 2026-09-17. 158 commits, 73 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.21.0
+## Shipped since the plan ran out — v0.6.0 to v0.22.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -86,6 +86,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.20.1 | `c473211` | Every browser signed in before v0.20.0 still held a session cookie scoped to the parent domain, and went on handing it to protected sites until it expired. The wide cookie is deleted by name and the session re-issued host-only on the first panel load without a gate cookie |
 | v0.20.2 | `0a7e1ad` | **Two tabs on one workspace took it from each other forever.** tmux attaches with `-d`, the panel reconnects on close, and together that is a loop. One seat per session now: the displaced tab is told (status 4001) and stops, and nothing reconnects while its tab is hidden. Also: runner containers could not resolve the address their own generated workflow tells them to call, and the catalog URL field hung off the side of a phone |
 | v0.21.0 | `eed5c59` | **Blocklists and geo-blocking**, built into Islet rather than by installing a second firewall manager: three community lists and per-country zones in one ipset, dropped in INPUT and DOCKER-USER, refreshed daily, restored after a reboot — with every private and bogon range filtered out, because FireHOL level 1 contains `10.0.0.0/8` and loading it raw cuts a Docker host off from its own containers. Plus: the panel now says which GitHub App permission is missing instead of leaving "Resource not accessible by integration" in a log, Pocket ID's note no longer claims a first-user admin rule it never had, and Logto joins the catalog |
+| v0.22.0 | `8b65f78` | **Models are things you set up, not a setting.** A provider is a named row — subscription, Anthropic key, OpenAI-compatible — configured under Settings → AI; the assistant picks one per conversation and a workspace agent picks one when it is created, and neither asks when only one is configured. The existing configuration migrates with its sealed key unchanged, so nobody sets Claude up twice and no open conversation changes model. An Anthropic key reaches an agent through tmux `-e`, never through a shell where it would sit in the scrollback |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
