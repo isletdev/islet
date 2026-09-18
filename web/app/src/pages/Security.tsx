@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
 import { capLines } from "@/lib/logcap";
+import CountryPicker from "@/components/CountryPicker";
 import { useDialog } from "@/lib/dialogs";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
@@ -162,12 +163,6 @@ export default function Security() {
 
 // Countries worth offering by name. Anything else can be typed: this is the
 // short list of codes people actually reach for, not a atlas.
-const COUNTRIES = [
-  { cc: "cn", name: "China" }, { cc: "ru", name: "Russia" }, { cc: "kp", name: "North Korea" },
-  { cc: "ir", name: "Iran" }, { cc: "in", name: "India" }, { cc: "br", name: "Brazil" },
-  { cc: "vn", name: "Vietnam" }, { cc: "id", name: "Indonesia" }, { cc: "ng", name: "Nigeria" },
-];
-
 /**
  * Lists of addresses to drop before they reach anything.
  *
@@ -181,7 +176,6 @@ function BlocklistCard({ onChanged }: { onChanged: () => Promise<void> }) {
   const [b, setB] = useState<Blocklist | null>(null);
   const [sources, setSources] = useState<string[]>([]);
   const [countries, setCountries] = useState<string[]>([]);
-  const [extra, setExtra] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const load = useCallback(() => api.blocklist().then((x) => { setB(x); setSources(x.sources); setCountries(x.countries); }).catch(() => {}), []);
@@ -192,9 +186,9 @@ function BlocklistCard({ onChanged }: { onChanged: () => Promise<void> }) {
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   const apply = async () => {
-    const all = [...countries, ...extra.split(/[,\s]+/).map((c) => c.trim().toLowerCase()).filter((c) => c.length === 2)];
+    const all = countries.map((c) => c.trim().toLowerCase()).filter((c) => c.length === 2);
     setBusy("apply"); setMsg(null);
-    try { const r = await api.blocklistSet({ sources, countries: [...new Set(all)] }); setB(r); setExtra(""); setMsg(`${r.entries} networks loaded.`); await onChanged(); }
+    try { const r = await api.blocklistSet({ sources, countries: [...new Set(all)] }); setB(r); setMsg(`${r.entries} networks loaded.`); await onChanged(); }
     catch (e) { setMsg(err(e)); } finally { setBusy(null); }
   };
   const refresh = async () => {
@@ -231,15 +225,9 @@ function BlocklistCard({ onChanged }: { onChanged: () => Promise<void> }) {
       <div className="mt-4">
         <span className="text-sm font-medium">Countries</span>
         <p className="mt-0.5 text-xs text-ink-muted">Whole-country blocks are blunt: they stop customers and VPN exits as readily as attackers. Use them when a server only ever serves one part of the world.</p>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          {COUNTRIES.map((c) => (
-            <label key={c.cc} className="-my-1 flex items-center gap-1.5 py-1 text-xs">
-              <input type="checkbox" checked={countries.includes(c.cc)} onChange={() => toggle(countries, setCountries, c.cc)} />
-              {c.name}
-            </label>
-          ))}
+        <div className="mt-2">
+          <CountryPicker value={countries} onChange={setCountries} />
         </div>
-        <Input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="More codes, comma separated: pk, tr" className="mt-2 h-8 w-full max-w-sm text-xs" aria-label="More country codes" />
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button className="h-8 text-xs" disabled={busy !== null} onClick={() => void apply()}>{busy === "apply" ? "Fetching…" : b.enabled ? "Save and fetch" : "Turn on"}</Button>
