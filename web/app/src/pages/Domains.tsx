@@ -487,6 +487,10 @@ export default function Domains() {
         // saved, so the certificate field answers while the person types.
         const editingWildcard = editing.host.trim().startsWith("*.");
         const savedProvider = status?.dnsProvider ?? "";
+        // The form opens with the credential field blank — it holds bcrypt
+        // hashes and showing them would be worse — so whether this site has any
+        // comes from the list rather than from the field.
+        const hadBasicAuth = !!domains.find((x) => x.id === editing.id)?.basicAuth;
         return (
         <div ref={formRef}>
         <Card title={editing.id ? `Edit ${editing.host}` : "Add domain"} description="Create the DNS A record first; the helper checks it for you.">
@@ -545,7 +549,7 @@ export default function Domains() {
                 onChange={(patch) => setEditing({ ...editing, ...patch })}
               />
             </div>
-            <Field label="Basic auth (optional)" hint="user:password per line. Passwords are hashed on save."><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field>
+            <Field label="Basic auth (optional)" hint={hadBasicAuth ? "This site already asks for a username and password. Leave this empty to keep those users; anything you type replaces them." : "user:password per line. Passwords are hashed on save."}><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value, clearBasicAuth: false })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" />{hadBasicAuth && <label className="mt-1 flex items-center gap-2 text-xs text-ink-muted"><input type="checkbox" checked={!!editing.clearBasicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: "", clearBasicAuth: e.target.checked })} />Remove the users already set, so the site asks for nothing</label>}</Field>
             <Field label="IP allowlist (optional)" hint="CIDRs, comma separated. Everyone else gets 403."><Input value={editing.ipAllowlist} onChange={(e) => setEditing({ ...editing, ipAllowlist: e.target.value })} placeholder="203.0.113.7/32, 10.0.0.0/8" /></Field>
             <Field label="Rate limit (req/s, 0 = off)"><Input value={String(editing.rateLimit)} onChange={(e) => setEditing({ ...editing, rateLimit: Number(e.target.value) || 0 })} inputMode="numeric" /></Field>
             <Field label="Extra response headers" hint="Name: value per line"><textarea value={editing.headers} onChange={(e) => setEditing({ ...editing, headers: e.target.value })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field>

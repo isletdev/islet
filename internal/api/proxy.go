@@ -378,6 +378,15 @@ func (s *Server) handleDomainDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "viewers cannot change domains"})
 		return
 	}
+	// Saving refuses a non-admin who changes protection. Deleting did not, and
+	// a domain can be created again — so delete-then-recreate was a way to take
+	// the gate off a site, in two steps a deployer was allowed to take, with
+	// nothing in between that said no.
+	if cur, err := s.proxy.Domain(r.Context(), r.PathValue("id")); err == nil && u.Role != "admin" && cur.Protect {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden",
+			Message: "this site is protected by Islet login: only admins can remove it"})
+		return
+	}
 	if err := s.proxy.Delete(r.Context(), u.Username, r.PathValue("id")); err != nil {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such domain"})
 		return

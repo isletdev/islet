@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -596,12 +597,20 @@ type Domain struct {
 	PathPrefix  string `json:"pathPrefix"`
 	TLS         string `json:"tls"` // letsencrypt | letsencrypt-dns | self | none
 	RedirectWWW bool   `json:"redirectWww"`
-	BasicAuth   string `json:"basicAuth"` // user:hash lines; API accepts user:password and hashes
-	IPAllowlist string `json:"ipAllowlist"`
-	RateLimit   int    `json:"rateLimit"`
-	Headers     string `json:"headers"`
-	Maintenance bool   `json:"maintenance"`
-	Protect     bool   `json:"protect"` // require a panel session (forward auth)
+	// BasicAuth holds user:hash lines; the API accepts user:password and hashes
+	// them on save. On an update an empty value means "leave what is stored
+	// alone", because the panel never sends hashes back to a form it did not
+	// show them in — see ClearBasicAuth for removing them.
+	BasicAuth string `json:"basicAuth"`
+	// ClearBasicAuth removes the stored users. It is a request field and is
+	// never stored: "no value" and "remove the value" are different intentions
+	// and one empty string cannot carry both.
+	ClearBasicAuth bool   `json:"clearBasicAuth,omitempty"`
+	IPAllowlist    string `json:"ipAllowlist"`
+	RateLimit      int    `json:"rateLimit"`
+	Headers        string `json:"headers"`
+	Maintenance    bool   `json:"maintenance"`
+	Protect        bool   `json:"protect"` // require a panel session (forward auth)
 	// ProtectUsers narrows that to named accounts, comma separated. Empty
 	// means any signed-in Islet user, which is what Protect alone always did.
 	ProtectUsers string `json:"protectUsers"`
@@ -659,13 +668,71 @@ func validateTarget(kind string, target *string, port *int) error {
 	case "panel":
 		*target, *port = "", 0
 	case "url":
-		if !strings.HasPrefix(*target, "http://") && !strings.HasPrefix(*target, "https://") {
-			return errors.New("target must be an http(s) URL")
+		if err := validateURLTarget(*target); err != nil {
+			return err
 		}
 	default:
 		return errors.New("targetType must be container, panel or url")
 	}
 	return nil
+}
+
+// validateURLTarget checks a URL a site will be proxied to.
+//
+// A prefix test for "http://" was the whole check, which accepted anything at
+// all after it — including addresses that are not a backend anybody meant to
+// publish. Two of those are refused here and nothing else is, because routing
+// to something on this machine is an ordinary thing to want: a service on a
+// port, reached through the host gateway, is how half the url targets in the
+// wild are written.
+//
+// Link-local is the exception that has no innocent reading. 169.254.169.254 is
+// the cloud metadata endpoint on every major provider — instance credentials,
+// no authentication, trusted because only something on the machine can reach
+// it. Publishing it at a hostname hands those credentials to the internet.
+func validateURLTarget(target string) error {
+	u, err := url.Parse(strings.TrimSpace(target))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("target must be an http(s) URL")
+	}
+	if u.Host == "" {
+		return errors.New("that URL has no host")
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
+		return errors.New("that address is link-local: on a cloud server it is the metadata endpoint, which holds this machine's credentials and must not be published")
+	}
+	return nil
+}
+
+// pointsAtPanel says whether a url target is the daemon itself.
+//
+// The panel has a target type of its own, which is admin-only and renders the
+// forward-auth and header rules the panel needs. Reaching the same place by
+// writing its address as a plain URL skipped all of that: it published the
+// panel, past the admin-only check on the panel type and past the IP
+// restriction, for anybody who could add a domain.
+func pointsAtPanel(targetType, target, panelURL string) bool {
+	if targetType != "url" {
+		return false
+	}
+	p, err := url.Parse(panelURL)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(target))
+	if err != nil {
+		return false
+	}
+	if u.Port() != p.Port() {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "host.docker.internal" || h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 var containerRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -763,6 +830,9 @@ func (d *Domain) Validate() error {
 		}
 	}
 	// Hash plaintext basic auth entries (user:password) into user:bcrypt.
+	if d.ClearBasicAuth {
+		d.BasicAuth = ""
+	}
 	var lines []string
 	for _, l := range strings.Split(d.BasicAuth, "\n") {
 		l = strings.TrimSpace(l)
@@ -964,6 +1034,16 @@ func (m *Manager) writeDomain(ctx context.Context, d *Domain) error {
 			return err
 		}
 	} else {
+		// An empty value on an update means "unchanged". The editor opens with
+		// the field blank — it has hashes to show and showing them would be
+		// worse — so taking that blank literally quietly deleted the users of
+		// any site whose port or certificate somebody came to change.
+		if d.BasicAuth == "" && !d.ClearBasicAuth {
+			var stored string
+			if err := m.st.DB.QueryRowContext(ctx, `SELECT basic_auth FROM domains WHERE id = ? AND server_id = ?`, d.ID, m.st.ServerID).Scan(&stored); err == nil {
+				d.BasicAuth = stored
+			}
+		}
 		_, err := m.st.DB.ExecContext(ctx, `UPDATE domains SET host=?, target_type=?, target=?, port=?, path_prefix=?, tls=?, redirect_www=?, basic_auth=?, ip_allowlist=?, rate_limit=?, headers=?, maintenance=?, protect=?, protect_users=?, enabled=?, pass_host=?, block_exploits=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
 			WHERE id = ? AND server_id = ?`,
 			d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), d.ProtectUsers, b(d.Enabled), b(d.PassHost), b(d.BlockExploits), d.ID, m.st.ServerID)
@@ -979,6 +1059,16 @@ func (m *Manager) writeDomain(ctx context.Context, d *Domain) error {
 func (m *Manager) Save(ctx context.Context, actor string, d *Domain) (*Domain, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
+	}
+	// The panel has a target type of its own, and it is admin-only. Writing the
+	// daemon's own address as a url target reached the same place without it.
+	if pointsAtPanel(d.TargetType, d.Target, m.panel) {
+		return nil, errors.New("that address is the panel: choose the panel target type instead, which is what renders its login and header rules")
+	}
+	for _, l := range d.Locations {
+		if pointsAtPanel(l.TargetType, l.Target, m.panel) {
+			return nil, errors.New("a location points at the panel: choose the panel target type instead")
+		}
 	}
 	// Validate has already turned a wildcard asking for Let's Encrypt into a
 	// DNS-01 request, so this one check covers both ways of getting here.
