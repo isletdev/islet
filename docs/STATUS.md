@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `9c764a8`, tagged `v0.24.0`, 2026-09-18. 189 commits, 79 tags, CI green on `main`.
+**Head:** `05baa56`, tagged `v0.25.0`, 2026-09-18. 192 commits, 80 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.24.0
+## Shipped since the plan ran out — v0.6.0 to v0.25.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -93,6 +93,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.23.2 | `b76748a` | Creating a workspace stopped the one you were working in, and the fix in v0.23.0 did not hold because a line above it removed the tmux socket first: `stale()` reads one ECONNREFUSED as a dead path, and a live socket returns that when its accept queue is full. The destructive path is now gated on the number of processes in the unit's cgroup — a signal a busy server cannot fake — and clearing the unit stops being the opening move, so `systemctl stop` is reached only when `systemd-run` actually refuses the name |
 | v0.23.3 | `bd825f8` | The workspace that stopped when you created another one: tmux 3.2a segfaults its **server** when it expands a format for a target that does not exist, taking every session with it, and `running()` asked for `#{session_created}` of a session a new workspace does not have yet. `has-session` goes first, which takes no format and survives a missing target. "Server exited unexpectedly" was tmux's own words for its server dying, and two earlier releases treated the recovery from it rather than the crash |
 | v0.24.0 | `9c764a8` | **A secret reaches every place an app is configured**, not just a Git deploy: cron resolves `@vault:NAME` into the process and no further, and a catalog install resolves it on the way to the `.env` Compose reads, which the page now says out loud. **Nineteen sidebar entries become thirteen** — Terminal is a header button, Logs and Uptime are one page with two tabs, the vault is Settings → Secrets, Notifications moves to the foot and the Assistant moves up. And **a fresh server can actually get a subscription working**: Settings → AI installs Claude Code and reports whether it has been signed in to, which is a separate question it never asked |
+| v0.25.0 | `05baa56` | **The blocklist was blocking its own source.** A stateless DROP on a source address also drops the replies to connections this server opened, and ipdeny.com — where the country zone files come from — is in IPsum, so turning country blocks on made them impossible to download, silently, while the page reported the lists as loaded. The rule matches `--ctstate NEW` now, which also unbreaks any registry pull, ACME challenge or webhook to an address a list happens to name. **A second daemon can no longer take the machine**: the proxy container and the ipset are one per host, and a daemon from another data directory used to replace them without a word — ownership is recorded under `/run` and the second one is refused by name. Plus the country blocks offer all 249 countries behind a search rather than nine checkboxes and a box for typing codes by hand |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
