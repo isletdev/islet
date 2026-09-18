@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `af97300`, tagged `v0.26.0`, 2026-09-18. 201 commits, 82 tags, CI green on `main`.
+**Head:** `f3fedaa`, tagged `v0.26.1`, 2026-09-18. 203 commits, 83 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.26.0
+## Shipped since the plan ran out — v0.6.0 to v0.26.1
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -96,6 +96,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.25.0 | `05baa56` | **The blocklist was blocking its own source.** A stateless DROP on a source address also drops the replies to connections this server opened, and ipdeny.com — where the country zone files come from — is in IPsum, so turning country blocks on made them impossible to download, silently, while the page reported the lists as loaded. The rule matches `--ctstate NEW` now, which also unbreaks any registry pull, ACME challenge or webhook to an address a list happens to name. **A second daemon can no longer take the machine**: the proxy container and the ipset are one per host, and a daemon from another data directory used to replace them without a word — ownership is recorded under `/run` and the second one is refused by name. Plus the country blocks offer all 249 countries behind a search rather than nine checkboxes and a box for typing codes by hand |
 | v0.25.1 | `5046c13` | **Text could not be selected in a terminal that was running anything.** A full-screen program asks to be told about the mouse, and from then on a drag is the program's; the way out is a modifier, Shift everywhere and Option on a Mac, and xterm.js leaves the Mac one off unless asked — so on a Mac there was no way to select at all, and nowhere did the panel say which key. The toolbar now says it, and only while a program is actually holding the mouse. **Settings → Team put nothing in the same place twice**: each row measured its own cells, so a role name, "all projects" and an actions group that is shorter on your own row moved the columns about. The list is one grid the rows take their columns from, and delete is the panel's trash icon rather than a word beside "Reset password" |
 | v0.26.0 | `af97300` | **The assistant can be handed files.** Images, video, documents, a zip of a brand kit: uploaded from the composer, checked for malware, and from then on an absolute path on this server — which is what every one of its seventy tools already takes, and what Claude Code opens itself, so a photograph and a forty-megabyte video cost the same to attach. Scanning is `clamdscan`, then `clamscan`, then nothing, and *nothing* is said out loud rather than implied: ClamAV wants a gigabyte of RAM for its signatures and this daemon is meant to run on a server with one. A scanner that is installed and cannot answer refuses. The composer shows a thumbnail of an image and an icon for everything else — which needed `blob:` on the panel's own `img-src`, without which the preview silently drew nothing — and the microphone beside it is the browser's own speech recognition or is not drawn at all. Plus: **starting an agent again was invisible until the page was reloaded**, because killing a tmux window moves every client attached to that session on to another one, so the panel was showing a sibling's window under the stopped agent's name — and a keystroke meant for one agent went to the other |
+| v0.26.1 | `f3fedaa` | **A selection over Claude's output lasted until Claude wrote again.** Selecting in the shell worked and selecting in an agent did not, which is one behaviour, not two: an idle terminal and a busy one. A selection in xterm is a pair of buffer positions and tmux puts every session on the alternate screen, which has no scrollback — so when the program scrolls, the lines move and the positions do not. A selection reading `PICKME 15` read `PICKME 19` three scrolled lines later, and was gone a few lines after that, which means the Copy button would hand over text nobody chose. Output now waits while there is a selection on screen and goes in the moment the selection does; nothing is dropped, the toolbar says it is held, and past 2 MB the output wins and says so |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
