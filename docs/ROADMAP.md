@@ -6,6 +6,8 @@ How to read this: each phase has a one-line goal, a list of what the user can do
 
 This file is the plan. For where the work actually stands — including the eleven releases after the plan ran out, and what is left before 1.0.0 — see [STATUS.md](STATUS.md).
 
+One thing planned after this roadmap was written has its own document: services an operator switches on for their *applications* to call, starting with media. See [SERVICES.md](SERVICES.md).
+
 ---
 
 ## Phase 0 — Foundation `v0.1`

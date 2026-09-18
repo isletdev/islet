@@ -14,6 +14,7 @@ bugs here are about a real system's state, not about code in isolation.
 | `../docs/ROADMAP.md` | the phased plan, with checkboxes |
 | `../docs/DECISIONS.md` | why a non-obvious call was made. Long; the entries nearest the end explain the current code |
 | `../docs/STRUCTURE.md` | what every folder is for |
+| `../docs/SERVICES.md` | the plan for services apps call — media first. Not built yet |
 | `../CONTRIBUTING.md` | build and dev-server commands |
 | `../docs/AGENT_SETUP.md` | running an agent on a server Islet manages, and the machine rules that do not belong in this file |
 
