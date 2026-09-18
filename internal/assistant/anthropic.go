@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,14 @@ type Anthropic struct {
 }
 
 func (a *Anthropic) Name() string { return "Anthropic" }
+
+// Ready: an API key, which is the whole of what this needs.
+func (a *Anthropic) Ready() error {
+	if strings.TrimSpace(a.Key) == "" {
+		return errors.New("this model has no API key")
+	}
+	return nil
+}
 
 func (a *Anthropic) model() string {
 	if a.Model != "" {

@@ -253,7 +253,14 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 		mcpCfg, _, _ := s.store.Setting(r.Context(), "assistant.mcp_config")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"provider": kind, "model": model, "baseUrl": base,
-			"keySet":       key != "",
+			"keySet": key != "",
+			// Whether there is anything to answer with, decided the way the
+			// run path decides it rather than by reading the same settings
+			// twice. A model added under Settings → AI is a row, and this
+			// endpoint only ever reported the settings underneath it — so a
+			// server with a perfectly good model configured told everybody who
+			// opened the Assistant that none was, and disabled the box.
+			"ready":        s.assistantReady(r.Context()),
 			"defaultModel": assistant.DefaultAnthropicModel,
 			"tools":        len(s.assistantTools()),
 			"mcpConfig":    mcpCfg,
@@ -799,4 +806,18 @@ func (s *Server) systemPrompt() string {
 		return assistantSystem
 	}
 	return assistantSystem + fmt.Sprintf(assistantFiles, s.uploads.Dir())
+}
+
+// assistantReady answers "is there anything to ask" by building the thing that
+// would answer and asking it.
+//
+// Building the default provider is what a question does a moment later, so
+// this cannot drift from it — and the provider decides, because "configured"
+// means an API key for one and an installed binary for another. Reading the
+// settings here instead is what made a server with a perfectly good model
+// under Settings → AI tell everybody that none was configured; building
+// without asking is what made a server with no key at all say it was.
+func (s *Server) assistantReady(ctx context.Context) bool {
+	p, err := s.providerFor(ctx, "")
+	return err == nil && p != nil && p.Ready() == nil
 }

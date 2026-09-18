@@ -522,7 +522,7 @@ export default function Assistant() {
     } catch (e) { setError(err(e)); }
   };
 
-  const ready = cfg && (cfg.keySet || cfg.provider === "subscription");
+  const ready = cfg?.ready ?? false;
 
   return (
     <div className="mx-auto flex h-full max-w-6xl flex-col">

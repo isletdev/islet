@@ -139,6 +139,15 @@ type Tool struct {
 type Provider interface {
 	// Name is what the panel shows.
 	Name() string
+	// Ready reports whether this provider has what it needs to answer, and
+	// says what is missing when it does not.
+	//
+	// On the interface rather than beside it, because the panel asks this to
+	// decide whether to let somebody type a question, and a provider that
+	// could quietly forget to answer it would tell everybody it was ready.
+	// It is about configuration, not reachability: a wrong key is a question
+	// that fails, not a question the panel should refuse to send.
+	Ready() error
 	// Complete sends the conversation and returns the model's next turn.
 	Complete(ctx context.Context, system string, msgs []Message, tools []Tool) (Message, error)
 }

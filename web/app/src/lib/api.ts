@@ -191,6 +191,11 @@ export interface AIProvider {
 export interface AssistantConfig {
   provider: "anthropic" | "openai" | "subscription";
   model: string; baseUrl: string; keySet: boolean; defaultModel: string;
+  /** Whether this server can answer a question at all. The daemon decides it
+      by building the provider a question would use, so the page and the run
+      cannot disagree — reading the settings here said "not configured" on a
+      server whose model was a row under Settings → AI. */
+  ready: boolean;
   tools: number; mcpConfig: string; claudeInstalled: boolean; claudeSignedIn: boolean; claudePath: string;
 }
 export interface AssistantToolCall { id: string; name: string; input?: Record<string, unknown> }

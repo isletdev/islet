@@ -39,6 +39,16 @@ type Subscription struct {
 
 func (s *Subscription) Name() string { return "Claude subscription" }
 
+// Ready: the binary it drives. Whether it has been signed in to is a separate
+// question, asked and answered where somebody can act on it — Settings → AI
+// installs it and says whether it has a login.
+func (s *Subscription) Ready() error {
+	if strings.TrimSpace(s.Bin) == "" {
+		return errors.New("Claude Code is not installed on this server")
+	}
+	return nil
+}
+
 func (s *Subscription) Complete(ctx context.Context, system string, msgs []Message, tools []Tool) (Message, error) {
 	return s.CompleteStream(ctx, system, msgs, tools, nil)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,16 @@ type OpenAI struct {
 	MaxTokens int
 	Label     string // what to call it in the panel
 	HTTP      *http.Client
+}
+
+// Ready: a key, or a base URL. Both are configuration, and one of them is
+// enough — a model served from this machine or the next one usually wants no
+// key at all, and refusing it would be refusing the cheapest way to run this.
+func (o *OpenAI) Ready() error {
+	if strings.TrimSpace(o.Key) == "" && strings.TrimSpace(o.BaseURL) == "" {
+		return errors.New("this model has neither an API key nor a base URL")
+	}
+	return nil
 }
 
 func (o *OpenAI) Name() string {

@@ -537,3 +537,36 @@ func TestTheTurnKeepsWhatItDid(t *testing.T) {
 		t.Errorf("this provider must never return tool calls: %+v", msg.Calls)
 	}
 }
+
+// Whether a provider is configured is the provider's own question.
+//
+// The panel asks it to decide whether somebody may type a question at all, and
+// it used to be answered by reading settings in the API layer — which said "no
+// assistant is configured" on a server whose model was a row, and "configured"
+// on one with no key at all. Both readings were of the wrong thing.
+func TestEachProviderSaysWhetherItCanAnswer(t *testing.T) {
+	cases := []struct {
+		name string
+		p    Provider
+		ok   bool
+	}{
+		{"anthropic with a key", &Anthropic{Key: "sk-test"}, true},
+		{"anthropic with none", &Anthropic{}, false},
+		{"openai with a key", &OpenAI{Key: "sk-test"}, true},
+		// A model served from this machine or the next one wants no key, and
+		// refusing it would refuse the cheapest way to run this.
+		{"openai with only a base url", &OpenAI{BaseURL: "http://127.0.0.1:11434/v1"}, true},
+		{"openai with neither", &OpenAI{}, false},
+		{"subscription with a binary", &Subscription{Bin: "/usr/local/bin/claude"}, true},
+		{"subscription with none", &Subscription{}, false},
+	}
+	for _, c := range cases {
+		err := c.p.Ready()
+		if (err == nil) != c.ok {
+			t.Errorf("%s: Ready() = %v, want ok=%v", c.name, err, c.ok)
+		}
+		if err != nil && len(err.Error()) < 10 {
+			t.Errorf("%s: the refusal says too little: %q", c.name, err)
+		}
+	}
+}

@@ -20,6 +20,7 @@ type held struct {
 }
 
 func (h *held) Name() string { return "held" }
+func (h *held) Ready() error { return nil }
 func (h *held) Complete(ctx context.Context, _ string, _ []assistant.Message, _ []assistant.Tool) (assistant.Message, error) {
 	if h.release != nil {
 		select {

@@ -16,6 +16,7 @@ type fake struct {
 }
 
 func (f *fake) Name() string { return "fake" }
+func (f *fake) Ready() error { return nil }
 func (f *fake) Complete(_ context.Context, _ string, msgs []Message, _ []Tool) (Message, error) {
 	f.seen = append(f.seen, append([]Message(nil), msgs...))
 	if f.err != nil {
@@ -204,6 +205,7 @@ type failAfter struct {
 }
 
 func (f *failAfter) Name() string { return "failAfter" }
+func (f *failAfter) Ready() error { return nil }
 func (f *failAfter) Complete(ctx context.Context, sys string, msgs []Message, tools []Tool) (Message, error) {
 	f.n++
 	if f.n > f.after {
