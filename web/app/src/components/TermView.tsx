@@ -69,6 +69,10 @@ export default function TermView({
   const [attempt, setAttempt] = useState(0);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [hasSel, setHasSel] = useState(false);
+  // Output that arrived while there was a selection on screen, waiting for it
+  // to be let go. See the note on `flush` below for why it waits.
+  const held = useRef<Uint8Array[]>([]);
+  const [holding, setHolding] = useState(false);
   // Whether the program inside has asked to be told about the mouse, which is
   // what decides whether a plain drag selects or is sent onwards.
   const [mouseGrabbed, setMouseGrabbed] = useState(false);
@@ -148,7 +152,12 @@ export default function TermView({
       return false;
     });
 
-    const onSel = t.onSelectionChange(() => setHasSel(t.hasSelection()));
+    const onSel = t.onSelectionChange(() => {
+      const has = t.hasSelection();
+      setHasSel(has);
+      // Letting go of the selection is what releases the output behind it.
+      if (!has) flush();
+    });
     // Polled rather than subscribed: xterm reports the mode but does not emit
     // when it changes, and it changes whenever a program starts or exits — a
     // second is far tighter than a person can notice and cheaper than anything
@@ -280,7 +289,11 @@ export default function TermView({
       ws.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows }));
       t.focus();
     };
-    ws.onmessage = (ev) => t.write(new Uint8Array(ev.data as ArrayBuffer));
+    ws.onmessage = (ev) => {
+      const bytes = new Uint8Array(ev.data as ArrayBuffer);
+      if (hold(t, bytes)) return;
+      t.write(bytes);
+    };
     ws.onerror = () => setStatus("error");
     ws.onclose = (ev) => {
       setStatus("closed");
@@ -317,6 +330,55 @@ export default function TermView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, gen, reattaches]);
 
+  /**
+   * Output waits while there is a selection on screen.
+   *
+   * A selection in xterm is a pair of buffer positions, and tmux puts every
+   * session on the alternate screen, which has no scrollback: when the program
+   * scrolls, the lines move and the positions do not. So the highlight stays
+   * where it was drawn while different text slides underneath it, and a moment
+   * later it is either gone or — worse, because nothing says so — covering text
+   * nobody chose. That is why the shell prompt could be selected and Claude's
+   * output could not: one of them is idle and the other is writing.
+   *
+   * Holding the bytes until the selection is let go is what every terminal does
+   * in one form or another; tmux calls it copy-mode. Nothing is dropped, the
+   * program on the other end is not stopped, and the moment the selection goes
+   * the screen catches up.
+   *
+   * The cap is there because a selection somebody walked away from should not
+   * grow without limit. At that point the output wins and the selection goes,
+   * which is the right way round: output is the thing that cannot be recovered.
+   */
+  const HOLD_MAX = 2 << 20;
+  const flush = useCallback(() => {
+    const t = term.current;
+    const queued = held.current;
+    held.current = [];
+    setHolding(false);
+    if (!t || queued.length === 0) return;
+    for (const chunk of queued) t.write(chunk);
+  }, []);
+
+  const hold = useCallback((t: XTerm, bytes: Uint8Array) => {
+    if (!t.hasSelection()) return false;
+    let size = bytes.length;
+    for (const chunk of held.current) size += chunk.length;
+    if (size > HOLD_MAX) {
+      // Too much to keep waiting for. Say so, rather than letting the screen
+      // jump with no explanation.
+      t.clearSelection();
+      flush();
+      t.write(bytes);
+      setNote("The output was coming faster than the selection could be held, so the selection was let go.");
+      setTimeout(() => setNote(null), 6000);
+      return true;
+    }
+    held.current.push(bytes);
+    setHolding(true);
+    return true;
+  }, [flush]);
+
   const copy = useCallback(async (text: string) => {
     if (!text) return;
     try {
@@ -328,6 +390,16 @@ export default function TermView({
       setTimeout(() => setNote(null), 6000);
     }
   }, []);
+
+  // Copying lets the selection go, which is what lets the held output through.
+  // Keeping the highlight after a copy would mean a terminal that stays still
+  // until somebody thought to click on it.
+  const copySelection = useCallback(() => {
+    const t = term.current;
+    if (!t) return;
+    void copy(t.getSelection());
+    t.clearSelection();
+  }, [copy]);
 
   const send = useCallback((text: string) => {
     const ws = sock.current;
@@ -397,7 +469,7 @@ export default function TermView({
             stays as the accessible name and the tooltip. */}
         <button type="button" aria-label="Copy the selection" title="Copy the selection"
           className={`-my-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40 ${toolbar ? "ml-auto" : ""}`}
-          disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>
+          disabled={!hasSel} onClick={copySelection}>
           <CopyIcon className="h-4 w-4" />
         </button>
         <button type="button" aria-label="Paste" title="Paste"
@@ -413,6 +485,11 @@ export default function TermView({
           <span className="hidden text-[11px] text-ink-faint sm:inline">
             {selectModifier()}+drag to select
           </span>
+        )}
+        {/* Said out loud, because a screen that has stopped moving looks like a
+            terminal that has died. It catches up the moment the selection goes. */}
+        {holding && (
+          <span className="text-[11px] text-ink-muted">output held while you select</span>
         )}
         {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
@@ -450,7 +527,7 @@ export default function TermView({
             className="fixed z-50 min-w-40 rounded-md border border-border bg-surface py-1 text-sm shadow-float"
             style={{ left: Math.min(menu.x, window.innerWidth - 180), top: Math.min(menu.y, window.innerHeight - 160) }}
           >
-            <MenuItem disabled={!hasSel} onClick={() => { void copy(term.current?.getSelection() ?? ""); close(); }}>
+            <MenuItem disabled={!hasSel} onClick={() => { copySelection(); close(); }}>
               Copy
             </MenuItem>
             <MenuItem onClick={() => { void paste(); setMenu(null); }}>Paste</MenuItem>
