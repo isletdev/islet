@@ -71,6 +71,18 @@ type Service struct {
 	docker *docker.Service
 	proxy  *proxy.Manager
 	stacks string
+
+	// Secrets replaces @vault:NAME references in a field's value with the
+	// secret behind it, so the same database password can back three apps
+	// without being typed three times or being known to whoever installs them.
+	//
+	// Unlike deploy and cron, this one resolves on the way to disk: Compose
+	// reads its own .env file, so a value has to be in it by the time the stack
+	// comes up. That is a real difference and it is the honest one to make — a
+	// catalog install already writes the secrets it generates into that file —
+	// but it means the vault is where you edit the value, not where the running
+	// app reads it, and changing it takes a redeploy of anything using it.
+	Secrets func(ctx context.Context, in string) string
 }
 
 // New builds the service. stacksDir is where docker.Service keeps stacks.
@@ -199,6 +211,14 @@ func (s *Service) Install(ctx context.Context, actor string, req InstallRequest)
 		}
 	}
 	values["ISLET_DOMAIN"] = req.Domain
+	// Last, so a default or a generated secret can be referred to as well.
+	if s.Secrets != nil {
+		for k, v := range values {
+			if strings.Contains(v, "@vault:") {
+				values[k] = s.Secrets(ctx, v)
+			}
+		}
+	}
 	var env strings.Builder
 	keys := make([]string, 0, len(values))
 	for k := range values {

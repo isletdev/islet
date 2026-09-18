@@ -65,7 +65,8 @@ export default function Vault() {
         <h1 className="text-xl font-semibold tracking-[-0.02em]">Vault</h1>
         <p className="mt-1 hidden text-ink-muted sm:block">
           Store a secret once under a name, then write <span className="font-mono text-ink">@vault:NAME</span> wherever it is needed —
-          an app's environment, a cron command. Rotating it is one edit here.
+          an app&rsquo;s environment, a cron command, a field when you install something from the catalog. Rotating it is one edit here,
+          and a name that is not stored is left as written rather than becoming an empty password.
         </p>
       </div>
 

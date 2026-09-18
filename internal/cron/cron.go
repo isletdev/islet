@@ -112,6 +112,15 @@ type Service struct {
 	scriptDir string
 	cron      *robfig.Cron
 
+	// Secrets replaces @vault:NAME references in a command with their values,
+	// on the way into the process and nowhere else — the same hook deploy uses,
+	// and for the same reason: this package keeps knowing nothing about the
+	// vault, and a job on a daemon without one keeps the reference as written,
+	// which fails loudly rather than running with an empty password.
+	//
+	// The vault page has always told people this worked here. It did not.
+	Secrets func(ctx context.Context, in string) string
+
 	mu      sync.Mutex
 	entries map[string]robfig.EntryID
 	active  map[string]*activeRun
@@ -771,6 +780,16 @@ func (s *Service) runProcess(ctx context.Context, j *Job, out io.Writer) (int, e
 	argv, err := s.argv(j)
 	if err != nil {
 		return -1, err
+	}
+	// Resolved here, into this process and no further: the job's command is
+	// still @vault:NAME on disk, in the editor and in the audit log, and the
+	// value exists only for as long as the run does.
+	if s.Secrets != nil {
+		for i, a := range argv {
+			if strings.Contains(a, "@vault:") {
+				argv[i] = s.Secrets(ctx, a)
+			}
+		}
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = out, out

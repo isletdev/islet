@@ -167,6 +167,17 @@ func New(d Deps) http.Handler {
 		s.deploy.EnvGroup = s.EnvGroupLines
 		s.deploy.Secrets = s.expandSecrets
 	}
+	// Everything that puts a value somewhere an app will read it gets the same
+	// hook. It used to be deploy alone, while the vault page told people the
+	// reference worked in a cron command too — which it did not, so anybody who
+	// followed that got the literal string @vault:NAME where a password should
+	// have been.
+	if s.cron != nil {
+		s.cron.Secrets = s.expandSecrets
+	}
+	if s.catalog != nil {
+		s.catalog.Secrets = s.expandSecrets
+	}
 	mux := http.NewServeMux()
 
 	// Public
