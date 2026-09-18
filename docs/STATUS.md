@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `f6d1764`, tagged `v0.23.0`, 2026-09-18. 179 commits, 75 tags, CI green on `main`.
+**Head:** `9881c96`, tagged `v0.23.1`, 2026-09-18. 181 commits, 76 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.23.0
+## Shipped since the plan ran out — v0.6.0 to v0.23.1
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -89,6 +89,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.22.0 | `8b65f78` | **Models are things you set up, not a setting.** A provider is a named row — subscription, Anthropic key, OpenAI-compatible — configured under Settings → AI; the assistant picks one per conversation and a workspace agent picks one when it is created, and neither asks when only one is configured. The existing configuration migrates with its sealed key unchanged, so nobody sets Claude up twice and no open conversation changes model. An Anthropic key reaches an agent through tmux `-e`, never through a shell where it would sit in the scrollback |
 | v0.22.1 | `6db4eed` | The workspaces page was four bars stacked over the terminal it exists for; it is one card, with the agent tabs inside the terminal's own control row and the rare actions behind a menu. A revealed vault secret is a dialog with Copy and Close rather than a banner that pushes the page down. And Logto leaves the catalog for Keycloak: Apache 2.0, no editions, no cloud tier, themes you replace outright |
 | v0.23.0 | `f6d1764` | **The pre-freeze pass.** Two reviews were written first — a defect audit and a design review of Islet as a product — and this release is most of what they found. Authorization moves out of ninety-six hand-written checks into one table with a test that fails when a route is added without a line, which closed three routes that had no check at all: writing and deleting vault secrets, and emitting notifications. Scopes now mean the same thing through the fleet proxy as they do locally, and a workspace agent's token no longer reaches a root shell through cron or a Compose file. The SSE end event is JSON, so a build that fails in colour is readable instead of reported as a dropped connection. Commands have a deadline, a backup run has one too — with a bounded stderr and an unlock — and the uptime probe stopped recomputing two aggregates it discarded, which was a third of a core at a hundred monitors. A sealed value now records which key sealed it, which is the one thing rotation needed and could not be added later. Plus what testing found: the tmux server is no longer torn down on a slow socket dial, taking every workspace with it |
+| v0.23.1 | `9881c96` | An agent's start/stop control moves inside that agent's own tab: at the end of the row it said nothing about which agent it acted on, and with more than one open the answer was written nowhere. The terminal's copy and paste stop being bordered boxes and become plain icons in the same style as Add. Both were asked for once and built wrong, so both were screenshotted and looked at this time |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
