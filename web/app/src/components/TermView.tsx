@@ -357,21 +357,21 @@ export default function TermView({
           />
           {status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}
         </span>
-        {/* Icons, not words. These sit above a terminal and are used rarely —
-            two labelled buttons took more room than the connection state they
-            share a row with, and read as the most important thing on a page
-            whose point is the terminal underneath. The label stays as the
-            accessible name and the tooltip. */}
-        <Button variant="secondary" aria-label="Copy the selection" title="Copy the selection"
-          className={`h-7 w-7 justify-center px-0 ${toolbar ? "ml-auto" : ""}`}
+        {/* Quiet icons, not bordered boxes. These sit above a terminal and are
+            used rarely: two labelled buttons took more room than the connection
+            state beside them, and a box around each read as the most important
+            thing on a page whose point is the terminal underneath. The label
+            stays as the accessible name and the tooltip. */}
+        <button type="button" aria-label="Copy the selection" title="Copy the selection"
+          className={`-my-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40 ${toolbar ? "ml-auto" : ""}`}
           disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>
-          <CopyIcon className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="secondary" aria-label="Paste" title="Paste"
-          className="h-7 w-7 justify-center px-0"
+          <CopyIcon className="h-4 w-4" />
+        </button>
+        <button type="button" aria-label="Paste" title="Paste"
+          className="-my-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40"
           disabled={status !== "open"} onClick={() => void paste()}>
-          <ClipboardIcon className="h-3.5 w-3.5" />
-        </Button>
+          <ClipboardIcon className="h-4 w-4" />
+        </button>
         {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>{takenOver ? "Take it back" : "Reconnect"}</Button>

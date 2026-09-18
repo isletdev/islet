@@ -92,40 +92,40 @@ function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onResta
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {/* The control that starts and stops an agent is drawn against that
+            agent's own tab, not at the end of the row: with more than one agent
+            a single control at the end says nothing about which one it acts on,
+            and the answer — whichever is selected — is not visible anywhere. */}
         {agents.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() => onPick(a.id)}
-            aria-current={a.id === agent.id ? "true" : undefined}
-            className={
-              "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors " +
-              (a.id === agent.id ? "bg-surface-2 text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
-            }
-          >
-            <Dot agent={a} />
-            {a.name}
-          </button>
+          <span key={a.id} className={`inline-flex items-center rounded-md ${a.id === agent.id ? "bg-surface-2" : ""}`}>
+            <button
+              type="button"
+              onClick={() => onPick(a.id)}
+              aria-current={a.id === agent.id ? "true" : undefined}
+              className={
+                "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors " +
+                (a.id === agent.id ? "text-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink")
+              }
+            >
+              <Dot agent={a} />
+              {a.name}
+            </button>
+            {a.id === agent.id && (agent.running ? (
+              <button type="button" onClick={onStop} disabled={busy} aria-label={`Stop ${agent.name}`} title={`Stop ${agent.name}`}
+                className="-my-1 mr-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:text-danger disabled:opacity-50">
+                <StopIcon className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button type="button" onClick={onStart} disabled={busy} aria-label={`Start ${agent.name}`} title={`Start ${agent.name}`}
+                className="-my-1 mr-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:text-ink disabled:opacity-50">
+                <PlayIcon className="h-3.5 w-3.5" />
+              </button>
+            ))}
+          </span>
         ))}
         <button type="button" onClick={onAdd} aria-label="Add an agent" className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
           <PlusIcon className="h-3.5 w-3.5" />Add
         </button>
-        <span className="ml-1 h-4 w-px shrink-0 bg-border" aria-hidden />
-      {/* Stop and Start belong with the agent they act on, in the same row as
-          its tab and in the same shape as Add beside it — a word-sized button
-          for a rare action pulled the eye away from the tabs, which are the
-          thing being chosen between. */}
-      {agent.running ? (
-        <button type="button" onClick={onStop} disabled={busy} aria-label={`Stop ${agent.name}`} title={`Stop ${agent.name}`}
-          className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50">
-          <StopIcon className="h-3.5 w-3.5" />Stop
-        </button>
-      ) : (
-        <button type="button" onClick={onStart} disabled={busy} aria-label={`Start ${agent.name}`} title={`Start ${agent.name}`}
-          className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50">
-          <PlayIcon className="h-3.5 w-3.5" />Start
-        </button>
-      )}
         <MoreMenu label={`More for ${agent.name}`} items={[
           { label: "Restart", disabled: busy, onClick: onRestart },
           { label: "Edit agent", disabled: busy, onClick: onEdit },
