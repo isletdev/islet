@@ -8,9 +8,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/isletdev/islet/internal/cmdrun"
 )
 
 // unitName is the transient systemd unit the tmux server runs in.
@@ -84,6 +87,29 @@ func (s *Service) stale() bool {
 	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
+// unitTasks is how many processes are in the tmux server's cgroup.
+//
+// systemd answers this from the cgroup itself, so unlike every socket probe it
+// cannot be fooled by a server that is merely busy. Zero means the unit holds
+// nothing — either it was never started or whatever it held has gone — and only
+// then is it safe to clear the unit and build a new one.
+//
+// A host without systemd, or a unit that does not exist, answers "0" or an
+// error; both mean "nothing of ours is running", which is the honest reading.
+// RemainAfterExit keeps the unit active long after its ExecStart has exited, so
+// `is-active` says "active" for a server that died and cannot be used here.
+func (s *Service) unitTasks(ctx context.Context) int {
+	res, err := s.run.Read(ctx, "systemctl", "show", s.unitName()+".service", "-p", "TasksCurrent", "--value")
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // ensureServer starts the tmux server, once, outside this process.
 //
 // tmux starts a server on demand as a child of whoever ran the first command.
@@ -123,9 +149,6 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	if time.Since(s.lastStartFailed) < startRetryAfter {
 		return
 	}
-	if s.stale() {
-		_ = os.Remove(s.sock)
-	}
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return // no tmux at all; the caller's command will report it
@@ -145,11 +168,29 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	// reading, so it is the last thing tried and the socket is asked once more
 	// immediately before.
 	unit := s.unitName()
+	// Ask systemd whether a server is alive before doing anything that would
+	// end one. This is the check that matters, and dialling the socket is not
+	// it: a unix socket whose listener is alive but whose accept queue is full
+	// refuses connections, which is exactly what a busy tmux server does — so
+	// every probe in this file reads "dead" under precisely the load that makes
+	// killing it worst.
+	//
+	// The unit's task count cannot be wrong that way. It is the number of
+	// processes in the cgroup, answered by pid 1, and if it is above zero there
+	// is a tmux server in there holding somebody's work.
+	if n := s.unitTasks(ctx); n > 0 {
+		return
+	}
+	// Only now, with nothing alive in the unit, is a leftover socket file
+	// genuinely leftover. Removing it earlier is what made the previous attempt
+	// at this fix useless: the file went first, and every check after it was
+	// then asking about a path that no longer existed.
+	if s.stale() {
+		_ = os.Remove(s.sock)
+	}
 	if dialOK(s.sock, 2*time.Second) {
 		return // something is answering after all; leave it alone
 	}
-	_, _ = s.run.Run(ctx, actor, "systemctl", "stop", unit+".service")
-	_, _ = s.run.Run(ctx, actor, "systemctl", "reset-failed", unit+".service")
 
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -165,15 +206,30 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	// `exit-empty off` is the other half. A tmux server with no sessions exits
 	// at once, so starting one and creating sessions afterwards races its own
 	// shutdown. It is a server option, so it is set with -s.
-	out, err := s.run.Run(ctx, actor, "systemd-run",
-		"--collect",
-		"--unit="+unit,
-		"--description=Islet workspace tmux server",
-		"--property=Type=oneshot",
-		"--property=RemainAfterExit=yes",
-		"--property=KillMode=process",
-		"--setenv=HOME="+home,
-		tmuxPath, "-S", s.sock, "start-server", ";", "set", "-s", "exit-empty", "off")
+	start := func() (cmdrun.Result, error) {
+		return s.run.Run(ctx, actor, "systemd-run",
+			"--collect",
+			"--unit="+unit,
+			"--description=Islet workspace tmux server",
+			"--property=Type=oneshot",
+			"--property=RemainAfterExit=yes",
+			"--property=KillMode=process",
+			"--setenv=HOME="+home,
+			tmuxPath, "-S", s.sock, "start-server", ";", "set", "-s", "exit-empty", "off")
+	}
+	out, err := start()
+	// Clearing the unit is a last resort, not an opening move.
+	//
+	// It used to run first, every time, on the theory that a leftover name
+	// would otherwise refuse the start — and stopping that unit is what kills a
+	// tmux server and everything in it. So it is only reached when the start
+	// actually fails for that reason, which is the only case it was ever for.
+	// --collect unloads a unit that finished, so the usual path never needs it.
+	if err != nil && strings.Contains(out.Stdout+out.Stderr, "already exists") {
+		_, _ = s.run.Run(ctx, actor, "systemctl", "stop", unit+".service")
+		_, _ = s.run.Run(ctx, actor, "systemctl", "reset-failed", unit+".service")
+		out, err = start()
+	}
 	if err != nil {
 		s.lastStartFailed = time.Now()
 		s.log.Warn("workspaces: could not start the tmux server under systemd; the next command will start one here instead",
