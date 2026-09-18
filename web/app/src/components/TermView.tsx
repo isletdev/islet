@@ -10,6 +10,18 @@ import { apiPath } from "@/lib/api";
 export type TermStatus = "connecting" | "open" | "closed" | "error";
 
 /**
+ * The key that means "this drag selects text, do not send it to the program".
+ *
+ * Every terminal has one, and which one depends on the platform: Shift
+ * everywhere, Option on a Mac, where Shift is already spoken for. Naming the
+ * wrong one is worse than naming none, so it is asked rather than assumed.
+ */
+function selectModifier() {
+  const ua = typeof navigator === "undefined" ? "" : `${navigator.platform || ""} ${navigator.userAgent || ""}`;
+  return /Mac|iPhone|iPad/.test(ua) ? "⌥" : "Shift";
+}
+
+/**
  * xterm.js bound to a WebSocket PTY endpoint — the host terminal, a container
  * exec, or a workspace.
  *
@@ -57,6 +69,9 @@ export default function TermView({
   const [attempt, setAttempt] = useState(0);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [hasSel, setHasSel] = useState(false);
+  // Whether the program inside has asked to be told about the mouse, which is
+  // what decides whether a plain drag selects or is sent onwards.
+  const [mouseGrabbed, setMouseGrabbed] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   // Somebody else is looking at this session now. A tmux session has one live
   // client, so this is a thing to say and stop, not a thing to retry — two tabs
@@ -75,6 +90,16 @@ export default function TermView({
     if (!el) return;
     const t = new XTerm({
       cursorBlink: true,
+      // Selecting text when the program inside is watching the mouse.
+      //
+      // A full-screen program — tmux with mouse mode, Claude Code, an editor —
+      // asks the terminal to report mouse events, and from then on a drag is
+      // the program's to interpret rather than a selection. Every terminal
+      // solves this with a modifier held down to mean "this drag is mine, not
+      // yours", and xterm.js already honours Shift for it everywhere except a
+      // Mac, where the modifier is Option and the behaviour is off unless it is
+      // asked for. On a Mac there was therefore no way to select at all.
+      macOptionClickForcesSelection: true,
       fontFamily: "Geist Mono, ui-monospace, Menlo, Consolas, monospace",
       fontSize: 13,
       lineHeight: 1.2,
@@ -124,6 +149,13 @@ export default function TermView({
     });
 
     const onSel = t.onSelectionChange(() => setHasSel(t.hasSelection()));
+    // Polled rather than subscribed: xterm reports the mode but does not emit
+    // when it changes, and it changes whenever a program starts or exits — a
+    // second is far tighter than a person can notice and cheaper than anything
+    // that would notice it sooner.
+    const modeTimer = window.setInterval(() => {
+      setMouseGrabbed(t.modes.mouseTrackingMode !== "none");
+    }, 1000);
 
     const enc = new TextEncoder();
     const onData = t.onData((d) => {
@@ -137,6 +169,7 @@ export default function TermView({
     const ro = new ResizeObserver(() => f.fit());
     ro.observe(el);
     return () => {
+      window.clearInterval(modeTimer);
       ro.disconnect();
       onSel.dispose();
       onData.dispose();
@@ -372,6 +405,15 @@ export default function TermView({
           disabled={status !== "open"} onClick={() => void paste()}>
           <ClipboardIcon className="h-4 w-4" />
         </button>
+        {/* The one thing about a web terminal nobody guesses. It is shown only
+            while the program inside is claiming the mouse, because that is the
+            only time a plain drag does not select and the only time this is
+            worth a line of the toolbar. */}
+        {mouseGrabbed && !hasSel && (
+          <span className="hidden text-[11px] text-ink-faint sm:inline">
+            {selectModifier()}+drag to select
+          </span>
+        )}
         {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>{takenOver ? "Take it back" : "Reconnect"}</Button>
