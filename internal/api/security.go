@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/security"
 	"github.com/isletdev/islet/pkg/api"
 )
@@ -40,7 +41,7 @@ func (s *Server) handleSecurityFix(w http.ResponseWriter, r *http.Request) {
 	out, err := s.security.Fix(r.Context(), u.Username, r.PathValue("id"), clientIP(r))
 	invalidateScore()
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "fix_failed", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "fix_failed", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
@@ -64,7 +65,7 @@ func (s *Server) handleFirewallRule(w http.ResponseWriter, r *http.Request) {
 		Routed                     bool // the port is published by a container
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -87,7 +88,7 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ IP string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if err := s.security.Unban(r.Context(), userFrom(r.Context()).Username, req.IP); err != nil {
@@ -103,7 +104,7 @@ func (s *Server) handleSSHApply(w http.ResponseWriter, r *http.Request) {
 	}
 	var cfg security.SSHSettings
 	if err := decode(r, &cfg); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	msg, err := s.security.ApplySSH(r.Context(), userFrom(r.Context()).Username, cfg, true)
@@ -132,7 +133,7 @@ func (s *Server) handleScanImage(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Image string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	sc, err := s.security.ScanImage(r.Context(), userFrom(r.Context()).Username, req.Image)
@@ -149,7 +150,7 @@ func (s *Server) handlePanelRestrict(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ CIDR string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if err := s.security.RestrictPanel(r.Context(), userFrom(r.Context()).Username, req.CIDR, clientIP(r)); err != nil {
@@ -180,7 +181,7 @@ func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	out, err := s.security.Panic(r.Context(), u.Username, clientIP(r))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "panic", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "panic", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	sess := sessionFrom(r.Context())
@@ -203,7 +204,7 @@ func (s *Server) handleBlocklist(w http.ResponseWriter, r *http.Request) {
 	}
 	var opt security.BlocklistOptions
 	if err := decode(r, &opt); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	opt.AdminIP = clientIP(r)

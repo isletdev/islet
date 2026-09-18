@@ -20,6 +20,11 @@ import (
 	"github.com/isletdev/islet/internal/store"
 )
 
+// ErrExists marks a name that is already in use, so the API can answer 409
+// rather than 400: a conflict is not a malformed request, and a client that
+// retries a create needs to tell those apart.
+var ErrExists = errors.New("is taken")
+
 const (
 	// SessionTTL is the fixed lifetime of a session cookie.
 	SessionTTL = 7 * 24 * time.Hour
@@ -175,7 +180,7 @@ func (s *Service) createUser(ctx context.Context, username, password, role strin
 	if _, err := s.st.DB.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`,
 		id, username, hash, role); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			return nil, errors.New("username is taken")
+			return nil, fmt.Errorf("username %w", ErrExists)
 		}
 		return nil, err
 	}

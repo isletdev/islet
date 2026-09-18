@@ -18,7 +18,7 @@ func (s *Server) dbErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "database instance not found"})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, api.Error{Error: "db", Message: err.Error()})
+	s.failed(w, "db", err)
 }
 
 // dbInstance loads the instance from the path and enforces admin for writes.
@@ -124,7 +124,7 @@ func (s *Server) handleDBCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Name, User, Password string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -174,7 +174,7 @@ func (s *Server) handleDBExtension(w http.ResponseWriter, r *http.Request) {
 		Enabled bool   `json:"enabled"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -193,7 +193,7 @@ func (s *Server) handleDBDump(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Database string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -213,7 +213,7 @@ func (s *Server) handleDBRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ File, Database string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -263,7 +263,7 @@ func (s *Server) handleDBSchedule(w http.ResponseWriter, r *http.Request) {
 		Enabled  bool   `json:"enabled"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if req.KeepDays <= 0 {
@@ -305,7 +305,7 @@ func (s *Server) handleDBPublic(w http.ResponseWriter, r *http.Request) {
 		AllowFrom string `json:"allowFrom"` // comma list of IPs/CIDRs; empty = anyone
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())

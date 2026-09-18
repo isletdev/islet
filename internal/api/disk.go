@@ -74,7 +74,7 @@ func (s *Server) handleDiskClean(w http.ResponseWriter, r *http.Request) {
 		Keys []string `json:"keys"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)

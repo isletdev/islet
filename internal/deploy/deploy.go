@@ -102,6 +102,11 @@ type Release struct {
 // ErrNotFound is returned for unknown apps or releases.
 var ErrNotFound = errors.New("app not found")
 
+// ErrExists marks a name that is already in use, so the API can answer 409
+// rather than 400: a conflict is not a malformed request, and a client that
+// retries a create needs to tell those apart.
+var ErrExists = errors.New("already exists")
+
 // ErrBusy is returned when a deploy is already running for the app.
 var ErrBusy = errors.New("a deploy is already running for this app")
 
@@ -423,7 +428,7 @@ func (s *Service) Save(ctx context.Context, a *App) (*App, error) {
 			a.ID, s.st.ServerID, a.Name, a.Source, s.seal(a.RepoURL), a.Branch, a.RootDir, a.Image, a.Strategy, a.Framework, a.InstallCmd, a.BuildCmd, a.StartCmd, a.OutputDir, a.Port, a.HealthPath, a.PredeployCmd, s.seal(a.Env), a.Domain, a.TLS, a.WebhookSecret, a.AutoDeploy, a.MemoryMB, a.CPUs, a.Volumes, a.Processes, a.DeployOn, a.IOMbps)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				return nil, errors.New("an app with that name already exists")
+				return nil, fmt.Errorf("an app with that name %w", ErrExists)
 			}
 			return nil, err
 		}

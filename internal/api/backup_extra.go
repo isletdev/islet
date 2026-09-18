@@ -26,7 +26,7 @@ func (s *Server) handleRestoreDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Snapshot, Path, Slug, NewInstance string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -174,7 +174,7 @@ func (s *Server) handleBackupHost(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Domain, TLS string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	req.Domain = strings.ToLower(strings.TrimSpace(req.Domain))

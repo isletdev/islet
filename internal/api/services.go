@@ -28,7 +28,7 @@ func (s *Server) handleAppAddService(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Engine string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	var slug, envKey string

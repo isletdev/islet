@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -13,12 +14,12 @@ func (s *Server) handleHostUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Name, PublicKey string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	out, err := s.security.CreateSudoUser(r.Context(), userFrom(r.Context()).Username, req.Name, req.PublicKey)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "failed", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "failed", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
@@ -31,7 +32,7 @@ func (s *Server) handleHostSSHKey(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ User, PublicKey string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if req.User == "" {
@@ -56,12 +57,12 @@ func (s *Server) handleHostTimezone(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Timezone string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	out, err := s.security.SetTimezone(r.Context(), userFrom(r.Context()).Username, req.Timezone)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "failed", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "failed", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"timezone": req.Timezone})

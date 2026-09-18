@@ -20,7 +20,7 @@ func (s *Server) deployErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, deploy.ErrBusy):
 		writeJSON(w, http.StatusConflict, api.Error{Error: "busy", Message: err.Error()})
 	default:
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		s.failed(w, "invalid", err)
 	}
 }
 
@@ -73,7 +73,7 @@ func (s *Server) handleAppSave(w http.ResponseWriter, r *http.Request) {
 	}
 	a := deploy.App{AutoDeploy: true}
 	if err := decode(r, &a); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	a.ID = r.PathValue("id")
@@ -108,7 +108,7 @@ func (s *Server) handleAppInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ RepoURL, Branch, RootDir string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if req.Branch == "" {
@@ -159,7 +159,7 @@ func (s *Server) handleAppPromote(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	rel, err := s.deploy.Promote(r.Context(), u.Username, r.PathValue("id"), req.To)

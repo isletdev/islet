@@ -29,6 +29,11 @@ import (
 	"github.com/isletdev/islet/internal/store"
 )
 
+// ErrExists marks a name that is already in use, so the API can answer 409
+// rather than 400: a conflict is not a malformed request, and a client that
+// retries a create needs to tell those apart.
+var ErrExists = errors.New("already routed")
+
 const (
 	// Image is the pinned Traefik release.
 	Image         = "traefik:v3.5"
@@ -1029,7 +1034,7 @@ func (m *Manager) writeDomain(ctx context.Context, d *Domain) error {
 			d.ID, m.st.ServerID, d.Host, d.TargetType, d.Target, d.Port, d.PathPrefix, d.TLS, b(d.RedirectWWW), d.BasicAuth, d.IPAllowlist, d.RateLimit, d.Headers, b(d.Maintenance), b(d.Protect), d.ProtectUsers, b(d.Enabled), b(d.PassHost), b(d.BlockExploits))
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				return errors.New("that host is already routed")
+				return fmt.Errorf("that host is %w", ErrExists)
 			}
 			return err
 		}

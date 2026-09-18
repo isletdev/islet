@@ -14,7 +14,7 @@ func (s *Server) uptimeErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+	s.failed(w, "invalid", err)
 }
 
 func (s *Server) handleChecks(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +34,7 @@ func (s *Server) handleCheckSave(w http.ResponseWriter, r *http.Request) {
 	}
 	c := uptime.Check{Enabled: true}
 	if err := decode(r, &c); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	c.ID = r.PathValue("id")

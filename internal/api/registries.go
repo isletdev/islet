@@ -66,7 +66,7 @@ func (s *Server) handleRegistryLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req registry
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	req.Host = strings.ToLower(strings.TrimSpace(req.Host))

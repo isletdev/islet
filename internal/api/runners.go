@@ -14,7 +14,7 @@ func (s *Server) runnerErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+	s.failed(w, "invalid", err)
 }
 
 func maskPool(p *runner.Pool, role string) {
@@ -45,7 +45,7 @@ func (s *Server) handleRunnerPoolSave(w http.ResponseWriter, r *http.Request) {
 	}
 	p := runner.Pool{Enabled: true, MinIdle: 1, MaxRunners: 2}
 	if err := decode(r, &p); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	p.ID = r.PathValue("id")

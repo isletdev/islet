@@ -27,7 +27,7 @@ func (s *Server) fleetErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, fleet.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "this panel does not manage that server"})
 	default:
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "fleet", Message: err.Error()})
+		s.failed(w, "fleet", err)
 	}
 }
 
@@ -77,7 +77,7 @@ func (s *Server) handleServerAdd(w http.ResponseWriter, r *http.Request) {
 		PanelPort int    `json:"panelPort"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	v, err := s.fleet.Add(r.Context(), userFrom(r.Context()).Username, fleet.Server{
@@ -103,7 +103,7 @@ func (s *Server) handleServerJoin(w http.ResponseWriter, r *http.Request) {
 		Passphrase string `json:"passphrase"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	err := s.fleet.StartJoin(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"),

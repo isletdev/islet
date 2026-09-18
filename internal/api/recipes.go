@@ -171,7 +171,7 @@ func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 	}
 	var inputs map[string]string
 	if err := decode(r, &inputs); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	slug := r.PathValue("slug")

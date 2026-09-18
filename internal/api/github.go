@@ -45,7 +45,7 @@ func (s *Server) handleGitHubSave(w http.ResponseWriter, r *http.Request) {
 	}
 	var cfg github.Config
 	if err := decode(r, &cfg); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if cfg.AppID == "" && cfg.PrivateKey == "" {

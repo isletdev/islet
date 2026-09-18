@@ -76,7 +76,7 @@ func (s *Server) handleSidebar(w http.ResponseWriter, r *http.Request) {
 	}
 	var links []SidebarLink
 	if err := decode(r, &links); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	clean := []SidebarLink{}

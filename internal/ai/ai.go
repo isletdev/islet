@@ -23,6 +23,11 @@ import (
 	"github.com/isletdev/islet/internal/store"
 )
 
+// ErrExists marks a name that is already in use, so the API can answer 409
+// rather than 400: a conflict is not a malformed request, and a client that
+// retries a create needs to tell those apart.
+var ErrExists = errors.New("already exists")
+
 // Kinds are the ways a model can be reached.
 const (
 	// KindAnthropic and KindOpenAI are API keys billed per token.
@@ -227,7 +232,7 @@ func (s *Service) count(ctx context.Context) (int, error) {
 // named turns the unique index into the sentence it means.
 func named(err error) error {
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
-		return errors.New("a provider with that name already exists")
+		return fmt.Errorf("a provider with that name %w", ErrExists)
 	}
 	return err
 }

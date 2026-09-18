@@ -35,7 +35,7 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		TTLDays int    `json:"ttlDays"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	// A token is its owner acting later, so it cannot carry more than the owner

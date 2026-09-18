@@ -103,7 +103,7 @@ func (s *Server) handleContainerLimits(w http.ResponseWriter, r *http.Request) {
 		Restart     string  `json:"restart"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if err := s.docker.UpdateLimits(r.Context(), u.Username, r.PathValue("id"), req.MemoryBytes, req.CPUs, req.Restart); err != nil {
@@ -139,7 +139,7 @@ func (s *Server) handleStackImport(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Name string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	stacks, err := s.docker.Stacks(r.Context(), u.Username)
@@ -497,7 +497,7 @@ func (s *Server) handleDockerPrune(w http.ResponseWriter, r *http.Request) {
 	}
 	var o docker.PruneOptions
 	if err := decode(r, &o); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	res, err := s.docker.Prune(r.Context(), u.Username, o)
@@ -546,7 +546,7 @@ func (s *Server) handleStackWrite(w http.ResponseWriter, r *http.Request) {
 		Env     string `json:"env"`
 	}
 	if err := decodeLarge(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if name := r.PathValue("name"); name != "" {

@@ -59,7 +59,7 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 	// provider and its credentials all arrived empty, the proxy was rebuilt
 	// with no certificate resolver, and the call still answered 200.
 	if err := decode(r, &req); err != nil && !errors.Is(err, io.EOF) {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if req.DNSProvider != nil {
@@ -109,7 +109,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		Hosts []string `json:"hosts"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	var sites []proxy.Site
@@ -336,7 +336,7 @@ func (s *Server) handleDomainSave(w http.ResponseWriter, r *http.Request) {
 	// certificate, with nothing to say why.
 	d := proxy.Domain{Enabled: true, PassHost: true}
 	if err := decode(r, &d); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	var before *proxy.Domain

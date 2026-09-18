@@ -3,8 +3,6 @@ package api
 import (
 	"net/http"
 	"strconv"
-
-	"github.com/isletdev/islet/pkg/api"
 )
 
 // handleDBPooler turns PgBouncer on or off for a Postgres instance.
@@ -17,7 +15,7 @@ func (s *Server) handleDBPooler(w http.ResponseWriter, r *http.Request) {
 		Enabled bool `json:"enabled"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())

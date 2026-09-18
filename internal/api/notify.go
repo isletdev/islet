@@ -27,7 +27,7 @@ func (s *Server) handleChannelSave(w http.ResponseWriter, r *http.Request) {
 	}
 	var c notify.Channel
 	if err := decode(r, &c); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
@@ -90,7 +90,7 @@ func (s *Server) handleTelegramDetect(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	chats, err := notify.TelegramDetect(r.Context(), req.Token)

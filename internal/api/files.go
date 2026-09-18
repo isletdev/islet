@@ -102,7 +102,7 @@ func (s *Server) handleFilesWrite(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := decodeLarge(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if !s.filesAllowed(w, r, req.Path, true) {
@@ -131,7 +131,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 		Permanent bool     `json:"permanent"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	target := req.Path
@@ -222,7 +222,7 @@ func (s *Server) handleTrashOp(w http.ResponseWriter, r *http.Request) {
 		ID string `json:"id"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	switch req.Op {

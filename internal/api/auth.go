@@ -295,7 +295,7 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	var req api.SetupRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u, err := s.auth.CompleteSetup(r.Context(), req.Token, req.Username, req.Password)
@@ -317,7 +317,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req api.LoginRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	token, sess, err := s.auth.Login(r.Context(), req.Username, req.Password, clientIP(r), r.UserAgent())
@@ -367,7 +367,7 @@ func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	var req api.CodeRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if err := s.auth.VerifySecondFactor(r.Context(), sess, req.Code, clientIP(r)); err != nil {
@@ -437,7 +437,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	var req api.PasswordChangeRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u, sess := userFrom(r.Context()), sessionFrom(r.Context())
@@ -461,7 +461,7 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 	var req api.CodeRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())
@@ -476,7 +476,7 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	var req api.CodeRequest
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u := userFrom(r.Context())

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/backup"
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -17,7 +18,7 @@ func (s *Server) backupErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, api.Error{Error: "backup", Message: err.Error()})
+	s.failed(w, "backup", err)
 }
 
 func redactDest(d *backup.Destination) {
@@ -62,7 +63,7 @@ func (s *Server) handleDestinationSave(w http.ResponseWriter, r *http.Request) {
 	}
 	var d backup.Destination
 	if err := decode(r, &d); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	d.ID = r.PathValue("id")
@@ -92,7 +93,7 @@ func (s *Server) handleDestinationVerify(w http.ResponseWriter, r *http.Request)
 	}
 	out, err := s.backup.Verify(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, api.Error{Error: "check", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "check", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
@@ -104,7 +105,7 @@ func (s *Server) handleDestinationRestoreTest(w http.ResponseWriter, r *http.Req
 	}
 	out, err := s.backup.RestoreTest(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, api.Error{Error: "restore_test", Message: err.Error() + "\n" + out})
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "restore_test", Message: cmdrun.Redact(err.Error() + "\n" + out)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"output": out})
@@ -137,7 +138,7 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		DryRun                       bool
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	target, err := s.backup.Restore(r.Context(), userFrom(r.Context()).Username, r.PathValue("id"), req.Snapshot, req.Include, req.NewVolume, req.DryRun)
@@ -154,7 +155,7 @@ func (s *Server) handlePlanSave(w http.ResponseWriter, r *http.Request) {
 	}
 	p := backup.Plan{Enabled: true, KeepDaily: 7, KeepWeekly: 4, KeepMonthly: 6, KeepYearly: 1}
 	if err := decode(r, &p); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	p.ID = r.PathValue("id")

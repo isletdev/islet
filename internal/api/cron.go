@@ -17,7 +17,7 @@ func (s *Server) cronErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+	s.failed(w, "invalid", err)
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func (s *Server) handleJobSave(w http.ResponseWriter, r *http.Request) {
 	}
 	j := cron.Job{Enabled: true} // absent field means enabled
 	if err := decode(r, &j); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	j.ID = r.PathValue("id")
@@ -184,7 +184,7 @@ func (s *Server) handleCronPreview(w http.ResponseWriter, r *http.Request) {
 		Timezone string `json:"timezone"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	desc, next, err := cron.Preview(req.Schedule, req.Timezone, 5)
@@ -211,7 +211,7 @@ func (s *Server) handleCronLint(w http.ResponseWriter, r *http.Request) {
 		Script string `json:"script"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	out, ok := cron.Lint(r.Context(), req.Script)
@@ -232,7 +232,7 @@ func (s *Server) handleCronImport(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"` // crontab (default) | systemd
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	var jobs []cron.Job

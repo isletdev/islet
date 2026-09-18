@@ -30,7 +30,7 @@ func (s *Server) handleVault(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if err := s.vault.Set(r.Context(), req.Name, req.Value, req.Description); err != nil {

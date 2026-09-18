@@ -30,7 +30,7 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct{ Username, Password, Role string }
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	u, err := s.auth.CreateUser(r.Context(), req.Username, req.Password, req.Role)
@@ -51,7 +51,7 @@ func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
 		Projects       *string
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	me := userFrom(r.Context())

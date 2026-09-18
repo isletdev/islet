@@ -261,7 +261,7 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 		MCPConfig string `json:"mcpConfig"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	switch req.Provider {
@@ -317,7 +317,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		ProviderID string `json:"providerId"`
 	}
 	if err := decode(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	if strings.TrimSpace(req.Text) == "" && len(req.Messages) == 0 {
@@ -535,7 +535,7 @@ func (s *Server) handleAssistantChat1(w http.ResponseWriter, r *http.Request) {
 			Title string `json:"title"`
 		}
 		if err := decode(r, &req); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			s.badJSON(w, err)
 			return
 		}
 		if err := s.chats.Rename(r.Context(), u.Username, id, req.Title); err != nil {

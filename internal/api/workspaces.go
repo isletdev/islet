@@ -24,7 +24,7 @@ func (s *Server) workspaceErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusPreconditionFailed, api.Error{Error: "no_tmux",
 			Message: "tmux is not installed on this server, and a workspace is a tmux session. Install it from the Workspaces page."})
 	default:
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		s.failed(w, "invalid", err)
 	}
 }
 
@@ -62,7 +62,7 @@ func (s *Server) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	}
 	var in workspace.Workspace
 	if err := decode(r, &in); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+		s.badJSON(w, err)
 		return
 	}
 	in.ID = ""
@@ -85,7 +85,7 @@ func (s *Server) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var in workspace.Workspace
 		if err := decode(r, &in); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			s.badJSON(w, err)
 			return
 		}
 		in.ID = id
@@ -319,7 +319,7 @@ func (s *Server) handleWorkspaceAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var in workspace.Agent
 		if err := decode(r, &in); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			s.badJSON(w, err)
 			return
 		}
 		in.ID = ""
@@ -368,7 +368,7 @@ func (s *Server) handleWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var in workspace.Agent
 		if err := decode(r, &in); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_json", Message: err.Error()})
+			s.badJSON(w, err)
 			return
 		}
 		in.ID = agentID

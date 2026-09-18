@@ -114,6 +114,11 @@ type Snapshot struct {
 // ErrNotFound is returned for unknown plans or destinations.
 var ErrNotFound = errors.New("not found")
 
+// ErrExists marks a name that is already in use, so the API can answer 409
+// rather than 400: a conflict is not a malformed request, and a client that
+// retries a create needs to tell those apart.
+var ErrExists = errors.New("already exists")
+
 const sqlTime = "2006-01-02T15:04:05.000Z"
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -410,7 +415,7 @@ func (s *Service) SaveDestination(ctx context.Context, actor string, d *Destinat
 	if isNew {
 		_, err = s.st.DB.ExecContext(ctx, `INSERT INTO backup_destinations (id, server_id, name, type, config, password) VALUES (?, ?, ?, ?, ?, ?)`, d.ID, s.st.ServerID, d.Name, d.Type, encCfg, encPw)
 		if err != nil && strings.Contains(err.Error(), "UNIQUE") {
-			return nil, errors.New("a destination with that name already exists")
+			return nil, fmt.Errorf("a destination with that name %w", ErrExists)
 		}
 	} else {
 		_, err = s.st.DB.ExecContext(ctx, `UPDATE backup_destinations SET config = ? WHERE id = ?`, encCfg, d.ID)
@@ -573,7 +578,7 @@ func (s *Service) SavePlan(ctx context.Context, actor string, p *Plan) (*Plan, e
 			p.ID, s.st.ServerID, p.Name, p.DestinationID, string(src), p.Schedule, p.KeepDaily, p.KeepWeekly, p.KeepMonthly, p.KeepYearly, p.Enabled, p.PreCmd, p.PostCmd, p.Pause, next)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				return nil, errors.New("a plan with that name already exists")
+				return nil, fmt.Errorf("a plan with that name %w", ErrExists)
 			}
 			return nil, err
 		}
