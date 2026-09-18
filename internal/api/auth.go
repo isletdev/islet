@@ -195,9 +195,19 @@ func decode(r *http.Request, v any) error { return decodeLimit(r, v, 64<<10) }
 // where a form does.
 func decodeLarge(r *http.Request, v any) error { return decodeLimit(r, v, 8<<20) }
 
+// decodeLimit reads a JSON body of at most max bytes.
+//
+// Unknown fields are ignored rather than refused. DisallowUnknownFields makes a
+// typo in a request loud, which is a real benefit, and it also makes the
+// request contract strictly non-forward-compatible: a newer client sending a
+// field an older daemon has never heard of gets a 400 on every save. The panel
+// ships inside the same binary so it never noticed, but the CLI, the MCP server
+// and third-party API tokens are all out-of-band clients that upgrade
+// separately, and "your newer client cannot talk to my older server at all" is
+// a worse failure than a silently ignored typo. See the versioning policy in
+// CONTRIBUTING.md.
 func decodeLimit(r *http.Request, v any, max int64) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, max))
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {

@@ -19,6 +19,37 @@ go test ./...
 
 The UI is embedded at build time: `pnpm build` in `web/app`, then copy `web/app/dist` to `internal/web/dist` (only the placeholder `index.html` is tracked).
 
+## What `/api/v1` promises
+
+The prefix had no stated meaning, which is the worst of both worlds: clients
+could not tell what was safe to rely on, and nobody could tell what would
+require a `v2`. It means this.
+
+Within `v1`:
+
+- **Fields may be added to a response.** A client must ignore ones it does not
+  know.
+- **A field is never removed or retyped.** If it has to change, the new one is
+  added beside it and the old one keeps working.
+- **A status code for a given condition does not change.** A conflict stays
+  409, a failed command stays 502.
+- **Unknown fields in a request body are ignored**, so a newer client can talk
+  to an older daemon. A typo is therefore silent — that is the price, and it is
+  smaller than the alternative, which was that every client had to be upgraded
+  in lockstep with the daemon.
+- **A list is `[]` or absent, never `null`**, and the TypeScript mirror in
+  `web/app/src/lib/api.ts` must agree about which. There is a test.
+
+Removing a field, retyping one, or changing a status code means `v2`.
+
+One thing `v1` does not yet promise: `GET /apps/{id}` returns nine fields —
+`status`, `currentRelease`, `url`, `container` and the rest — that `PUT` accepts
+and silently discards, because they are derived rather than stored. A client
+cannot tell which half of what it read is writable. They are documented as
+read-only here rather than removed, because removing them from the response
+would break the panel, and refusing them on input would break every client that
+round-trips an object it just read.
+
 ## Pull requests
 
 - One change per pull request, with a Conventional Commits title (`feat(cron): ...`, `fix(proxy): ...`).
