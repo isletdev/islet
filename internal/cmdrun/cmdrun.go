@@ -82,7 +82,29 @@ func (r *Runner) RunInput(ctx context.Context, actor string, stdin []byte, name 
 	return r.exec(ctx, actor, stdin, true, name, args...)
 }
 
+// DefaultTimeout bounds a command whose caller did not bound it.
+//
+// Every command here inherited whatever context it was handed, and a request
+// context has no deadline: the server sets neither ReadTimeout nor
+// WriteTimeout, and there is no TimeoutHandler. So a command that never returns
+// never returned. That is not the exotic case it sounds like — a Docker daemon
+// whose socket accepts connections and then stops answering is the ordinary
+// failure under memory pressure, and the panel polls it every five seconds. One
+// open tab against a wedged dockerd started a process that never exits, every
+// five seconds, for as long as the tab was open.
+//
+// Ten minutes is deliberately generous. This is a backstop for work that has
+// stopped happening, not a policy: anything that legitimately takes longer —
+// pruning a large restic repository, a slow image pull — sets its own deadline,
+// and a context that already has one is left exactly as it is.
+const DefaultTimeout = 10 * time.Minute
+
 func (r *Runner) exec(ctx context.Context, actor string, stdin []byte, record bool, name string, args ...string) (Result, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultTimeout)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)

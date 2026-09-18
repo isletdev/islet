@@ -35,6 +35,9 @@ import (
 
 const resticImage = "restic/restic:0.18.0"
 
+// maxRunTime bounds one backup run. See RunPlan for why it exists at all.
+const maxRunTime = 6 * time.Hour
+
 // Destination is a restic repository.
 type Destination struct {
 	ID        string            `json:"id"`
@@ -185,7 +188,11 @@ func (s *Service) tick(ctx context.Context) {
 			continue
 		}
 		if p.NextRunAt != "" && p.NextRunAt <= now {
-			go func(id string) { _ = s.RunPlan(context.Background(), "schedule", id, nil) }(p.ID)
+			// The scheduler's context, not Background. Stopping the daemon now
+			// stops the run: it used to be detached, so a restart marked the
+			// row failed while restic kept going and kept the repository
+			// locked, and the next run failed on the lock left behind.
+			go func(id string) { _ = s.RunPlan(ctx, "schedule", id, nil) }(p.ID)
 		}
 		if p.Stale && s.bus != nil {
 			s.bus.Emit(ctx, notify.Event{Category: "backup", Severity: notify.Warning, Subject: p.Name, Title: "Backup stale: " + p.Name, Message: "The last successful backup is older than expected. Last: " + p.LastRunAt, Link: "/backups"})
@@ -621,6 +628,55 @@ func (s *Service) RunDetail(ctx context.Context, planID string, id int64) (*Run,
 // ---- restic ----
 
 // resticArgs builds the docker run command for a repository, plus mounts.
+// capped is a bounded io.Writer for output nobody reads until it fails.
+//
+// strings.Builder grows for as long as something writes to it, and the thing
+// writing here is a tool that retries. The tail is what a person needs; the
+// first megabyte of it is more than enough.
+type capped struct {
+	b   strings.Builder
+	max int
+	n   int
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if c.n < c.max {
+		room := c.max - c.n
+		if room > len(p) {
+			room = len(p)
+		}
+		c.b.Write(p[:room])
+		c.n += room
+	}
+	// Report the whole write: the producer is not at fault and killing it with
+	// a short write would turn a truncated log into a broken command.
+	return len(p), nil
+}
+
+func (c *capped) String() string { return c.b.String() }
+
+// unlock removes a stale restic lock.
+//
+// Called after a run that was killed rather than finished. restic refuses to
+// work on a repository somebody else appears to be using, and "somebody else"
+// after a timeout or a daemon restart is a process that no longer exists, so
+// without this the failure repeats on every subsequent run with a message
+// about a lock rather than about what actually went wrong.
+func (s *Service) unlock(ctx context.Context, d *Destination, say func(string)) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	args, cleanup, err := s.resticArgs(d, nil, nil)
+	if err != nil {
+		return
+	}
+	defer cleanup()
+	if _, err := s.run.Run(ctx, "backup", "docker", append(args, "unlock")...); err != nil {
+		say("[islet] the repository is still locked; the next run may need restic unlock by hand")
+		return
+	}
+	say("[islet] removed the lock left by the interrupted run")
+}
+
 func (s *Service) resticArgs(d *Destination, mounts []string, extraEnv []string) ([]string, func(), error) {
 	sockCleanup := func() {}
 	args := []string{"run", "--rm", "--name", "islet-restic-" + randHex(3), "-e", "RESTIC_PASSWORD=" + d.Password, "-e", "RESTIC_CACHE_DIR=/cache", "-v", "islet-restic-cache:/cache", "--hostname", s.st.Hostname}
@@ -710,7 +766,20 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		s.mu.Unlock()
 		return errors.New("this plan is already running")
 	}
-	rctx, cancel := context.WithCancel(ctx)
+	// A deadline, not just a cancel. restic's retry backend has no elapsed-time
+	// limit of its own and relies entirely on the caller's context; there was
+	// none, so a destination that accepted a TCP connection and then went quiet
+	// — a firewall that drops rather than refuses — left the run going forever.
+	//
+	// The cost of that was worse than one stuck run. s.active is cleared by the
+	// deferred cancel, which never ran, and tick skips a plan that is still in
+	// it, so the plan was excluded from every future tick for the life of the
+	// process. The only sign was a "backup stale" warning that cannot appear
+	// for at least a day.
+	//
+	// Six hours is longer than any backup on the hardware this targets and
+	// shorter than "never", which is the only other value it had.
+	rctx, cancel := context.WithTimeout(ctx, maxRunTime)
 	s.active[id] = cancel
 	s.mu.Unlock()
 	defer func() {
@@ -850,8 +919,12 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 	args = append(args, excl...)
 	cmd := exec.CommandContext(rctx, "docker", args...)
 	stdout, _ := cmd.StdoutPipe()
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	// Capped. This is the one command in the tree that does not go through
+	// cmdrun, so it did not get cmdrun's limit either — and it is also the one
+	// that can spend hours printing retry warnings at an endpoint that is not
+	// answering, into a builder that only grows.
+	stderr := &capped{max: 1 << 20}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		finish("failed", "", err.Error(), nil)
 		return err
@@ -886,7 +959,15 @@ func (s *Service) RunPlan(ctx context.Context, trigger, id string, w io.Writer) 
 		msg := lastLine(stderr.String())
 		if rctx.Err() != nil {
 			msg = "cancelled"
+			if errors.Is(rctx.Err(), context.DeadlineExceeded) {
+				msg = "gave up after " + maxRunTime.String() + ": the destination stopped answering"
+			}
 		}
+		// restic holds a lock while it works, and a run that was killed rather
+		// than finished leaves it behind — so the next run fails on a lock
+		// belonging to a process that no longer exists, and so does the one
+		// after that. Nothing else in the daemon ever removed it.
+		s.unlock(context.WithoutCancel(ctx), d, say)
 		say("[islet] failed: " + msg)
 		finish("failed", "", msg, nil)
 		return errors.New(msg)
