@@ -30,6 +30,18 @@ Some tools will be refused: the token you are acting under is scoped, and the
 refusal names the scope that would be needed. Do not try to work around it; say
 which scope is missing so the person can decide whether to grant it.`
 
+// assistantFiles is added when this server can take uploads. It says where
+// they are, because "the logo I sent you earlier" is a reference to a turn
+// further up that the model can only resolve if it knows attachments are files
+// on disk rather than something it was shown.
+const assistantFiles = `
+
+Files attached to a message are already on this server, at the paths given with
+them. Read them, copy them, unpack them — they are ordinary files. They all live
+under %s, so a file from earlier in this conversation is still there. Copy what
+you need into the place it belongs rather than working out of that directory:
+it is a drop box, not part of anybody's project.`
+
 // assistantHeartbeat is how often an idle stream sends a line. It has to be
 // comfortably under the shortest idle timeout in front of the panel —
 // Cloudflare's origin timeout is 100 seconds — because a single tool call can
@@ -321,12 +333,23 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		// ProviderID chooses the model, and only for a conversation that does
 		// not have one yet.
 		ProviderID string `json:"providerId"`
+		// FileIDs are uploads to attach to this turn. Ids rather than paths,
+		// so a request cannot name a file the person never uploaded.
+		FileIDs []string `json:"fileIds"`
 	}
 	if err := decode(r, &req); err != nil {
 		s.badJSON(w, err)
 		return
 	}
-	if strings.TrimSpace(req.Text) == "" && len(req.Messages) == 0 {
+	// Files on their own are a question: handing over a logo and nothing else
+	// plainly means "use this", and making somebody type a word first would be
+	// a rule for the machine's benefit.
+	files, ferr := s.attachments(req.FileIDs)
+	if ferr != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: ferr.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" && len(files) == 0 && len(req.Messages) == 0 {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "send a question"})
 		return
 	}
@@ -356,13 +379,13 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	persist := context.WithoutCancel(r.Context())
 
 	chatID, msgs := req.ChatID, req.Messages
-	if strings.TrimSpace(req.Text) != "" {
+	if strings.TrimSpace(req.Text) != "" || len(files) > 0 {
 		if s.chats == nil {
 			writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: "conversations are not available"})
 			return
 		}
 		if chatID == "" {
-			ch, err := s.chats.CreateWith(persist, u.Username, req.Text, providerID)
+			ch, err := s.chats.CreateWith(persist, u.Username, chatTitle(req.Text, files), providerID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 				return
@@ -378,7 +401,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		ask := assistant.Message{Role: assistant.RoleUser, Text: req.Text}
+		ask := assistant.Message{Role: assistant.RoleUser, Text: req.Text, Files: files}
 		if err := s.chats.Append(persist, u.Username, chatID, ask); err != nil {
 			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: err.Error()})
 			return
@@ -432,7 +455,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer cancelTimeout()
 		defer cancel()
-		out, err := assistant.RunStream(runCtx, p, assistantSystem, msgs, tools, exec, req.MaxSteps, obs)
+		out, err := assistant.RunStream(runCtx, p, s.systemPrompt(), msgs, tools, exec, req.MaxSteps, obs)
 		switch {
 		case err != nil && runCtx.Err() != nil && rn.cancelled():
 			rn.add("error", map[string]any{"message": "stopped", "messages": out})
@@ -726,4 +749,54 @@ func claudePath(ctx contextCtx, s *Server) string {
 		return ""
 	}
 	return s.workspaces.ClaudePath(ctx)
+}
+
+// attachments turns the ids a composer sent into what the model is told.
+//
+// Ids, not paths: the request says which uploads to attach, and the server
+// looks up where they are. A request that could name a path would be a request
+// that could attach /etc/shadow to a conversation and have the assistant read
+// it out.
+func (s *Server) attachments(ids []string) ([]assistant.Attachment, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if s.uploads == nil {
+		return nil, fmt.Errorf("uploads are not available on this server")
+	}
+	out := make([]assistant.Attachment, 0, len(ids))
+	for _, id := range ids {
+		f, err := s.uploads.Get(id)
+		if err != nil {
+			return nil, fmt.Errorf("that upload is no longer there; attach it again")
+		}
+		out = append(out, assistant.Attachment{Name: f.Name, Path: f.Path, Size: f.Size, Type: f.Type})
+	}
+	return out, nil
+}
+
+// chatTitle names a conversation from what started it. A conversation opened
+// by dropping in three images has no words to be named after, so it is named
+// after the images.
+func chatTitle(text string, files []assistant.Attachment) string {
+	if strings.TrimSpace(text) != "" {
+		return text
+	}
+	switch len(files) {
+	case 0:
+		return ""
+	case 1:
+		return files[0].Name
+	default:
+		return fmt.Sprintf("%s and %d more", files[0].Name, len(files)-1)
+	}
+}
+
+// systemPrompt is what the model is told it is, plus whatever this particular
+// server adds to that.
+func (s *Server) systemPrompt() string {
+	if s.uploads == nil {
+		return assistantSystem
+	}
+	return assistantSystem + fmt.Sprintf(assistantFiles, s.uploads.Dir())
 }

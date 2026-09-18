@@ -28,6 +28,7 @@ islet/
 │  ├─ notify/            Event bus, event catalog, channels (Telegram, Discord, Slack, email, ...), routing, outbox
 │  ├─ security/          Hardening wizard, Security Score, firewall, fail2ban/CrowdSec, Lynis, Trivy, auth log parsing
 │  ├─ backup/            restic wrapper, targets, schedules, restore browser, server export and import
+│  ├─ uploads/           Files handed to the assistant: stored under the data directory, scanned, then an absolute path
 │  ├─ metrics/           Collectors for host and container metrics, disk forecast, alert rules
 │  └─ plugins/           WASM plugin host and capability manifests (phase 6)
 │

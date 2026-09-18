@@ -57,3 +57,31 @@ type CommandEntry struct {
 	Stderr     string `json:"stderr,omitempty"`
 	CreatedAt  string `json:"createdAt"`
 }
+
+// Upload is a file handed to the assistant, as the panel sees it.
+//
+// Path is on the server and is the whole point: it is what the model is given
+// and what every tool it has already takes. The panel shows it so the person
+// can see where their file went.
+type Upload struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	Type string `json:"type"`
+	// Scanner is what checked this file, empty when nothing did. The panel
+	// says which, because "no virus found" and "nothing looked" are different
+	// answers and only one of them is reassuring.
+	Scanner string `json:"scanner,omitempty"`
+	AddedAt string `json:"addedAt"`
+}
+
+// Uploads is a list of them, with what this server can do about malware.
+type Uploads struct {
+	Files []Upload `json:"files"`
+	// Scanner is the malware scanner installed here, or empty. Reported with
+	// the list rather than per file so the panel can say it once, before
+	// anybody uploads anything.
+	Scanner string `json:"scanner,omitempty"`
+	MaxSize int64  `json:"maxSize"`
+}

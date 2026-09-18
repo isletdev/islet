@@ -197,13 +197,42 @@ export interface AssistantToolCall { id: string; name: string; input?: Record<st
 export interface AssistantToolResult { callId: string; content: string; isError?: boolean }
 /** One call that already happened, kept with the turn that made it. */
 export interface AssistantToolRun { name: string; input?: Record<string, unknown>; ms: number; ok: boolean; output?: string }
+/**
+ * A file handed to the assistant, on the turn it was sent with.
+ *
+ * `path` is where it is on the server, which is the whole of what the model is
+ * given: every tool it has already takes paths, so a photograph and a video
+ * cost the same to attach and nothing has to be encoded onto the wire.
+ */
+export interface AssistantAttachment { name: string; path: string; size?: number; type?: string }
 export interface AssistantMessage {
   role: "user" | "assistant";
   text?: string;
+  files?: AssistantAttachment[];
   calls?: AssistantToolCall[];
   results?: AssistantToolResult[];
   /** What a provider running its own loop did while producing this turn. */
   tools?: AssistantToolRun[];
+}
+
+/** An uploaded file, before it has been attached to anything. */
+export interface Upload {
+  id: string;
+  name: string;
+  /** Where it landed on the server. */
+  path: string;
+  size: number;
+  type: string;
+  /** What checked it for malware, absent when nothing did. */
+  scanner?: string;
+  addedAt: string;
+}
+
+export interface Uploads {
+  files: Upload[];
+  /** The malware scanner this server has, empty when it has none. */
+  scanner?: string;
+  maxSize: number;
 }
 
 /**
@@ -422,6 +451,10 @@ export const api = {
   aiProviderDefault: (id: string) => post<AIProvider[]>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, {}),
   aiProviderDelete: (id: string) => post<void>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, undefined, "DELETE"),
   assistantRuns: () => request<AssistantRun[]>("/api/v1/assistant/runs"),
+  assistantUploads: () => request<Uploads>("/api/v1/assistant/uploads"),
+  assistantUploadDelete: (id: string) => request<void>(`/api/v1/assistant/uploads/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** Where the bytes are, for a thumbnail of what is about to be sent. */
+  assistantUploadUrl: (id: string) => apiPath(`/api/v1/assistant/uploads/${encodeURIComponent(id)}`),
   assistantChats: () => request<AssistantChat[]>("/api/v1/assistant/chats"),
   assistantChatNew: (providerId?: string) => post<AssistantChat>("/api/v1/assistant/chats", { providerId }),
   assistantChatOpen: (id: string) => request<AssistantChatDetail>(`/api/v1/assistant/chats/${encodeURIComponent(id)}`),
@@ -638,3 +671,48 @@ export const api = {
   serverCheck: (id: string) => post<{ ok: boolean; error?: string; server?: FleetServer }>(`/api/v1/servers/${id}/check`),
   metricsHistory: (range: "1h" | "6h" | "24h" | "7d") => request<{ stepSeconds: number; points: Point[] }>(`/api/v1/metrics/history?range=${range}`),
 };
+
+/**
+ * Send one file to the assistant's uploads, reporting how far it has got.
+ *
+ * XMLHttpRequest rather than fetch, for the one thing fetch still cannot do:
+ * say how much of a request body has gone. A logo does not need that and a
+ * forty-megabyte video very much does — without it the composer has a
+ * paperclip that does nothing for a minute.
+ *
+ * One request per file, so a rejected one marks itself rather than taking the
+ * others down with it. The scan happens inside this request, which is why it
+ * can sit at 100% for a moment before answering: the bytes are there and
+ * ClamAV is reading them.
+ */
+export function assistantUpload(
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<Upload> {
+  return new Promise<Upload>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", apiPath("/api/v1/assistant/uploads"));
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let body: unknown;
+      try { body = JSON.parse(xhr.responseText) as unknown; } catch { body = undefined; }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const saved = (body as Uploads | undefined)?.files?.[0];
+        if (saved) { resolve(saved); return; }
+        reject(new RequestError(xhr.status, { error: "invalid", message: "the server saved nothing" }));
+        return;
+      }
+      if (xhr.status === 401) onUnauthorized();
+      reject(new RequestError(xhr.status, (body as ApiError) ?? { error: "http_error", message: xhr.statusText }));
+    };
+    xhr.onerror = () => reject(new RequestError(0, { error: "network", message: "the upload did not reach the server" }));
+    xhr.onabort = () => reject(new RequestError(0, { error: "aborted", message: "upload cancelled" }));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    xhr.send(fd);
+  });
+}

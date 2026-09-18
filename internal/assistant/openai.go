@@ -148,12 +148,12 @@ func openAIMessages(system string, msgs []Message) []map[string]any {
 				calls = append(calls, map[string]any{"id": c.ID, "type": "function",
 					"function": map[string]any{"name": c.Name, "arguments": string(args)}})
 			}
-			out = append(out, map[string]any{"role": RoleAssistant, "content": m.Text, "tool_calls": calls})
+			out = append(out, map[string]any{"role": RoleAssistant, "content": m.Prompt(), "tool_calls": calls})
 		default:
-			if strings.TrimSpace(m.Text) == "" {
+			if strings.TrimSpace(m.Prompt()) == "" {
 				continue
 			}
-			out = append(out, map[string]any{"role": m.Role, "content": m.Text})
+			out = append(out, map[string]any{"role": m.Role, "content": m.Prompt()})
 		}
 	}
 	return out

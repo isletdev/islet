@@ -35,6 +35,7 @@ import (
 	"github.com/isletdev/islet/internal/security"
 	"github.com/isletdev/islet/internal/sqlclient"
 	"github.com/isletdev/islet/internal/store"
+	"github.com/isletdev/islet/internal/uploads"
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
@@ -65,6 +66,7 @@ type Deps struct {
 	Security   *security.Service
 	Fleet      *fleet.Service
 	Backup     *backup.Service
+	Uploads    *uploads.Service
 	GitHub     *github.Client
 	UI         http.Handler
 	Log        *slog.Logger
@@ -100,6 +102,7 @@ type Server struct {
 	// the tests. See internal/api/sqlclient.go.
 	sqlInstances func(context.Context, string) ([]sqlInstance, error)
 	backup       *backup.Service
+	uploads      *uploads.Service
 	github       *github.Client
 	mcp          *mcp.Server
 	// routes is the bare router, kept so the generic MCP tool can reach any
@@ -128,7 +131,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
 	}
@@ -248,6 +251,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/assistant/chats/{id}", s.requireAuth(s.handleAssistantChat1))
 	mux.HandleFunc("POST /api/v1/assistant/chats/{id}", requireJSON(s.requireAuth(s.handleAssistantChat1)))
 	mux.HandleFunc("DELETE /api/v1/assistant/chats/{id}", s.requireAuth(s.handleAssistantChat1))
+	mux.HandleFunc("GET /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))
+	mux.HandleFunc("POST /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))
+	mux.HandleFunc("GET /api/v1/assistant/uploads/{id}", s.requireAuth(s.handleUpload1))
+	mux.HandleFunc("DELETE /api/v1/assistant/uploads/{id}", s.requireAuth(s.handleUpload1))
 	mux.HandleFunc("GET /api/v1/assistant/runs", s.requireAuth(s.handleAssistantRuns))
 	mux.HandleFunc("GET /api/v1/assistant/runs/{id}", s.requireAuth(s.handleAssistantRun))
 	mux.HandleFunc("POST /api/v1/assistant/runs/{id}/cancel", s.requireAuth(s.handleAssistantRunCancel))
@@ -577,7 +584,12 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+		// blob: on img-src only, for a preview of a file that has not been
+		// uploaded yet. A blob URL is made by this page's own script out of
+		// bytes it already holds, so it widens nothing — and without it the
+		// thumbnail of an attachment silently never draws, which is how this
+		// was found.
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

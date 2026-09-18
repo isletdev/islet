@@ -39,11 +39,26 @@ type ToolResult struct {
 	IsError bool   `json:"isError,omitempty"`
 }
 
+// Attachment is a file the person handed the assistant.
+//
+// Path is the whole of it. The file is already on this server by the time a
+// message carries one, so the model needs no way to fetch it and no encoding
+// on the wire — it passes the path to any of the tools it already has, and
+// Claude Code opens it directly. That is why a photograph and a forty-megabyte
+// video cost the same to attach.
+type Attachment struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size,omitempty"`
+	Type string `json:"type,omitempty"`
+}
+
 // Message is one turn. A turn from the model may carry text, tool calls or
-// both; a turn from the user carries text or the results of the calls.
+// both; a turn from the user carries text, files, or the results of the calls.
 type Message struct {
 	Role    string       `json:"role"`
 	Text    string       `json:"text,omitempty"`
+	Files   []Attachment `json:"files,omitempty"`
 	Calls   []ToolCall   `json:"calls,omitempty"`
 	Results []ToolResult `json:"results,omitempty"`
 	// Tools is what was done while this turn was being produced, by a provider
@@ -62,6 +77,54 @@ type ToolRun struct {
 	MS     int64          `json:"ms"`
 	OK     bool           `json:"ok"`
 	Output string         `json:"output,omitempty"`
+}
+
+// Prompt is a turn's text as the model should receive it: what was typed, and
+// then where the attached files are.
+//
+// Folded in here rather than at each provider, because there are three of them
+// and this is the kind of difference that becomes a bug report about one model
+// ignoring attachments. The panel keeps the two apart — the words are the
+// person's, the list is Islet's — so the transcript shows files as files
+// rather than as a paragraph somebody appears to have typed.
+func (m Message) Prompt() string {
+	if len(m.Files) == 0 {
+		return m.Text
+	}
+	var b strings.Builder
+	b.WriteString(m.Text)
+	if strings.TrimSpace(m.Text) != "" {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Files attached to this message. They are already on this server, at these exact paths:\n")
+	for _, f := range m.Files {
+		b.WriteString("- ")
+		b.WriteString(f.Path)
+		if f.Type != "" {
+			b.WriteString(" (" + f.Type)
+			if f.Size > 0 {
+				b.WriteString(", " + humanSize(f.Size))
+			}
+			b.WriteString(")")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// humanSize is for the model's benefit as much as a reader's: "41 MB" is the
+// difference between a logo and a video, and it decides whether reading the
+// whole file is a sensible thing to do.
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", n)
 }
 
 // Tool is what the model is told it can do. Schema is JSON Schema, which is

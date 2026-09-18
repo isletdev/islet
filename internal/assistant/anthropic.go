@@ -174,8 +174,8 @@ func anthropicMessages(msgs []Message) []map[string]any {
 			out = append(out, map[string]any{"role": RoleUser, "content": blocks})
 		case len(m.Calls) > 0:
 			blocks := []map[string]any{}
-			if strings.TrimSpace(m.Text) != "" {
-				blocks = append(blocks, map[string]any{"type": "text", "text": m.Text})
+			if strings.TrimSpace(m.Prompt()) != "" {
+				blocks = append(blocks, map[string]any{"type": "text", "text": m.Prompt()})
 			}
 			for _, c := range m.Calls {
 				in := c.Input
@@ -186,10 +186,10 @@ func anthropicMessages(msgs []Message) []map[string]any {
 			}
 			out = append(out, map[string]any{"role": RoleAssistant, "content": blocks})
 		default:
-			if strings.TrimSpace(m.Text) == "" {
+			if strings.TrimSpace(m.Prompt()) == "" {
 				continue
 			}
-			out = append(out, map[string]any{"role": m.Role, "content": m.Text})
+			out = append(out, map[string]any{"role": m.Role, "content": m.Prompt()})
 		}
 	}
 	return out

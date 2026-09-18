@@ -1,15 +1,85 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, RequestError, type AIProvider, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
+import { api, assistantUpload, RequestError, type AIProvider, type AssistantAttachment, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
 import { getNDJSON, postNDJSON } from "@/lib/stream";
 import { useDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Input, Select } from "@/components/ui";
 import Markdown from "@/components/Markdown";
+import { ArchiveFileIcon, CloseIcon, FileIcon, ImageFileIcon, MicIcon, PaperclipIcon, VideoFileIcon } from "@/components/icons";
 
 function err(e: unknown) {
   if (e instanceof RequestError) return e.message;
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * A file on its way to the server, or already there.
+ *
+ * It exists in the composer before it exists on the server, because the upload
+ * of a video takes a while and a paperclip that does nothing for a minute is
+ * indistinguishable from a broken one. `id` arrives when the server has taken
+ * it and the scan has passed; until then this row is a progress bar, and if it
+ * never arrives it is an error with the file's name on it.
+ */
+type Pending = {
+  key: string;
+  name: string;
+  size: number;
+  type: string;
+  /** An object URL of the local file, so the thumbnail is there before the
+      upload is. Revoked when the row goes. */
+  preview?: string;
+  progress: number;
+  id?: string;
+  path?: string;
+  error?: string;
+};
+
+/** What to draw for a file, from its media type. */
+function fileIcon(type: string) {
+  if (type.startsWith("image/")) return ImageFileIcon;
+  if (type.startsWith("video/") || type.startsWith("audio/")) return VideoFileIcon;
+  if (/zip|compressed|tar|gzip|x-7z|rar/.test(type)) return ArchiveFileIcon;
+  return FileIcon;
+}
+
+function size(n: number) {
+  if (n >= 1 << 30) return `${(n / (1 << 30)).toFixed(1)} GB`;
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
+  if (n >= 1 << 10) return `${Math.round(n / (1 << 10))} KB`;
+  return `${n} B`;
+}
+
+/**
+ * Dictation, where the browser offers it.
+ *
+ * The Web Speech API rather than anything on this server: a model that
+ * transcribes audio is another dependency, another key and another bill, for a
+ * convenience. Where the browser has no such thing — Firefox — the button is
+ * not drawn rather than drawn and disabled.
+ *
+ * It is worth knowing that Chrome's implementation sends the audio to Google,
+ * which on a self-hosted panel is not what everybody expects, so the button
+ * says so.
+ */
+type SpeechResult = ArrayLike<{ transcript: string }> & { isFinal: boolean };
+type SpeechEvent = { results: ArrayLike<SpeechResult>; resultIndex: number };
+interface Recognizer {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((e: SpeechEvent) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+function newRecognizer(): Recognizer | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer };
+  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+  return Ctor ? new Ctor() : null;
 }
 
 /** What the run is doing right now, in the order it happened. */
@@ -57,6 +127,15 @@ export default function Assistant() {
   const [msgs, setMsgs] = useState<AssistantMessage[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [text, setText] = useState("");
+  // What is attached to the message not yet sent, and what this server can do
+  // about malware. scanner is null until asked, "" when nothing is installed.
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [scanner, setScanner] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [listening, setListening] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  const recog = useRef<Recognizer | null>(null);
+  const [canDictate] = useState(() => newRecognizer() !== null);
   const [running, setRunning] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [listOpen, setListOpen] = useState(false);
@@ -83,6 +162,9 @@ export default function Assistant() {
   }, []);
 
   useEffect(() => { void api.assistant().then(setCfg).catch(() => setCfg(null)); }, []);
+  // Asked once, so the composer can say whether anything will check a file
+  // before it is uploaded rather than after.
+  useEffect(() => { void api.assistantUploads().then((r) => setScanner(r.scanner ?? "")).catch(() => setScanner(null)); }, []);
   useEffect(() => {
     void api.aiProviders().then((list) => {
       setModels(list);
@@ -300,19 +382,90 @@ export default function Assistant() {
     abort.current?.abort();
   }, []);
 
+  // ---- attachments --------------------------------------------------------
+
+  // Each file is uploaded on its own, as soon as it is chosen. By the time the
+  // question is typed the bytes are usually already there, and a file that is
+  // refused — too large, or a scanner that objects — says so against that file
+  // instead of failing the question with it.
+  const addFiles = useCallback((chosen: FileList | File[] | null) => {
+    if (!chosen) return;
+    for (const file of Array.from(chosen)) {
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+      setPending((p) => [...p, { key, name: file.name, size: file.size, type: file.type, preview, progress: 0 }]);
+      void assistantUpload(file, (f) => setPending((p) => p.map((x) => (x.key === key ? { ...x, progress: f } : x))))
+        .then((u) => setPending((p) => p.map((x) => (x.key === key ? { ...x, id: u.id, path: u.path, type: u.type || x.type, progress: 1 } : x))))
+        .catch((e) => setPending((p) => p.map((x) => (x.key === key ? { ...x, error: err(e) } : x))));
+    }
+  }, []);
+
+  // Taking a file off the message deletes it from the server too. It was put
+  // there to be used in this conversation; a file nobody attached in the end is
+  // disk somebody has to find and remove by hand.
+  const unattach = useCallback((key: string) => {
+    setPending((p) => {
+      const gone = p.find((x) => x.key === key);
+      if (gone?.preview) URL.revokeObjectURL(gone.preview);
+      if (gone?.id) void api.assistantUploadDelete(gone.id).catch(() => { /* it may already be gone */ });
+      return p.filter((x) => x.key !== key);
+    });
+  }, []);
+
+  // Previews are object URLs, and a page left open through a dozen questions
+  // would hold every one of them.
+  useEffect(() => () => { setPending((p) => { p.forEach((x) => x.preview && URL.revokeObjectURL(x.preview)); return []; }); }, []);
+
+  const uploading = pending.some((p) => !p.id && !p.error);
+  const attached = pending.filter((p) => p.id);
+
+  const dictate = () => {
+    if (listening) { recog.current?.stop(); return; }
+    const r = newRecognizer();
+    if (!r) return;
+    recog.current = r;
+    r.lang = navigator.language || "en-US";
+    r.continuous = true;
+    r.interimResults = false;
+    // Appended to whatever is already typed, because dictation is usually the
+    // long half of a question whose first words were typed.
+    r.onresult = (e) => {
+      let said = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) said += e.results[i][0].transcript;
+      }
+      if (said.trim()) setText((t) => (t ? `${t.trimEnd()} ${said.trim()}` : said.trim()));
+    };
+    r.onerror = (ev) => {
+      setListening(false);
+      if (ev.error !== "aborted" && ev.error !== "no-speech") {
+        setError(ev.error === "not-allowed" ? "The browser would not give the page the microphone." : `Dictation stopped: ${ev.error}`);
+      }
+    };
+    r.onend = () => setListening(false);
+    setListening(true);
+    r.start();
+  };
+  useEffect(() => () => recog.current?.stop(), []);
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const q = text.trim();
-    if (!q || running) return;
-    setMsgs((m) => [...m, { role: "user", text: q }]);
+    if ((!q && attached.length === 0) || running || uploading) return;
+    const files: AssistantAttachment[] = attached.map((p) => ({ name: p.name, path: p.path ?? "", size: p.size, type: p.type }));
+    const ids = attached.map((p) => p.id!);
+    setMsgs((m) => [...m, { role: "user", text: q, files: files.length ? files : undefined }]);
     setText("");
+    // Cleared, not deleted: these files belong to the conversation now.
+    pending.forEach((p) => p.preview && URL.revokeObjectURL(p.preview));
+    setPending([]);
     setActivity([]);
     await follow((onEvent, signal) =>
       postNDJSON<AssistantEvent>("/api/v1/assistant/chat", onEvent,
         // The model goes with the first message only. After that the
         // conversation has one of its own and the daemon uses that, so
         // changing the picker cannot move a chat that is under way.
-        { chatId: chatId ?? undefined, text: q, providerId: chatId ? undefined : (provider || undefined) }, signal));
+        { chatId: chatId ?? undefined, text: q, fileIds: ids.length ? ids : undefined, providerId: chatId ? undefined : (provider || undefined) }, signal));
   };
 
   // Which model a new conversation will use. Only asked when there is more
@@ -445,7 +598,26 @@ export default function Assistant() {
           </ul>
         </aside>
 
-        <section className={`${listOpen ? "hidden" : "flex"} min-h-0 flex-col md:flex`}>
+        {/* Dropping a file anywhere over the conversation attaches it. The
+            counter, rather than a boolean: dragging over a child fires a leave
+            for the parent, so a single flag flickered the outline off the
+            moment the pointer crossed a message. */}
+        <section
+          className={`${listOpen ? "hidden" : "flex"} relative min-h-0 flex-col md:flex`}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDragging(true); } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.files.length) return;
+            e.preventDefault();
+            setDragging(false);
+            addFiles(e.dataTransfer.files);
+          }}
+        >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-bg/80 text-sm font-medium">
+              Drop to attach
+            </div>
+          )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-border bg-surface p-3">
             {msgs.length === 0 && !running && (
               <div className="py-8 text-center text-sm text-ink-muted">
@@ -472,23 +644,130 @@ export default function Assistant() {
             <div ref={foot} />
           </div>
 
-          <form onSubmit={send} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          {/* Everything about to be sent, above the box it will be sent from.
+              A name beside a paperclip is not enough to notice that the wrong
+              photograph is attached, and noticing afterwards means it is
+              already on the server and in a conversation. */}
+          {pending.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {pending.map((p) => <PendingFile key={p.key} file={p} onRemove={() => unattach(p.key)} />)}
+            </ul>
+          )}
+          {pending.filter((p) => p.error).map((p) => (
+            <p key={p.key} className="mt-1.5 text-xs text-danger">{p.error}</p>
+          ))}
+          {pending.length > 0 && scanner === "" && (
+            <p className="mt-1.5 text-xs text-warning">
+              Nothing on this server checks uploads for malware. Install ClamAV — <code>apt install clamav-daemon</code> — and it is used from then on.
+            </p>
+          )}
+
+          <form onSubmit={send} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+            />
+            <button
+              type="button"
+              onClick={() => picker.current?.click()}
+              disabled={!ready || running}
+              aria-label="Attach files"
+              title="Attach images, video, documents or a zip"
+              className="-my-1 inline-flex h-9 items-center rounded-md px-2 text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-40"
+            >
+              <PaperclipIcon className="h-4 w-4" />
+            </button>
             <Input
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={ready ? "Ask for something…" : "Configure an assistant first"}
+              // A screenshot pasted in is the fastest way there is to show
+              // something, and every other box that takes files takes it.
+              onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
+              placeholder={ready ? (pending.length ? "Say what to do with these…" : "Ask for something, or drop in a file…") : "Configure an assistant first"}
               disabled={!ready || running}
               aria-label="Ask the assistant"
             />
-            {running ? (
-              <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void stop()}>Stop</Button>
-            ) : (
-              <Button type="submit" className="h-9 text-xs" disabled={!ready || !text.trim()}>Ask</Button>
-            )}
+            <div className="flex items-center gap-2">
+              {canDictate && (
+                <button
+                  type="button"
+                  onClick={dictate}
+                  disabled={!ready || running}
+                  aria-label={listening ? "Stop dictating" : "Dictate"}
+                  aria-pressed={listening}
+                  title={listening ? "Stop dictating" : "Dictate. Your browser does the listening, and may send the audio to its vendor"}
+                  className={`-my-1 inline-flex h-9 items-center rounded-md px-2 disabled:opacity-40 ${listening ? "animate-pulse text-danger" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
+                >
+                  <MicIcon className="h-4 w-4" />
+                </button>
+              )}
+              {running ? (
+                <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void stop()}>Stop</Button>
+              ) : (
+                <Button type="submit" className="h-9 text-xs" disabled={!ready || uploading || (!text.trim() && attached.length === 0)}>
+                  {uploading ? "Uploading…" : "Ask"}
+                </Button>
+              )}
+            </div>
           </form>
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * One file in the composer: what it is, how far it has got, and a way to take
+ * it off again.
+ *
+ * An image shows itself. Everything else shows an icon and its size, which is
+ * the pair that actually distinguishes two files called "final.mp4" — a
+ * thumbnail of a video is a frame nobody chose, and a document has no picture
+ * at all.
+ */
+function PendingFile({ file, onRemove }: { file: Pending; onRemove: () => void }) {
+  const Glyph = fileIcon(file.type);
+  const done = Boolean(file.id);
+  return (
+    <li
+      className={`relative flex w-40 items-center gap-2 overflow-hidden rounded-md border px-2 py-1.5 ${file.error ? "border-danger bg-danger-soft" : "border-border bg-surface"}`}
+      title={file.error ? file.error : file.path ?? file.name}
+    >
+      {file.preview ? (
+        <img src={file.preview} alt="" className="h-8 w-8 shrink-0 rounded-sm object-cover" />
+      ) : (
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-surface-2 text-ink-muted"><Glyph className="h-4 w-4" /></span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs">{file.name}</span>
+        {/* Why it was refused is written under the strip, not in here: the
+            reason names a virus signature or a size limit, and neither fits in
+            a tile the width of a file name. */}
+        <span className={`block truncate text-[10px] ${file.error ? "text-danger" : "text-ink-muted"}`}>
+          {file.error ? "not attached" : done ? size(file.size) : `${Math.round(file.progress * 100)}%`}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${file.name}`}
+        className="-my-1 shrink-0 rounded-sm p-1 text-ink-muted hover:text-danger"
+      >
+        <CloseIcon className="h-3 w-3" />
+      </button>
+      {/* The bar sits under the row rather than beside the name: a 40 MB video
+          is a minute of nothing happening otherwise. It stays at full width
+          while the scanner reads the file, which is after the bytes have all
+          arrived and before the server answers. */}
+      {!done && !file.error && (
+        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-surface-2">
+          <span className="block h-full bg-accent transition-[width] duration-200" style={{ width: `${Math.max(3, file.progress * 100)}%` }} />
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -551,8 +830,25 @@ function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResu
   const mine = m.role === "user";
   if (mine && !m.results?.length) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-ink px-3 py-2 text-sm text-on-ink">{m.text}</div>
+      <div className="flex flex-col items-end gap-1.5">
+        {/* Files first: they are the thing the sentence refers to. The path is
+            shown because it is what the assistant was actually given, and
+            because it is what you would type to use the file yourself. */}
+        {m.files?.length ? (
+          <ul className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            {m.files.map((f, i) => {
+              const Glyph = fileIcon(f.type ?? "");
+              return (
+                <li key={i} className="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1 text-xs" title={f.path}>
+                  <Glyph className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                  <span className="truncate">{f.name}</span>
+                  {f.size ? <span className="shrink-0 text-ink-faint">{size(f.size)}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {m.text && <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-ink px-3 py-2 text-sm text-on-ink">{m.text}</div>}
       </div>
     );
   }

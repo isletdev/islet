@@ -491,3 +491,24 @@ export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   servers: ServersIcon,
   settings: SettingsIcon,
 };
+
+export const PaperclipIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M20.4 11.4 12.1 19.7a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.7-7.6" />
+  </Icon>
+);
+
+export const MicIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9" y="2.6" width="6" height="11.4" rx="3" />
+    <path d="M5.4 11.4a6.6 6.6 0 0 0 13.2 0" />
+    <path d="M12 18v3.4M9 21.4h6" />
+  </Icon>
+);
+
+export const VideoFileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.6" y="5.4" width="13.4" height="13.2" rx="2" />
+    <path d="m16 12 5.4-3.4v6.8z" />
+  </Icon>
+);

@@ -377,13 +377,13 @@ func transcript(system string, msgs []Message) string {
 				b.WriteString(r.Content)
 				b.WriteString("\n")
 			}
-		case strings.TrimSpace(m.Text) != "":
+		case strings.TrimSpace(m.Prompt()) != "":
 			if m.Role == RoleAssistant {
 				b.WriteString("Assistant: ")
 			} else {
 				b.WriteString("User: ")
 			}
-			b.WriteString(m.Text)
+			b.WriteString(m.Prompt())
 			b.WriteString("\n")
 		}
 	}

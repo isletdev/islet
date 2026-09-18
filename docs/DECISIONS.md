@@ -2960,3 +2960,59 @@ database, so nothing hits it today — and five table rebuilds immediately befor
 a code freeze is a poor trade against a claim in a document. So the claim in
 CLAUDE.md was corrected instead, which is the honest half of the fix and the one
 that stops the pattern spreading.
+
+## Files handed to the assistant
+
+**An attachment is a path, not bytes on the wire.** The obvious shape for this
+was the one every chat API describes: read the file, base64 it, send it as an
+image or document block. It was not taken. Islet's assistant already has
+seventy tools and every one of them takes paths, the subscription provider is
+Claude Code and opens files itself, and a forty-megabyte video cannot go into a
+message at all. So a file is uploaded, checked, and from then on it is an
+absolute path on this server — which means a photograph and that video cost the
+same to attach, nothing has to be re-sent on every later turn, and the three
+providers needed one change between them rather than three.
+
+What it costs is vision. A model that cannot run a tool cannot see the picture,
+only its name and where it is. Both providers Islet ships can run tools, so the
+trade is currently free; a provider that cannot would need the other shape as
+well, and `Message.Prompt` is where it would go.
+
+**Scanned when something is installed to scan with, and said out loud when
+there is not.** ClamAV wants about a gigabyte of RAM for its signatures, and
+this daemon is meant to run on a server with one. Requiring it would have made
+the feature dead on exactly the machines Islet is for; pretending a file was
+checked when nothing looked at it would be worse. So `clamdscan` is used when
+it is there, `clamscan` when only that is, and the panel says plainly when
+neither is — with the one command that changes the answer.
+
+A scanner that is installed and cannot answer is a refusal, not a pass. That
+turns a broken clamd into uploads that stop working, which is loud, rather than
+uploads that are silently unchecked, which is not.
+
+**No table.** The files are the state. A row per upload would be a second
+answer to "what is here" that drifts the first time somebody removes one from
+the Files page — which they can, because uploads live under the data directory
+and the Files page browses the whole filesystem. The scan result is the one
+thing not derivable from disk, and it does not need to be: a file that fails is
+deleted, so everything present passed whatever was available at the time.
+
+Nothing expires them. A file was uploaded to be used, the assistant may have
+copied it somewhere or not yet, and a cleanup that removed the logo somebody
+referred to yesterday would be worse than disk. They are ordinary files in an
+ordinary directory, listed in the panel like any other.
+
+**`blob:` joins `img-src` in the panel's CSP.** A preview of a file that has not
+been uploaded yet is an object URL, and the policy allowed `'self'` and `data:`
+only, so the thumbnail drew nothing at all. A blob URL is minted by the page's
+own script from bytes it already holds, so it widens nothing; `connect-src` is
+deliberately left alone, because the page displays those bytes and never fetches
+them back.
+
+**Dictation is the browser's, or it is absent.** A microphone button that
+transcribes would mean another provider, another key and another bill for a
+convenience. The Web Speech API costs nothing and is already there in Chrome and
+Safari; in Firefox, which has none, the button is not drawn rather than drawn
+and broken. Chrome's implementation sends the audio to Google, which is not what
+everybody expects on a self-hosted panel, so the button says so rather than
+leaving it to be discovered.

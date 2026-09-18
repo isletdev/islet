@@ -211,3 +211,60 @@ func (f *failAfter) Complete(ctx context.Context, sys string, msgs []Message, to
 	}
 	return f.inner.Complete(ctx, sys, msgs, tools)
 }
+
+// An attachment reaches the model as a path, on the turn it was sent with.
+//
+// Folded in by Message.Prompt rather than at each provider, so this is the one
+// place it can be got wrong — there are three providers and the failure would
+// have been "the OpenAI one ignores my files".
+func TestAnAttachmentReachesTheModelAsAPath(t *testing.T) {
+	m := Message{
+		Role: RoleUser,
+		Text: "Build me a landing page",
+		Files: []Attachment{
+			{Name: "logo.svg", Path: "/var/lib/islet/uploads/ab12cd34ef56/logo.svg", Type: "image/svg+xml", Size: 4096},
+			{Name: "brand.zip", Path: "/var/lib/islet/uploads/00112233aabb/brand.zip", Type: "application/zip", Size: 41 << 20},
+		},
+	}
+	got := m.Prompt()
+	if !strings.Contains(got, "Build me a landing page") {
+		t.Errorf("the words were lost: %q", got)
+	}
+	for _, want := range []string{
+		"/var/lib/islet/uploads/ab12cd34ef56/logo.svg",
+		"/var/lib/islet/uploads/00112233aabb/brand.zip",
+		"image/svg+xml",
+		"41.0 MB", // the difference between a logo and a video, which decides whether reading it whole is sensible
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q is missing from:\n%s", want, got)
+		}
+	}
+	// The stored text stays what the person typed. The transcript shows files
+	// as files, not as a paragraph they appear to have written.
+	if m.Text != "Build me a landing page" {
+		t.Errorf("Prompt changed the message: %q", m.Text)
+	}
+}
+
+// Files with nothing typed are still a turn: handing over a logo and nothing
+// else plainly means "use this".
+func TestFilesWithNoWordsAreStillAPrompt(t *testing.T) {
+	m := Message{Role: RoleUser, Files: []Attachment{{Name: "logo.svg", Path: "/u/logo.svg"}}}
+	got := m.Prompt()
+	if strings.HasPrefix(got, "\n") {
+		t.Errorf("an empty question left a blank line in front: %q", got)
+	}
+	if !strings.Contains(got, "/u/logo.svg") {
+		t.Errorf("the path is missing: %q", got)
+	}
+}
+
+// And a turn with no files is exactly what was typed, byte for byte. Every
+// message in every conversation goes through this.
+func TestATurnWithNoFilesIsUntouched(t *testing.T) {
+	m := Message{Role: RoleUser, Text: "what is running?"}
+	if m.Prompt() != "what is running?" {
+		t.Errorf("Prompt = %q", m.Prompt())
+	}
+}
