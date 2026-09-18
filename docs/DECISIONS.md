@@ -2934,3 +2934,29 @@ is a tmux session running as root rather than a sandbox. An agent reading an
 untrusted repository is an agent that can be told what to do with it. The
 honest framing is the one that page now carries — turn this on for work you
 would have done yourself as root, and not otherwise.
+
+**Three collections get a unique name; five older ones keep their global one.**
+`checks`, `channels` and `jobs` had no unique constraint at all while nine other
+collections did, which is a difference nobody decided. It is also what makes a
+create safe to retry: a create that cannot produce a duplicate is one you can
+send twice. Cron was the sharp case — a retried POST left two jobs on the same
+schedule, running the same command twice, forever.
+
+Migration 0036 renames any existing duplicate rather than refusing to apply. A
+migration that fails puts the daemon in a two-second restart loop with the
+reason only in the journal, and a year-old server may well have two channels
+called "ops". The suffix is the row's own id, so the list says which row was
+touched. Tested by planting duplicates in a database built by the released
+0.22.1 binary and starting this build against it: it reached version 36 and
+came up.
+
+What was not done, deliberately: `apps.name`, `domains.host`,
+`backup_destinations.name`, `backup_plans.name` and `runner_pools.name` are
+still globally unique rather than unique per server. They are column-level
+UNIQUE, so SQLite created implicit indexes that cannot be dropped, and changing
+them means rebuilding five tables that four other tables point at with foreign
+keys. The problem is latent — a managed server runs its own daemon with its own
+database, so nothing hits it today — and five table rebuilds immediately before
+a code freeze is a poor trade against a claim in a document. So the claim in
+CLAUDE.md was corrected instead, which is the honest half of the fix and the one
+that stops the pattern spreading.

@@ -62,3 +62,32 @@ func TestTheQueriesThatRunOnEveryPageDoNotScan(t *testing.T) {
 		}
 	}
 }
+
+// A collection whose names are unique is a collection whose create is safe to
+// retry. Three of them were not, and cron was the one that mattered: a retried
+// POST left two jobs on the same schedule running the same command forever.
+func TestNamesAreUniqueWithinAServer(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "islet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	if _, err := st.DB.ExecContext(ctx, `INSERT INTO servers (id, name) VALUES ('s1', 'one')`); err != nil {
+		// The servers table may already carry this row from Open; either is fine.
+		t.Logf("server row: %v", err)
+	}
+	for _, tc := range []struct{ table, insert string }{
+		{"checks", `INSERT INTO checks (id, server_id, name, type, target) VALUES (?, 's1', 'nightly', 'http', 'https://x')`},
+		{"channels", `INSERT INTO channels (id, server_id, name, type, config_enc) VALUES (?, 's1', 'nightly', 'webhook', '')`},
+		{"jobs", `INSERT INTO jobs (id, server_id, name, type, schedule, command) VALUES (?, 's1', 'nightly', 'command', '0 3 * * *', 'true')`},
+	} {
+		if _, err := st.DB.ExecContext(ctx, tc.insert, "a"); err != nil {
+			t.Fatalf("%s: first insert should work: %v", tc.table, err)
+		}
+		if _, err := st.DB.ExecContext(ctx, tc.insert, "b"); err == nil {
+			t.Errorf("%s accepted a second row with the same name on the same server", tc.table)
+		}
+	}
+}

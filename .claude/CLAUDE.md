@@ -66,7 +66,13 @@ They need a live daemon and are run by hand — nothing in CI invokes them yet.
 - **No feature package imports another.** They meet through `store`, `reconcile`
   and `notify` events.
 - **Every machine-bound table carries `server_id`** and every query filters on
-  it, so the fleet never needs a schema rewrite.
+  it. Uniqueness has to be scoped to it as well — `UNIQUE (server_id, name)`,
+  not `name TEXT UNIQUE` — and five tables written before `0020` still have the
+  global form: `apps.name`, `domains.host`, `backup_destinations.name`,
+  `backup_plans.name`, `runner_pools.name`. That is latent rather than live,
+  since a managed server runs its own daemon with its own database, and fixing
+  it means a table rebuild each because SQLite cannot drop an implicit index.
+  Write new tables the scoped way; do not copy those five.
 - **Every command the daemon runs goes through `cmdrun`**, which redacts secrets
   and writes to the audit table. That is what makes the command-transparency
   drawer work; a bare `exec.Command` is invisible.
