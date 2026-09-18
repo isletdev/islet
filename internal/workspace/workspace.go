@@ -174,6 +174,28 @@ func (s *Service) ClaudePath(ctx context.Context) string {
 	return found
 }
 
+// ClaudeSignedIn reports whether a Claude subscription has been signed in to on
+// this server.
+//
+// Installing the binary and signing it in are two separate things, and only the
+// first can be done from a button: signing in is a device flow that prints a URL
+// and waits for somebody to visit it. A panel that reports only "installed" says
+// the subscription is ready when it is not, and the failure arrives later as an
+// assistant that answers nothing.
+//
+// The credentials file is what Claude Code writes when that flow completes, so
+// its presence is the honest answer to "is this set up". Its contents are not
+// read — whether the token inside is still valid is Claude Code's business, and
+// asking would mean running it.
+func (s *Service) ClaudeSignedIn() bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "/root"
+	}
+	fi, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json"))
+	return err == nil && fi.Size() > 0
+}
+
 // ForgetClaudePath drops the cached lookup, for the moment after an install
 // when the answer has deliberately just changed.
 func (s *Service) ForgetClaudePath() {

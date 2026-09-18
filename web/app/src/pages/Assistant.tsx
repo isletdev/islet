@@ -390,7 +390,11 @@ export default function Assistant() {
             </Select>
           )}
           {models.length > 1 && chatId && chatModel && <span className="hidden text-xs text-ink-muted sm:inline">{chatModel}</span>}
-          {cfg && models.length <= 1 && <span className="hidden text-xs text-ink-muted sm:inline">{cfg.tools} tools · {models[0]?.name ?? cfg.provider}</span>}
+          {/* Only once there is something to answer with. The badge keyed off
+              the config existing, which it does on a server with nothing set
+              up — so a fresh install said "70 tools · anthropic" directly above
+              "no assistant is configured yet". */}
+          {ready && models.length <= 1 && cfg && <span className="hidden text-xs text-ink-muted sm:inline">{cfg.tools} tools · {models[0]?.name ?? cfg.provider}</span>}
           <Button type="button" variant="secondary" className="h-8 text-xs md:hidden" onClick={() => setListOpen((v) => !v)}>
             {listOpen ? "Close" : `Chats${chats.length ? ` (${chats.length})` : ""}`}
           </Button>
@@ -398,13 +402,19 @@ export default function Assistant() {
         </div>
       </div>
 
+      {/* The grid below is a flex child with no margin of its own, so a banner
+          here sat directly on top of the chat list. */}
       {!ready && (
-        <Alert tone="warning">
-          No assistant is configured yet.{" "}
-          {isAdmin ? <Link to="/settings" className="underline">Set one up in Settings</Link> : "Ask an admin to set one up."}
-        </Alert>
+        <div className="mb-3">
+          <Alert tone="warning">
+            No assistant is configured yet.{" "}
+            {isAdmin
+              ? <Link to="/settings?tab=ai" className="-my-1 inline-block py-1 underline">Set one up in Settings</Link>
+              : "Ask an admin to set one up."}
+          </Alert>
+        </div>
       )}
-      {error && <Alert>{error}</Alert>}
+      {error && <div className="mb-3"><Alert>{error}</Alert></div>}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
         <aside className={`${listOpen ? "" : "hidden"} min-h-0 overflow-y-auto rounded-lg border border-border bg-surface p-1.5 md:block`}>

@@ -245,8 +245,14 @@ func (s *Server) handleAssistantConfig(w http.ResponseWriter, r *http.Request) {
 			"defaultModel": assistant.DefaultAnthropicModel,
 			"tools":        len(s.assistantTools()),
 			"mcpConfig":    mcpCfg,
-			// Whether the subscription route is even possible here.
+			// Whether the subscription route is even possible here, and
+			// whether it has actually been signed in to — two different
+			// questions that the panel used to ask as one, so a fresh server
+			// with the binary installed reported itself ready and then
+			// answered nothing.
 			"claudeInstalled": s.workspaces != nil && s.workspaces.ClaudePath(r.Context()) != "",
+			"claudeSignedIn":  s.workspaces != nil && s.workspaces.ClaudeSignedIn(),
+			"claudePath":      claudePath(r.Context(), s),
 		})
 		return
 	}
@@ -711,4 +717,13 @@ func streamRun(ctx context.Context, w http.ResponseWriter, rn *run, from int) {
 			return
 		}
 	}
+}
+
+// claudePath is where Claude Code is, for a panel that needs to tell somebody
+// what to run.
+func claudePath(ctx contextCtx, s *Server) string {
+	if s.workspaces == nil {
+		return ""
+	}
+	return s.workspaces.ClaudePath(ctx)
 }

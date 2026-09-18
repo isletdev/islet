@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig, type AIKind, type AIProvider } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
 import Vault from "@/pages/Vault";
 import CommandLog from "@/components/CommandLog";
-import { useDialog } from "@/lib/dialogs";
+import { postStream } from "@/lib/stream";
+import { failure, useDialog } from "@/lib/dialogs";
 
 function err(e: unknown) { return e instanceof RequestError ? e.message : String(e); }
 
@@ -533,6 +534,8 @@ function AIProviders() {
   };
 
   return (
+    <>
+    <ClaudeCode cfg={cfg} onChanged={() => { void api.assistant().then(setCfg).catch(() => {}); }} />
     <Card title="Models" description="What Islet can think with. The assistant picks one per conversation and a workspace agent picks one when it is created; with a single model configured, neither asks.">
       {list.length === 0 && <p className="text-sm text-ink-muted">Nothing is set up yet, so the assistant cannot answer and an agent has nothing to run.</p>}
       {list.length > 0 && (
@@ -587,7 +590,74 @@ function AIProviders() {
         Claude Code&rsquo;s own tools are denied, so everything it does goes through Islet under those scopes and lands in the audit log.
       </p>
     </Card>
+    </>
   );
+}
+
+/**
+ * Getting a Claude subscription working on a fresh server.
+ *
+ * Two separate things have to be true and the panel used to report only the
+ * first, so a server with the binary installed described itself as ready and
+ * then answered nothing. Installing is a button. Signing in is a device flow
+ * that prints a URL and waits for somebody to open it, which cannot be a
+ * button — so this says so, and hands over the exact command and a terminal to
+ * run it in rather than leaving somebody to work out that part alone.
+ */
+function ClaudeCode({ cfg, onChanged }: { cfg: AssistantConfig | null; onChanged: () => void }) {
+  const [out, setOut] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cmd = cfg?.claudePath || "claude";
+
+  const install = async () => {
+    setBusy(true); setOut([]);
+    try {
+      await postStream("/api/v1/workspaces/claude", (l) => setOut((p) => [...(p ?? []).slice(-200), l]));
+      setOut((p) => [...(p ?? []), "", "Installed. Sign in next."]);
+    } catch (e) {
+      setOut((p) => [...(p ?? []), "", failure(e)]);
+    } finally { setBusy(false); onChanged(); }
+  };
+
+  if (!cfg) return null;
+  const installed = cfg.claudeInstalled;
+  const signedIn = cfg.claudeSignedIn;
+  return (
+    <Card title="Claude Code" description="What a subscription model runs on this server. An API key needs none of this.">
+      <ul className="space-y-2 text-sm">
+        <li className="flex flex-wrap items-center gap-2">
+          <Dot ok={installed} />
+          <span>{installed ? <>Installed at <span className="font-mono text-xs">{cfg.claudePath}</span></> : "Not installed on this server."}</span>
+          {!installed && <Button type="button" variant="secondary" className="ml-auto h-8 text-xs" disabled={busy} onClick={() => void install()}>{busy ? "Installing…" : "Install it"}</Button>}
+        </li>
+        <li className="flex flex-wrap items-center gap-2">
+          <Dot ok={signedIn} />
+          <span>{signedIn ? "Signed in. A subscription model will work." : "Not signed in, so a subscription model has nothing to spend."}</span>
+        </li>
+      </ul>
+
+      {installed && !signedIn && (
+        <div className="mt-3 rounded-md border border-border bg-surface-2 p-3 text-xs">
+          <p className="text-ink-muted">
+            Signing in opens a link you have to visit in a browser, so it cannot be done from here. Open a shell on this server and run:
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="rounded-sm border border-border bg-bg px-2 py-1 font-mono">{cmd}</code>
+            <button type="button" className="-my-1 py-1 text-accent hover:underline" onClick={() => void navigator.clipboard?.writeText(cmd).catch(() => {})}>Copy</button>
+            <Link to="/terminal" className="-my-1 py-1 text-accent hover:underline">Open a shell</Link>
+          </div>
+          <p className="mt-2 text-ink-muted">Follow the prompt, then come back and press refresh.</p>
+          <Button type="button" variant="secondary" className="mt-2 h-8 text-xs" onClick={onChanged}>Refresh</Button>
+        </div>
+      )}
+
+      {out && <pre className="mt-3 max-h-56 overflow-auto rounded-md bg-ink p-3 font-mono text-xs whitespace-pre-wrap text-on-ink">{out.join("\n")}</pre>}
+    </Card>
+  );
+}
+
+function Dot({ ok }: { ok: boolean }) {
+  return <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${ok ? "bg-success" : "bg-warning"}`} />;
 }
 
 function MCP() {

@@ -191,7 +191,7 @@ export interface AIProvider {
 export interface AssistantConfig {
   provider: "anthropic" | "openai" | "subscription";
   model: string; baseUrl: string; keySet: boolean; defaultModel: string;
-  tools: number; mcpConfig: string; claudeInstalled: boolean;
+  tools: number; mcpConfig: string; claudeInstalled: boolean; claudeSignedIn: boolean; claudePath: string;
 }
 export interface AssistantToolCall { id: string; name: string; input?: Record<string, unknown> }
 export interface AssistantToolResult { callId: string; content: string; isError?: boolean }
