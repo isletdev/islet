@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/isletdev/islet/internal/ai"
 	"github.com/isletdev/islet/internal/terminal"
 	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
@@ -323,24 +324,8 @@ func (s *Server) handleWorkspaceAgents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.ID = ""
-		// A chosen provider fills in the command, unless somebody wrote their
-		// own — the command has always been what actually runs, and a person
-		// who typed one meant it.
-		if in.ProviderID != "" && s.ai != nil {
-			p, err := s.ai.Get(r.Context(), in.ProviderID)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "no such model"})
-				return
-			}
-			cmd := AgentCommand(p)
-			if cmd == "" {
-				writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid",
-					Message: p.Name + " is an API endpoint with no command to run in a terminal. It can hold a conversation in the assistant; a workspace agent needs Claude Code, through a subscription or an Anthropic key."})
-				return
-			}
-			if in.Command == "" {
-				in.Command, in.Preset = cmd, "claude"
-			}
+		if !s.fillAgentModel(w, r, &in) {
+			return
 		}
 		a, err := s.workspaces.SaveAgent(r.Context(), userFrom(r.Context()).Username, id, &in)
 		if err != nil {
@@ -358,6 +343,69 @@ func (s *Server) handleWorkspaceAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// fillAgentModel gives an agent the model it will run, and the command that
+// runs it. It answers false when it has already written an error.
+//
+// An agent that names no provider used to be left exactly as it arrived, which
+// sounds harmless and was not: the panel hides the model picker when only one
+// model is configured — the whole point of configuring one — so every agent
+// created on a single-model server arrived with no provider at all. It then ran
+// whatever command the form defaulted to, which was the bare word "claude",
+// found nothing by that name on PATH inside tmux, and died. The workspace that
+// already worked was the one whose command had been filled in by hand, months
+// ago, with an absolute path.
+//
+// So an empty provider resolves to the default, exactly as it does for an
+// assistant conversation. That is what "the models are set up once and chosen
+// where the work starts" has to mean for this page too: a workspace and the
+// assistant read the same list, and neither asks again when there is nothing to
+// ask about.
+func (s *Server) fillAgentModel(w http.ResponseWriter, r *http.Request, in *workspace.Agent) bool {
+	if s.ai == nil || in.Preset == "shell" {
+		return true
+	}
+	p, err := s.ai.Resolve(r.Context(), in.ProviderID)
+	if err != nil || p == nil {
+		// No models configured at all. The command the caller sent is all there
+		// is, and the workspace page says what is missing.
+		return true
+	}
+	if in.ProviderID != "" && p.ID != in.ProviderID {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "no such model"})
+		return false
+	}
+	in.ProviderID = p.ID
+	cmd := s.agentCommand(r.Context(), p)
+	if cmd == "" {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid",
+			Message: p.Name + " is an API endpoint with no command to run in a terminal. It can hold a conversation in the assistant; a workspace agent needs Claude Code, through a subscription or an Anthropic key."})
+		return false
+	}
+	// A command somebody typed is left alone: it has always been what actually
+	// runs, and a person who wrote one meant it.
+	if strings.TrimSpace(in.Command) == "" || in.Command == "claude" {
+		in.Command, in.Preset = cmd, "claude"
+	}
+	return true
+}
+
+// agentCommand is AgentCommand with the installed path filled in.
+//
+// "claude" on its own is only a command if it happens to be on PATH, and the
+// PATH a tmux window inherits is not the one that installed it — Claude Code
+// puts itself in ~/.local/bin, which a non-login shell may not have. The
+// assistant already resolves this for a subscription; an agent needs the same
+// answer or it starts with "command not found".
+func (s *Server) agentCommand(ctx context.Context, p *ai.Provider) string {
+	cmd := AgentCommand(p)
+	if cmd == "claude" && s.workspaces != nil {
+		if path := s.workspaces.ClaudePath(ctx); path != "" {
+			return path
+		}
+	}
+	return cmd
+}
+
 func (s *Server) handleWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	if !s.workspaceAdmin(w, r) {
 		return
@@ -372,6 +420,9 @@ func (s *Server) handleWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		in.ID = agentID
+		if !s.fillAgentModel(w, r, &in) {
+			return
+		}
 		a, err := s.workspaces.SaveAgent(r.Context(), user, id, &in)
 		if err != nil {
 			s.workspaceErr(w, err)

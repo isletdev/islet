@@ -34,12 +34,44 @@ func (s *Service) unitName() string {
 // creates the thing being probed, in whatever place the probe happened to run.
 // That is the whole bug this file exists to remove.
 func (s *Service) serverUp() bool {
-	c, err := net.DialTimeout("unix", s.sock, 500*time.Millisecond)
+	// A timeout, and then a second look before believing the answer.
+	//
+	// This is not a status query. It decides whether to run a recovery that
+	// begins by stopping the unit the server lives in, so a false negative
+	// destroys every workspace on the machine and every agent inside them. That
+	// happened: a 500 ms dial on a box under memory pressure — where the tmux
+	// server itself held a gigabyte — timed out, and the panel tore the server
+	// down and rebuilt it eleven times in one minute, each time killing the
+	// session somebody was working in.
+	//
+	// So the deadline is generous and a failure is checked again. A dial that
+	// fails twice, two seconds apart, is a server that is genuinely not there;
+	// one slow dial is a busy machine.
+	if dialOK(s.sock, 2*time.Second) {
+		return true
+	}
+	if errors.Is(dialErr(s.sock), syscall.ECONNREFUSED) {
+		return false // answered, and said no: nothing is listening
+	}
+	time.Sleep(250 * time.Millisecond)
+	return dialOK(s.sock, 2*time.Second)
+}
+
+func dialOK(sock string, d time.Duration) bool {
+	c, err := net.DialTimeout("unix", sock, d)
 	if err != nil {
 		return false
 	}
 	_ = c.Close()
 	return true
+}
+
+func dialErr(sock string) error {
+	c, err := net.DialTimeout("unix", sock, 2*time.Second)
+	if err == nil {
+		_ = c.Close()
+	}
+	return err
 }
 
 // stale reports a socket file left behind by a server that is gone: the path
@@ -103,9 +135,19 @@ func (s *Service) ensureServer(ctx context.Context, actor string) {
 	}
 
 	// A unit left over from a server that has since died keeps its name, and
-	// systemd-run refuses to reuse it. Clearing it is safe precisely because no
-	// server is answering: anything it still owned would have kept the socket.
+	// systemd-run refuses to reuse it. Clearing it is only safe because no
+	// server is answering — and that condition is now checked here rather than
+	// assumed from a probe taken further up.
+	//
+	// It was assumed, and the assumption was wrong under load: stopping this
+	// unit kills the tmux server and with it every workspace session and every
+	// agent running in one. That is far too destructive to reach on a stale
+	// reading, so it is the last thing tried and the socket is asked once more
+	// immediately before.
 	unit := s.unitName()
+	if dialOK(s.sock, 2*time.Second) {
+		return // something is answering after all; leave it alone
+	}
 	_, _ = s.run.Run(ctx, actor, "systemctl", "stop", unit+".service")
 	_, _ = s.run.Run(ctx, actor, "systemctl", "reset-failed", unit+".service")
 

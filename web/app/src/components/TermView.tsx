@@ -3,6 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { ClipboardIcon, CopyIcon } from "@/components/icons";
 import { Button, Input } from "@/components/ui";
 import { apiPath } from "@/lib/api";
 
@@ -356,8 +357,21 @@ export default function TermView({
           />
           {status === "open" ? "Connected" : status === "connecting" ? "Connecting…" : status === "closed" ? "Closed" : "Connection failed"}
         </span>
-        <Button variant="secondary" className={`h-7 px-2 text-xs ${toolbar ? "ml-auto" : ""}`} disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>Copy</Button>
-        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={status !== "open"} onClick={() => void paste()}>Paste</Button>
+        {/* Icons, not words. These sit above a terminal and are used rarely —
+            two labelled buttons took more room than the connection state they
+            share a row with, and read as the most important thing on a page
+            whose point is the terminal underneath. The label stays as the
+            accessible name and the tooltip. */}
+        <Button variant="secondary" aria-label="Copy the selection" title="Copy the selection"
+          className={`h-7 w-7 justify-center px-0 ${toolbar ? "ml-auto" : ""}`}
+          disabled={!hasSel} onClick={() => void copy(term.current?.getSelection() ?? "")}>
+          <CopyIcon className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="secondary" aria-label="Paste" title="Paste"
+          className="h-7 w-7 justify-center px-0"
+          disabled={status !== "open"} onClick={() => void paste()}>
+          <ClipboardIcon className="h-3.5 w-3.5" />
+        </Button>
         {takenOver && <span className="text-warning">Open in another tab or device</span>}
         {(status === "closed" || status === "error") && (
           <Button variant="secondary" className="h-7 px-2 text-xs" onClick={reconnect}>{takenOver ? "Take it back" : "Reconnect"}</Button>

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack, type Registry } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import TermView from "@/components/TermView";
 import { openConsole } from "@/pages/Console";
-import { ExternalIcon } from "@/components/icons";
+import { ExternalIcon, PlayIcon, RefreshIcon, StopIcon, TrashIcon } from "@/components/icons";
 import { bytes, sizeToBytes } from "@/lib/format";
 import { SortHeader, useSort, type Column } from "@/lib/sortable";
 import { capLines } from "@/lib/logcap";
@@ -130,7 +130,7 @@ function List() {
     // volumes, disk usage — should not be a scroll away because of it.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-border bg-surface">
       {err && <div className="p-4"><Alert>{err}</Alert></div>}
-      <table className="w-full min-w-[900px] text-sm">
+      <table className="w-full min-w-[640px] table-fixed text-sm">
         <thead className="sticky top-0 z-10 bg-surface text-left text-xs text-ink-muted"><tr className="group">
           <SortHeader label="Name" column="name" sort={sort} onSort={toggle} className="px-4" />
           <SortHeader label="Image" column="image" sort={sort} onSort={toggle} />
@@ -143,17 +143,30 @@ function List() {
         <tbody className="divide-y divide-border">
           {rows.map((c) => (
             <tr key={c.id} className="hover:bg-surface-2">
-              <td className="px-4 py-2"><Link to={`/containers/${c.id}`} className="flex items-center gap-2 font-medium text-ink hover:underline"><StateDot state={c.state} />{c.name}</Link><div className="pl-4 text-xs text-ink-muted">{c.status}</div></td>
-              <td className="py-2 font-mono text-xs text-ink-muted">{c.image}</td>
+              <td className="max-w-0 px-4 py-2">
+                <Link to={`/containers/${c.id}`} className="flex items-center gap-2 font-medium text-ink hover:underline" title={c.name}>
+                  <StateDot state={c.state} /><span className="truncate">{c.name}</span>
+                </Link>
+                {/* One line. "Up 37 hours" wrapping onto a second line moved
+                    every row below it and made the table look ragged. */}
+                <div className="truncate pl-4 text-xs text-ink-muted" title={c.status}>{c.status}</div>
+              </td>
+              {/* The image reference is the longest thing in the row and the
+                  least often read — it was setting the width of the whole
+                  table. It is truncated, titled, and copies on click. */}
+              <td className="max-w-0 py-2 font-mono text-xs text-ink-muted">
+                <button type="button" title={`${c.image}\nClick to copy`} onClick={() => void copyText(c.image)}
+                  className="-my-1 block w-full truncate py-1 text-left hover:text-ink">{c.image}</button>
+              </td>
               <td className="py-2 text-ink-muted">{c.stack ? <Link to="/containers/stacks" className="-my-1 inline-block py-1 hover:underline">{c.stack}</Link> : ""}</td>
               <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums">{c.state === "running" ? `${c.cpuPct.toFixed(1)}%` : ""}</td>
               <td className="whitespace-nowrap py-2 pl-3 text-right font-mono tabular-nums text-xs">{c.state === "running" ? c.memUsage.split(" / ")[0] : ""}</td>
               <td className="max-w-[22ch] truncate py-2 pl-3 font-mono text-xs text-ink-muted" title={c.ports}>{c.ports}</td>
               <td className="py-2 pr-4 text-right whitespace-nowrap">
                 {c.state === "running"
-                  ? <><Act onClick={() => act(c.id, "restart")} busy={busy === c.id + "restart"}>Restart</Act><Act onClick={() => act(c.id, "stop")} busy={busy === c.id + "stop"}>Stop</Act></>
-                  : <Act onClick={() => act(c.id, "start")} busy={busy === c.id + "start"}>Start</Act>}
-                <Act onClick={() => act(c.id, "remove")} busy={busy === c.id + "remove"} danger>Remove</Act>
+                  ? <><IconAct label={`Restart ${c.name}`} icon={<RefreshIcon className="h-3.5 w-3.5" />} onClick={() => act(c.id, "restart")} busy={busy === c.id + "restart"} /><IconAct label={`Stop ${c.name}`} icon={<StopIcon className="h-3.5 w-3.5" />} onClick={() => act(c.id, "stop")} busy={busy === c.id + "stop"} /></>
+                  : <IconAct label={`Start ${c.name}`} icon={<PlayIcon className="h-3.5 w-3.5" />} onClick={() => act(c.id, "start")} busy={busy === c.id + "start"} />}
+                <IconAct label={`Remove ${c.name}`} icon={<TrashIcon className="h-3.5 w-3.5" />} onClick={() => act(c.id, "remove")} busy={busy === c.id + "remove"} danger />
               </td>
             </tr>
           ))}
@@ -166,6 +179,30 @@ function List() {
 
 function Act({ children, onClick, busy, danger }: { children: string; onClick: () => void; busy?: boolean; danger?: boolean }) {
   return <button type="button" onClick={onClick} disabled={busy} className={`ml-1 rounded-sm border px-2 py-0.5 text-xs font-medium disabled:opacity-50 ${danger ? "border-danger/50 text-danger hover:bg-danger-soft" : "border-border-strong text-ink hover:bg-surface-2"}`}>{busy ? "…" : children}</button>;
+}
+
+/**
+ * The same action as an icon, for the list.
+ *
+ * Four words per row — Restart, Stop, Remove — were the widest column in the
+ * table and the reason it could not fit without scrolling sideways. The label
+ * survives as the accessible name and the tooltip, which is where it was
+ * actually being read from anyway.
+ */
+function IconAct({ label, icon, onClick, busy, danger }: { label: string; icon: ReactNode; onClick: () => void; busy?: boolean; danger?: boolean }) {
+  return (
+    <button
+      type="button" onClick={onClick} disabled={busy} aria-label={label} title={label}
+      className={`ml-1 inline-flex h-7 w-7 items-center justify-center rounded-sm border align-middle disabled:opacity-50 ${danger ? "border-danger/50 text-danger hover:bg-danger-soft" : "border-border-strong text-ink-muted hover:bg-surface-2 hover:text-ink"}`}
+    >
+      {busy ? <span className="text-xs">…</span> : icon}
+    </button>
+  );
+}
+
+/** Copy, without a dependency and without failing loudly when the browser says no. */
+function copyText(v: string) {
+  return navigator.clipboard?.writeText(v).catch(() => {});
 }
 
 // ---- detail ----

@@ -505,15 +505,20 @@ function AIProviders() {
   const [cfg, setCfg] = useState<AssistantConfig | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => api.aiProviders().then(setList).catch((e) => setMsg(err(e))), []);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => api.aiProviders().then(setList).catch((e) => { setMsg(err(e)); setFailed(true); }), []);
   useEffect(() => { void load(); void api.assistant().then(setCfg).catch(() => {}); }, [load]);
   if (!list) return null;
 
   const kind = (form?.kind ?? "subscription") as AIKind;
+  // A failure here used to render in the same muted grey as "Saved.", in a row
+  // below the button, which reads as nothing having happened — and the form
+  // stays open on failure, so the only signal that a save was refused was a
+  // sentence the eye slides over.
   const save = async (e: FormEvent) => {
-    e.preventDefault(); setBusy(true); setMsg(null);
+    e.preventDefault(); setBusy(true); setMsg(null); setFailed(false);
     try { await api.aiProviderSave(form!); setForm(null); await load(); setMsg("Saved."); }
-    catch (er) { setMsg(err(er)); } finally { setBusy(false); }
+    catch (er) { setMsg(err(er)); setFailed(true); } finally { setBusy(false); }
   };
   const remove = async (p: AIProvider) => {
     if (!(await ask.confirm({ title: `Remove ${p.name}?`, body: "Conversations and agents that used it fall back to the default. Nothing else is deleted.", confirmLabel: "Remove", tone: "danger" }))) return;
@@ -563,8 +568,8 @@ function AIProviders() {
           </label>
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
             <Button type="submit" className="h-8 text-xs" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
-            <Button type="button" variant="secondary" className="h-8 text-xs" onClick={() => { setForm(null); setMsg(null); }}>Cancel</Button>
-            {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+            <Button type="button" variant="secondary" className="h-8 text-xs" onClick={() => { setForm(null); setMsg(null); setFailed(false); }}>Cancel</Button>
+            {msg && <span className={`text-xs ${failed ? "text-danger" : "text-ink-muted"}`}>{msg}</span>}
           </div>
         </form>
       )}

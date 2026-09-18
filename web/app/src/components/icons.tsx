@@ -257,6 +257,16 @@ export const CopyIcon = (p: IconProps) => (
   </Icon>
 );
 
+// A clipboard, for pasting into a terminal. Distinct from CopyIcon, which is
+// two sheets: the pair have to be told apart at 14px and side by side.
+export const ClipboardIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="5" y="4.5" width="14" height="16" rx="2" />
+    <path d="M9 4.5V3.6a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 15 3.6v0.9z" />
+    <path d="M9 12h6M9 16h4" />
+  </Icon>
+);
+
 export const MoveIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3.4v17.2M3.4 12h17.2" />

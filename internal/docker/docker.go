@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -375,10 +376,36 @@ func (s *Service) Images(ctx context.Context, actor string) ([]Image, error) {
 	if err != nil {
 		return nil, err
 	}
+	// What is in use, by every name a container might be holding it under.
+	//
+	// `docker ps --format {{.Image}}` prints the reference the container was
+	// created from — except when that reference no longer resolves to the image
+	// the container is actually running, and then it prints a bare id instead.
+	// That happens on every rebuild of a local tag: the container keeps the old
+	// image, the tag moves to the new one, and ps stops mentioning the tag at
+	// all. So matching on that field alone marked poolse-api:local unused while
+	// a container built from poolse-api:local was running in front of it.
+	//
+	// .Config.Image is what the container was created from and does not move,
+	// so it answers the question a person is actually asking: is anything on
+	// this machine using this image.
 	used := map[string]bool{}
 	if r2, err := s.run.Run(ctx, actor, "docker", "ps", "-a", "--format", "{{.Image}}"); err == nil {
 		for _, l := range lines(r2.Stdout) {
 			used[l] = true
+		}
+	}
+	if r3, err := s.run.Run(ctx, actor, "docker", "ps", "-a", "--format", "{{.ID}}"); err == nil {
+		if ids := lines(r3.Stdout); len(ids) > 0 {
+			args := append([]string{"inspect", "-f", "{{.Config.Image}}{{\"\\n\"}}{{.Image}}"}, ids...)
+			if r4, err := s.run.Run(ctx, actor, "docker", args...); err == nil {
+				for _, l := range lines(r4.Stdout) {
+					used[strings.TrimPrefix(l, "sha256:")] = true
+					if len(l) > 19 && strings.HasPrefix(l, "sha256:") {
+						used[strings.TrimPrefix(l, "sha256:")[:12]] = true
+					}
+				}
+			}
 		}
 	}
 	out := []Image{}
@@ -438,16 +465,21 @@ func (s *Service) Volumes(ctx context.Context, actor string) ([]Volume, error) {
 	sizes := map[string]string{}
 	inUse := map[string]bool{}
 	if r2, err := s.run.Run(ctx, actor, "docker", "system", "df", "-v", "--format", "{{json .}}"); err == nil {
+		// Links is a string in Docker's JSON — "1", not 1 — and decoding it
+		// into an int failed the whole document, not just that field. So sizes
+		// came back empty and every volume on the machine reported itself
+		// unused, which is the one thing this view exists to tell you and the
+		// answer that makes deleting one look safe.
 		var df struct {
 			Volumes []struct {
-				Name, Size string
-				Links      int
+				Name, Size, Links string
 			}
 		}
 		if json.Unmarshal([]byte(r2.Stdout), &df) == nil {
 			for _, v := range df.Volumes {
 				sizes[v.Name] = v.Size
-				inUse[v.Name] = v.Links > 0
+				n, err := strconv.Atoi(strings.TrimSpace(v.Links))
+				inUse[v.Name] = err == nil && n > 0
 			}
 		}
 	}

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Agent, type AIProvider, type Workspace } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -5,7 +6,7 @@ import { useDialog, failure } from "@/lib/dialogs";
 import { postStream } from "@/lib/stream";
 import { pollInterval } from "@/lib/poll";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
-import { PlusIcon } from "@/components/icons";
+import { PlayIcon, PlusIcon, StopIcon } from "@/components/icons";
 // Imported directly, as Terminal and Console do. Behind Suspense the pane
 // renders at nothing-height first, and anything that measures it then measures
 // a box that is not there yet.
@@ -50,8 +51,13 @@ function runsClaude(cmd?: string): boolean {
   return head !== "" && head.split("/").pop() === "claude";
 }
 
+// A new agent starts with no command of its own: the daemon fills it in from
+// the model this server is set up with, which is the one place that knows where
+// Claude Code actually lives. The form used to default to the bare word
+// "claude", which is only a command if it happens to be on the PATH a tmux
+// window inherits — and on the machine this was written for, it is not.
 const EMPTY_AGENT: Partial<Agent> = {
-  id: "", name: "", preset: "claude", command: "claude", resume: true, skipPermissions: false,
+  id: "", name: "", preset: "claude", command: "", resume: true, skipPermissions: false,
 };
 
 /** The workspace's own shell window, which is not an agent and has no row. */
@@ -104,17 +110,28 @@ function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onResta
         <button type="button" onClick={onAdd} aria-label="Add an agent" className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
           <PlusIcon className="h-3.5 w-3.5" />Add
         </button>
-      </div>
+        <span className="ml-1 h-4 w-px shrink-0 bg-border" aria-hidden />
+      {/* Stop and Start belong with the agent they act on, in the same row as
+          its tab and in the same shape as Add beside it — a word-sized button
+          for a rare action pulled the eye away from the tabs, which are the
+          thing being chosen between. */}
       {agent.running ? (
-        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={busy} onClick={onStop}>Stop</Button>
+        <button type="button" onClick={onStop} disabled={busy} aria-label={`Stop ${agent.name}`} title={`Stop ${agent.name}`}
+          className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50">
+          <StopIcon className="h-3.5 w-3.5" />Stop
+        </button>
       ) : (
-        <Button variant="secondary" className="h-7 px-2 text-xs" disabled={busy} onClick={onStart}>Start</Button>
+        <button type="button" onClick={onStart} disabled={busy} aria-label={`Start ${agent.name}`} title={`Start ${agent.name}`}
+          className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50">
+          <PlayIcon className="h-3.5 w-3.5" />Start
+        </button>
       )}
-      <MoreMenu label={`More for ${agent.name}`} items={[
-        { label: "Restart", disabled: busy, onClick: onRestart },
-        { label: "Edit agent", disabled: busy, onClick: onEdit },
-        { label: "Remove agent", danger: true, disabled: busy, onClick: onRemove },
-      ]} />
+        <MoreMenu label={`More for ${agent.name}`} items={[
+          { label: "Restart", disabled: busy, onClick: onRestart },
+          { label: "Edit agent", disabled: busy, onClick: onEdit },
+          { label: "Remove agent", danger: true, disabled: busy, onClick: onRemove },
+        ]} />
+      </div>
     </>
   );
 }
@@ -609,6 +626,18 @@ export default function Workspaces() {
             {/* Which model, asked only when there is more than one to ask
                 about, and only for an agent that does not exist yet — an agent
                 already running has a command, and that is what it is. */}
+            {models.length === 1 && !editingAgent.id && (
+              <Field label="Model" hint="The only model set up on this server. Add another under Settings, Models, and this becomes a choice.">
+                <div className="flex h-9 items-center text-sm text-ink-muted">{models[0].name}</div>
+              </Field>
+            )}
+            {models.length === 0 && !editingAgent.id && (
+              <Field label="Model">
+                <div className="flex h-9 items-center text-sm text-warning">
+                  No model is set up. <Link to="/settings?tab=ai" className="ml-1 text-accent hover:underline">Set one up</Link> — an agent has nothing to run without one.
+                </div>
+              </Field>
+            )}
             {models.length > 1 && !editingAgent.id && (
               <Field label="Model" hint={models.find((m) => m.id === (editingAgent.providerId || defaultModel))?.kind === "openai"
                 ? "An API endpoint with no command to run in a terminal. Pick one backed by Claude Code for a workspace agent."
@@ -621,7 +650,7 @@ export default function Workspaces() {
                     const untouched = !editingAgent.command || Object.values(PRESETS).some((x) => x.command === editingAgent.command);
                     setEditingAgent({
                       ...editingAgent, providerId: id,
-                      command: untouched && m && m.kind !== "openai" ? (m.command || "claude") : editingAgent.command,
+                      command: untouched && m && m.kind !== "openai" ? (m.command || "") : editingAgent.command,
                       preset: untouched && m && m.kind !== "openai" ? "claude" : editingAgent.preset,
                     });
                   }}
