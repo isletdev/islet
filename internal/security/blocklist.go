@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/isletdev/islet/internal/hostown"
 )
 
 // Dropping traffic from addresses that are known to be hostile, and from
@@ -210,6 +212,14 @@ func (s *Service) ReapplyBlocklist(ctx context.Context) {
 // applyBlocklist fetches, filters, loads and installs, in that order. The set
 // is swapped in whole, so there is no moment where half a list is enforced.
 func (s *Service) applyBlocklist(ctx context.Context, actor, adminIP string) error {
+	// One ipset, one set of iptables rules, one machine. A second daemon
+	// applying its own lists replaces whatever the first one was dropping, with
+	// nothing to say it happened — and since the rules point at the set by
+	// name, the first daemon goes on believing its own configuration is in
+	// force.
+	if err := hostown.Claim(s.dataDir); err != nil {
+		return hostown.Refusal("firewall blocklist")
+	}
 	sources := splitCSV(settingOf(ctx, s, "security.blocklist.sources"))
 	countries := splitCSV(settingOf(ctx, s, "security.blocklist.countries"))
 
@@ -353,12 +363,48 @@ func RestoreScript(nets []string) string {
 // INPUT covers what the host itself listens on; DOCKER-USER covers the ports
 // containers publish, which bypass INPUT entirely — the same split the firewall
 // page has to deal with, for the same reason.
+// ruleArgs is the match this installs, without the chain.
+//
+// --ctstate NEW is the part that took a real outage to learn. A DROP on a
+// source address matches every packet from it, and the replies to a connection
+// this server opened are packets from it: so turning the blocklist on stopped
+// the server talking to anything a list happened to name. It was not
+// theoretical and it was not obvious, because the thing it broke first was the
+// blocklist itself — ipdeny.com, where the country zone files come from,
+// resolves to an address that is in IPsum. Enabling country blocks therefore
+// made country blocks impossible to download, silently, forever, and the panel
+// went on reporting the lists as loaded because the cached copy was still
+// there.
+//
+// The same shape would break anything else the server reaches out to that
+// happens to be on a list: a registry pull, an ACME challenge, a git clone, a
+// webhook. Only a connection somebody else opens is worth dropping.
+func ruleArgs(chain string) []string {
+	return []string{chain, "-m", "set", "--match-set", setName, "src", "-m", "conntrack", "--ctstate", "NEW", "-j", "DROP"}
+}
+
+// legacyRuleArgs is the rule this used to install, kept so an upgrade removes
+// it rather than leaving a stateless DROP behind next to the new one.
+func legacyRuleArgs(chain string) []string {
+	return []string{chain, "-m", "set", "--match-set", setName, "src", "-j", "DROP"}
+}
+
 func (s *Service) installRules(ctx context.Context, actor string) {
 	for _, chain := range []string{"INPUT", "DOCKER-USER"} {
-		if _, err := s.run.Read(ctx, "iptables", "-C", chain, "-m", "set", "--match-set", setName, "src", "-j", "DROP"); err == nil {
+		// The old stateless rule goes first, or both would match and the old
+		// one would keep dropping the replies this fix exists to allow.
+		for range 4 {
+			if _, err := s.run.Read(ctx, "iptables", append([]string{"-C"}, legacyRuleArgs(chain)...)...); err != nil {
+				break
+			}
+			if _, err := s.run.Run(ctx, actor, "iptables", append([]string{"-D"}, legacyRuleArgs(chain)...)...); err != nil {
+				break
+			}
+		}
+		if _, err := s.run.Read(ctx, "iptables", append([]string{"-C"}, ruleArgs(chain)...)...); err == nil {
 			continue
 		}
-		if _, err := s.run.Run(ctx, actor, "iptables", "-I", chain, "1", "-m", "set", "--match-set", setName, "src", "-j", "DROP"); err != nil {
+		if _, err := s.run.Run(ctx, actor, "iptables", append([]string{"-I", chain, "1"}, ruleArgs(chain)[1:]...)...); err != nil {
 			s.log.Warn("blocklist rule could not be installed", "chain", chain, "err", err)
 		}
 	}
@@ -366,12 +412,14 @@ func (s *Service) installRules(ctx context.Context, actor string) {
 
 func (s *Service) dropRules(ctx context.Context, actor string) {
 	for _, chain := range []string{"INPUT", "DOCKER-USER"} {
-		for range 4 { // a rule could have been added more than once by hand
-			if _, err := s.run.Read(ctx, "iptables", "-C", chain, "-m", "set", "--match-set", setName, "src", "-j", "DROP"); err != nil {
-				break
-			}
-			if _, err := s.run.Run(ctx, actor, "iptables", "-D", chain, "-m", "set", "--match-set", setName, "src", "-j", "DROP"); err != nil {
-				break
+		for _, args := range [][]string{ruleArgs(chain), legacyRuleArgs(chain)} {
+			for range 4 { // a rule could have been added more than once by hand
+				if _, err := s.run.Read(ctx, "iptables", append([]string{"-C"}, args...)...); err != nil {
+					break
+				}
+				if _, err := s.run.Run(ctx, actor, "iptables", append([]string{"-D"}, args...)...); err != nil {
+					break
+				}
 			}
 		}
 	}

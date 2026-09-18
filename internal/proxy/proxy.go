@@ -26,6 +26,7 @@ import (
 
 	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/cmdrun"
+	"github.com/isletdev/islet/internal/hostown"
 	"github.com/isletdev/islet/internal/store"
 )
 
@@ -260,6 +261,14 @@ func (m *Manager) Status(ctx context.Context) Status {
 // Install pulls Traefik, creates the network and config dir, and starts the
 // container. Re-running recreates the container with current settings.
 func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
+	// The proxy is one container on ports 80 and 443, whatever Islet thinks, so
+	// a second daemon installing it replaces the first one's — pointed at its
+	// own config directory, which takes every site on the machine down. That is
+	// not hypothetical; it is what a throwaway instance started for a screenshot
+	// did on the machine this was written on.
+	if err := hostown.Claim(filepath.Dir(m.dir)); err != nil {
+		return hostown.Refusal("reverse proxy")
+	}
 	if acmeEmail != "" {
 		if !strings.Contains(acmeEmail, "@") {
 			return errors.New("ACME email is not valid")
