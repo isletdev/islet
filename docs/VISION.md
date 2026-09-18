@@ -1,5 +1,13 @@
 # Islet — Product Vision
 
+> **Historical document.** This is the plan Islet was started from, kept because
+> `ROADMAP.md` cites its section numbers for feature specs and because it
+> records why several decisions were made. Two things in it are no longer true:
+> the open-core business model below was abandoned — everything in the
+> single-server panel is AGPL-3.0 and stays that way — and the feature inventory
+> stops well short of what shipped. For what Islet is now, read the README; for
+> an assessment of it, `DESIGN_REVIEW.md`.
+
 > One-line install on a clean VPS. A beautiful panel that turns a bare Linux box into a hardened, Docker-ready, deploy-from-GitHub server in 10 minutes. Open-source core, paid Pro at $12/month.
 
 ---
