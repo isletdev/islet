@@ -10,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.8
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.7.17
 	golang.org/x/crypto v0.57.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0

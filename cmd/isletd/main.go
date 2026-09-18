@@ -238,6 +238,10 @@ func run() error {
 			if err := st.Housekeep(ctx); err != nil {
 				log.Warn("housekeeping failed", "err", err)
 			}
+			// Traefik's access log has no rotation of its own and is the one
+			// file here with no ceiling: about ten gigabytes a year for a busy
+			// site, into the directory Islet's own disk alert watches.
+			px.RotateAccessLog(ctx)
 		}
 		housekeep()
 		t := time.NewTicker(24 * time.Hour)

@@ -46,6 +46,15 @@ jobs:
       - name: SQL splitters agree
         run: node --experimental-strip-types hack/sql-split-agree.mjs
 
+      # A single static binary means the dependencies ship inside it, so a
+      # vulnerability in one of them is a vulnerability in Islet and there is
+      # no distribution package to fix it underneath us. govulncheck reports
+      # only what is actually reachable from this code, so the answer is
+      # usually nothing and a finding is worth reading.
+      - name: Known vulnerabilities
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
       - name: Docs site renders
         run: go run ./tools/docsite -out /tmp/site && test -f /tmp/site/index.html
       - name: Cross-compile

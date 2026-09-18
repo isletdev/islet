@@ -1135,6 +1135,41 @@ func (m *Manager) Delete(ctx context.Context, actor, id string) error {
 // ---- dynamic config ----
 
 // Reconcile writes the Traefik dynamic config from the domains table.
+// maxAccessLog is how large Traefik's access log may get before it is rotated.
+const maxAccessLog = 64 << 20
+
+// RotateAccessLog keeps Traefik's access log from filling the disk.
+//
+// Traefik has no rotation of its own: it writes until told otherwise, and what
+// it expects to be told is SIGUSR1, which nobody was sending. At roughly 300
+// bytes a line, one busy site writes about ten gigabytes a year into the data
+// directory — where Islet's own disk alert then fires at 85%, about a file
+// Islet created, from a page that does not offer to show it.
+//
+// One previous file is kept, so the most recent traffic can still be read while
+// the total stays bounded at about twice the cap. USR1 makes Traefik reopen the
+// path it was given, which is what turns the rename into a rotation rather than
+// a file that is still being written to by its old handle.
+func (m *Manager) RotateAccessLog(ctx context.Context) {
+	path := filepath.Join(m.dir, "access.log")
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() < maxAccessLog {
+		return
+	}
+	if err := os.Rename(path, path+".1"); err != nil {
+		return
+	}
+	// If the signal does not land — no proxy running, a Docker that is not
+	// answering — Traefik keeps writing to the renamed file and the next start
+	// opens a fresh one. Nothing is lost either way, which is why this does not
+	// report an error anybody has to act on. The move above is the part that
+	// bounds the disk, so it happens either way.
+	if m.run == nil {
+		return
+	}
+	_, _ = m.run.Run(ctx, "system", "docker", "kill", "--signal=USR1", ContainerName)
+}
+
 func (m *Manager) Reconcile(ctx context.Context) error {
 	// Recreating the proxy is the most destructive routine operation here, and
 	// saving a domain is not a reason to do it: domains arrive through the file
