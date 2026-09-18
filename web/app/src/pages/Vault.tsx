@@ -17,7 +17,12 @@ function when(s?: string) { return s ? new Date(s).toLocaleString() : "never"; }
  * audit log every time. What a secret is *for* is referring to it as
  * @vault:NAME somewhere that runs.
  */
-export default function Vault() {
+/**
+ * `embedded` is true when this is a section of Settings rather than a page of
+ * its own, which is where it lives now — the tab above it already names it and
+ * says what it is for, so the page's own heading would say it twice.
+ */
+export default function Vault({ embedded = false }: { embedded?: boolean } = {}) {
   const { state } = useAuth();
   const isAdmin = state.status === "authed" && state.me.user.role === "admin";
   const ask = useDialog();
@@ -60,15 +65,17 @@ export default function Vault() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-3 sm:space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-[-0.02em]">Vault</h1>
-        <p className="mt-1 hidden text-ink-muted sm:block">
-          Store a secret once under a name, then write <span className="font-mono text-ink">@vault:NAME</span> wherever it is needed —
-          an app&rsquo;s environment, a cron command, a field when you install something from the catalog. Rotating it is one edit here,
-          and a name that is not stored is left as written rather than becoming an empty password.
-        </p>
-      </div>
+    <div className={embedded ? "space-y-3 sm:space-y-4" : "mx-auto max-w-4xl space-y-3 sm:space-y-4"}>
+      {!embedded && (
+        <div>
+          <h1 className="text-xl font-semibold tracking-[-0.02em]">Vault</h1>
+          <p className="mt-1 hidden text-ink-muted sm:block">
+            Store a secret once under a name, then write <span className="font-mono text-ink">@vault:NAME</span> wherever it is needed —
+            an app&rsquo;s environment, a cron command, a field when you install something from the catalog. Rotating it is one edit here,
+            and a name that is not stored is left as written rather than becoming an empty password.
+          </p>
+        </div>
+      )}
 
       {error && <Alert>{error}</Alert>}
       {shown && <Revealed name={shown.name} value={shown.value} onClose={() => setShown(null)} />}

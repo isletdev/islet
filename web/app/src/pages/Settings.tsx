@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
 import AuditLog from "@/components/AuditLog";
+import Vault from "@/pages/Vault";
 import CommandLog from "@/components/CommandLog";
 import { useDialog } from "@/lib/dialogs";
 
@@ -15,6 +16,7 @@ const SECTIONS: { id: string; label: string; description: string; adminOnly?: bo
   { id: "team", label: "Team", description: "Who can sign in, and what they may do.", adminOnly: true },
   { id: "panel", label: "Panel", description: "How Islet itself behaves on this server." },
   { id: "ai", label: "AI", description: "The models this server can use, and which one is picked by default.", adminOnly: true },
+  { id: "secrets", label: "Secrets", description: "Stored once under a name and written as @vault:NAME wherever it is needed \u2014 an app\u2019s environment, a cron command, a catalog field. Rotating one is a single edit here." },
   { id: "integrations", label: "Integrations", description: "Services Islet talks to on your behalf.", adminOnly: true },
   { id: "activity", label: "Activity", description: "What has happened on this server." },
 ];
@@ -64,6 +66,11 @@ export default function Settings() {
           <Sessions currentId={me.sessionId} />
           <Tokens />
         </>}
+
+        {/* The vault was a sidebar entry beside Cron and Backups, which are
+            pages somebody opens weekly. This is configuration touched once per
+            secret, and it belongs with the rest of it. */}
+        {tab === "secrets" && <Vault embedded />}
 
         {tab === "team" && <>
           <Users meId={me.user.id} />

@@ -10,7 +10,7 @@ import { Mark } from "@/components/ui";
 import { pollInterval } from "@/lib/poll";
 import {
   NAV_ICONS, MenuIcon, CloseIcon, SunIcon, MoonIcon, UserIcon, ChevronDownIcon,
-  SignOutIcon, SettingsIcon, ShieldAlertIcon, ExternalIcon, SearchIcon, ServersIcon,
+  SignOutIcon, SettingsIcon, ShieldAlertIcon, ExternalIcon, SearchIcon, ServersIcon, TerminalIcon,
 } from "@/components/icons";
 
 const TWO_FACTOR_DISMISSED = "islet.2fa.dismissed";
@@ -239,6 +239,20 @@ export default function Shell() {
               <span>Search</span>
               <kbd className="rounded-sm border border-border px-1 font-mono text-[10px] text-ink-faint">⌘K</kbd>
             </button>
+
+            {/* A shell is an action, not a place, so it lives here rather than
+                as the fourth entry in a sidebar — which is where editors put
+                it, and where people look for it. */}
+            <NavLink
+              to="/terminal"
+              className={({ isActive }) =>
+                `rounded-md p-2 hover:bg-surface-2 hover:text-ink ${isActive ? "bg-surface-2 text-ink" : "text-ink-muted"}`
+              }
+              title="Open a shell on this server"
+              aria-label="Open a shell on this server"
+            >
+              <TerminalIcon className="h-[18px] w-[18px]" />
+            </NavLink>
 
             <button
               type="button"

@@ -30,7 +30,7 @@ export default function Uptime() {
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">Uptime</h1>
+          <h1 className="sr-only">Uptime</h1>
           <p className="mt-1 text-ink-muted">{checks.length === 0 ? "Checks run from this server every minute." : down === 0 ? `All ${checks.length} checks are up.` : `${down} of ${checks.length} checks are down.`}</p>
         </div>
         {canEdit && <Button className="h-8 text-xs" onClick={() => setEditing(blank())}>New check</Button>}

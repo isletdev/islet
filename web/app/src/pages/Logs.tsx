@@ -45,7 +45,7 @@ export default function Logs() {
     <div className="mx-auto flex h-full max-w-6xl flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-[-0.02em]">Logs</h1>
+          <h1 className="sr-only">Logs</h1>
           <p className="mt-1 text-ink-muted">System journal, log files and every container in one place.</p>
         </div>
       </div>

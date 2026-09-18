@@ -11,7 +11,6 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Terminal = lazy(() => import("./pages/Terminal"));
 const Workspaces = lazy(() => import("./pages/Workspaces"));
 const Assistant = lazy(() => import("./pages/Assistant"));
-const Vault = lazy(() => import("./pages/Vault"));
 const Console = lazy(() => import("./pages/Console"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));
@@ -21,8 +20,7 @@ const Apps = lazy(() => import("./pages/Apps"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const Cron = lazy(() => import("./pages/Cron"));
 const Databases = lazy(() => import("./pages/Databases"));
-const Uptime = lazy(() => import("./pages/Uptime"));
-const Logs = lazy(() => import("./pages/Logs"));
+const Monitoring = lazy(() => import("./pages/Monitoring"));
 const Runners = lazy(() => import("./pages/Runners"));
 const Security = lazy(() => import("./pages/Security"));
 const Backups = lazy(() => import("./pages/Backups"));
@@ -65,7 +63,10 @@ export default function App() {
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/workspaces" element={<Workspaces />} />
         <Route path="/assistant" element={<Assistant />} />
-        <Route path="/vault" element={<Vault />} />
+        {/* The vault is a section of Settings now. The old path still works,
+            because it is in the docs, in the MCP tool description and in
+            anybody's bookmarks. */}
+        <Route path="/vault" element={<Navigate to="/settings?tab=secrets" replace />} />
         <Route path="/containers/*" element={<ContainersRoot />} />
         <Route path="/files" element={<Files />} />
         <Route path="/domains" element={<Domains />} />
@@ -75,8 +76,9 @@ export default function App() {
         <Route path="/cron" element={<Cron />} />
         <Route path="/databases" element={<Databases />} />
         <Route path="/sql" element={<Sql />} />
-        <Route path="/uptime" element={<Uptime />} />
-        <Route path="/logs" element={<Logs />} />
+        {/* One page, two tabs: the question is "is it up, and why not". */}
+        <Route path="/uptime" element={<Monitoring />} />
+        <Route path="/logs" element={<Monitoring />} />
         <Route path="/runners" element={<Runners />} />
         <Route path="/security" element={<Security />} />
         <Route path="/backups" element={<Backups />} />
