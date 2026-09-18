@@ -88,12 +88,26 @@ attaches later, and repeatable with the up arrow.
 With **Let it ask Islet about this server** on, the workspace gets its own API
 token and a configuration file pointing at this panel's MCP endpoint. The agent
 can then use Islet's own tools — read a container's logs, restart a container,
-trigger a deploy, run a job, check uptime, send you a message — instead of
-working it out as root.
+check uptime, send you a message — instead of working it out as root.
 
-The token is scoped to `read, logs, containers, cron, notify` and, in
-particular, **not** `shell`. A token that could open a terminal would be a way
-around every check on this page.
+The token is scoped to `read, logs, containers, notify`, and not `shell`.
+
+**Be clear about what that does and does not bound.** The token belongs to the
+admin who created the workspace, so every admin-only check it meets is already
+satisfied; the scopes are the only thing narrowing it. That makes the list worth
+reading carefully rather than trusting the absence of `shell`, and two entries
+used to be on it that should not have been: `cron` wrote a job, and a job is a
+command run as root on a schedule, and `containers` wrote a Compose file, one
+line of which — `privileged: true`, or a bind mount of `/` — is the host
+filesystem. Both doors are closed now: `cron` is gone from the list, and writing
+a stack needs `system`, which this token does not have. Bringing a stack up or
+down still only needs `containers`.
+
+What remains is real and should be understood before turning this on. The token
+does not expire, it lives in a file the agent can read, and a workspace runs as
+root on the host in a tmux session rather than in a sandbox. An agent that reads
+an untrusted repository is an agent that can be told what to do with it. Turn
+this on for work you would have done yourself as root, and not otherwise.
 
 The configuration is written to `<data dir>/workspaces/<id>/mcp.json`, mode
 `0600`, and the Claude preset is launched with `--mcp-config <that path>`.

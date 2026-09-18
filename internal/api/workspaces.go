@@ -128,16 +128,26 @@ func (s *Server) saveWorkspace(w http.ResponseWriter, r *http.Request, in *works
 
 // wireMCP gives one workspace a scoped token and an MCP config file.
 //
-// The scopes are the ones an agent needs to see what it just changed — read
-// state, read logs, act on containers, run a job, tell you about it — and
-// deliberately not "shell". A token that could open a terminal would be a way
-// around every check on this page.
+// The scopes are the ones an agent needs to see what it just changed: read
+// state, read logs, restart a container, say something happened. Withholding
+// "shell" is what this list is usually described by, and on its own that was
+// not the boundary it sounded like — the token's owner is the admin who made
+// the workspace, so every adminOnly check it met was already satisfied, and
+// two of the scopes reached a root shell by another door. "cron" wrote a job,
+// and a job is a command run as root on a schedule. "containers" wrote a
+// Compose file, and one line of a Compose file is the host filesystem.
+//
+// So cron is gone from this list, and writing a stack now needs "system",
+// which nothing here has. What is left really is what it says: look at the
+// server, restart something, report back. The token still belongs to an admin
+// and still does not expire, so this is a smaller hole rather than no hole —
+// docs/WORKSPACES.md says so plainly rather than claiming a sandbox.
 func (s *Server) wireMCP(r *http.Request, id, name string) error {
 	u := userFrom(r.Context())
 	if tid := s.workspaces.TokenID(r.Context(), id); tid != "" {
 		_ = s.auth.RevokeToken(r.Context(), u.ID, tid, true)
 	}
-	secret, tok, err := s.auth.CreateToken(r.Context(), u.ID, "workspace "+name, "read,logs,containers,cron,notify", 0)
+	secret, tok, err := s.auth.CreateToken(r.Context(), u.ID, "workspace "+name, "read,logs,containers,notify", 0)
 	if err != nil {
 		return err
 	}

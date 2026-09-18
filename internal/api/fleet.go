@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/fleet"
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/pkg/api"
@@ -208,6 +209,19 @@ func (s *Server) handleServerProxy(w http.ResponseWriter, r *http.Request) {
 	// Never let a forwarded path climb out of the API.
 	if strings.Contains(rest, "..") {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: "bad path"})
+		return
+	}
+	// A token's scopes were checked against this route — /servers/{id}/proxy/…
+	// — and never against the route it forwards to. Since the scope rules match
+	// on the path, prefixing one defeated every carve-out in them: a terminal
+	// needs "shell" locally and nothing but "system" through here, revealing a
+	// vault secret is denied to every scope and was allowed through here, and
+	// no scope may mint a token except through here. The carve-outs for /exec
+	// and /attach did survive, because they match on a suffix — which is what
+	// marks the rest as an oversight rather than a decision.
+	if t := tokenFrom(r.Context()); t != nil && !auth.ScopeAllows(t.Scopes, r.Method, "/api/v1/"+rest) {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "scope",
+			Message: "this token's scopes do not cover " + r.Method + " /api/v1/" + rest + " on another server either"})
 		return
 	}
 

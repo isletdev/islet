@@ -262,7 +262,10 @@ func (s *Server) curatedTools() []mcp.Tool {
 		// ---- containers and stacks --------------------------------------
 		{"get_container", "One container in full: image, state, ports, mounts, limits.", "read", "GET", "/api/v1/docker/containers/{id}", []string{"id"}, map[string]any{"id": str("Container name or id")}},
 		{"list_stacks", "Compose stacks, managed and adoptable.", "read", "GET", "/api/v1/docker/stacks", nil, map[string]any{}},
-		{"create_stack", "Create or replace a Compose stack from YAML.", "containers", "POST", "/api/v1/docker/stacks", []string{"name", "compose"},
+		// "system" rather than "containers": a Compose file decides what a
+		// container may do, and privileged: true or a bind mount of / in one is
+		// root on the host. Bringing a stack up is still "containers".
+		{"create_stack", "Create or replace a Compose stack from YAML.", "system", "POST", "/api/v1/docker/stacks", []string{"name", "compose"},
 			map[string]any{"name": str("Stack name"), "compose": str("The compose file, as YAML")}},
 		{"stack_action", "up, down, pull or redeploy a stack.", "containers", "POST", "/api/v1/docker/stacks/{name}/{action}", []string{"name", "action"},
 			map[string]any{"name": str("Stack name"), "action": str("up, down, pull or redeploy")}},

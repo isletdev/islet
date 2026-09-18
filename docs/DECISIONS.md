@@ -2907,3 +2907,30 @@ candidate and is a fine piece of software — AGPL, everything in the self-hoste
 build — but between a company-backed AGPL server with a cloud tier and the
 Apache-2.0 one with no tiers at all, the second is the one to put in front of
 somebody who has just been burned by the first kind.
+
+**The workspace agent's token loses `cron`, and writing a Compose file needs
+`system`.** The entry above says the scopes are "pointedly not `shell`", and
+that was the whole argument for them. It does not hold: the token belongs to
+the admin who created the workspace, so every admin-only check it meets is
+already satisfied, and two of those scopes reached a root shell without ever
+asking for one. `cron` created a job, and a job is `/bin/sh -c` as root on a
+schedule. `containers` covered the whole `/api/v1/docker` area, and that
+includes writing a Compose file — `privileged: true`, or a bind mount of `/`,
+is one line of YAML and the host filesystem.
+
+So the list is `read, logs, containers, notify`, and a new carve-out puts
+writing a stack file behind `system` while leaving up, down and redeploy under
+`containers`, which is the distinction that was missing: acting on a container
+is not the same as deciding what that container may do. `create_stack` moves to
+`system` with it.
+
+Dropping `containers` outright was the other option and would have cost the
+agent the one thing people actually use this for — restarting the service it
+just changed — to close a door that the carve-out closes exactly.
+
+What is left is written down in `docs/WORKSPACES.md` rather than argued away:
+the token still does not expire, it still belongs to an admin, and a workspace
+is a tmux session running as root rather than a sandbox. An agent reading an
+untrusted repository is an agent that can be told what to do with it. The
+honest framing is the one that page now carries — turn this on for work you
+would have done yourself as root, and not otherwise.

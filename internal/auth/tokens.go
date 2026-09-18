@@ -190,6 +190,24 @@ func CapScopes(requested, role string) (string, error) {
 	return strings.Join(keep, ","), nil
 }
 
+// isStackWrite matches writing a Compose file, and not acting on the stack it
+// describes. POST /docker/stacks and PUT /docker/stacks/{name} write the file;
+// POST /docker/stacks/{name}/{action} brings it up or down, which is what
+// "containers" is for and stays there.
+func isStackWrite(method, path string) bool {
+	if method == "GET" || method == "HEAD" {
+		return false
+	}
+	rest, ok := strings.CutPrefix(path, "/api/v1/docker/stacks")
+	if !ok {
+		return false
+	}
+	rest = strings.Trim(rest, "/")
+	// "" is the collection, one segment is a single stack; two is an action on
+	// one, which is not a write to the file.
+	return !strings.Contains(rest, "/")
+}
+
 // Areas are the scopes that grant writing, one per part of the panel. A read is
 // covered by "read" everywhere; these are what let a token change something, so
 // an agent can be given exactly the ground it needs instead of everything.
@@ -262,6 +280,13 @@ func ScopeAllows(scopes, method, path string) bool {
 		strings.HasSuffix(path, "/exec"),
 		strings.HasSuffix(path, "/attach"):
 		return has("shell")
+	// Writing a Compose file is not "acting on a container". The file decides
+	// what a container may do, and one line of it — privileged: true, or a bind
+	// mount of / — is root on the host. So it needs the scope that admits the
+	// rest of the machine, not the one that restarts a service. Reading stacks
+	// stays with "read", like everything else here.
+	case isStackWrite(method, path):
+		return has("system")
 	case path == "/mcp":
 		return true
 	// The forward-auth gate. A token proves who its owner is, which is all the
