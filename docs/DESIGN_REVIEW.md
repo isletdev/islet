@@ -1017,11 +1017,25 @@ cheaper before a freeze than after, because it changes a contract.
 | U-2 | one definition of "failing", computed once, cache dropped after a fix |
 | U-6/U-8 | three wrong settings pointers; three dead drill-down links |
 
-**Deliberately not done**, with the reason: D-9's five table rebuilds (latent,
-and five rebuilds before a freeze is a poor trade — `CLAUDE.md`'s claim was
-corrected instead); S-12's backup exclusion (removing `secret.key` from the
-backup makes a restored Islet unable to decrypt what it restored, so it needs a
-recovery-kit design first).
+| D-2 | one `failed()`: conflicts are 409, command failures are 502 with the detail logged, 74 `bad_json` sites stop naming Go struct fields |
+| D-11 | the `v1` policy is written down; unknown request fields are ignored so a newer client can talk to an older daemon |
+| S-11 | a sealed value records which key sealed it — the prerequisite for rotation, with no migration and no loss of old values |
+| P-1…P-5 | the README leads with the security surface and the gateway, names the five features it never mentioned, says what Islet is not for, and states which features are thin; `VISION.md` is marked historical |
+
+**Deliberately not done**, with the reason:
+
+- **D-9's five table rebuilds** — latent, and five rebuilds before a freeze is a
+  poor trade; `CLAUDE.md`'s claim was corrected instead.
+- **S-12, excluding `secret.key` from the backup** — removing it makes a restored
+  Islet unable to decrypt what it just restored, so it needs a recovery-kit
+  design first, not a one-line exclusion.
+- **Dropping `GET /ping/{token}`** — it mutates, which a GET should not, but a
+  heartbeat URL is pasted into a crontab as `curl <url>` and every service in
+  this category accepts one. Removing it would break every heartbeat already
+  configured. Documented as the deliberate exception instead.
+- **The `databases` → `instances` rename and enumerating the container action
+  wildcard** — both real naming faults, both pure churn through the panel, the
+  MCP tool table and the tests for no behaviour change.
 
 ### Before the freeze — breaking or contract-changing
 
