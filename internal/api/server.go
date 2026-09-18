@@ -176,6 +176,16 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("/_islet/auth", s.handleForwardAuth)
 	mux.HandleFunc("GET /api/v1/auth/cookie-domain", s.requireAuth(s.handleCookieDomain))
 	mux.HandleFunc("POST /api/v1/auth/cookie-domain", requireJSON(s.requireAuth(s.handleCookieDomain)))
+	// A GET that changes something, on purpose and as an exception.
+	//
+	// A heartbeat URL is pasted into somebody's crontab as `curl <url>`, which
+	// is a GET, and every service in this category — healthchecks.io included —
+	// accepts one for that reason. The rule that a GET must be safe is the
+	// right rule and this is the place it does not apply: the URL is the
+	// secret, the effect is recording that something is alive, and refusing the
+	// method everybody's cron already sends would break every heartbeat to make
+	// a table of verbs tidier. POST is registered below for clients that would
+	// rather be correct.
 	mux.HandleFunc("GET /api/v1/ping/{token}", s.handlePing)
 	mux.HandleFunc("POST /api/v1/hooks/deploy/{id}", s.handleDeployHook)
 	mux.HandleFunc("POST /api/v1/hooks/runner/{id}", s.handleRunnerHook)
@@ -205,11 +215,16 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/github/repos", s.requireAuth(s.handleGitHubRepos))
 	mux.HandleFunc("GET /api/v1/vault", s.requireAuth(s.handleVault))
 	mux.HandleFunc("POST /api/v1/vault", requireJSON(s.requireAuth(s.handleVault)))
+	// PUT is what every other collection uses to write one item, and a vault
+	// secret is written by name rather than by a generated id — so POST /vault
+	// creating and updating was the odd one out twice over.
+	mux.HandleFunc("PUT /api/v1/vault/{name}", requireJSON(s.requireAuth(s.handleVaultPut)))
 	mux.HandleFunc("DELETE /api/v1/vault/{name}", s.requireAuth(s.handleVaultDelete))
 	mux.HandleFunc("POST /api/v1/vault/{name}/reveal", requireJSON(s.requireAuth(s.handleVaultReveal)))
 	mux.HandleFunc("GET /api/v1/ai/providers", s.requireAuth(s.handleAIProviders))
 	mux.HandleFunc("POST /api/v1/ai/providers", requireJSON(s.requireAuth(s.handleAIProviders)))
 	mux.HandleFunc("POST /api/v1/ai/providers/{id}", requireJSON(s.requireAuth(s.handleAIProvider)))
+	mux.HandleFunc("PUT /api/v1/ai/providers/{id}", requireJSON(s.requireAuth(s.handleAIProvider)))
 	mux.HandleFunc("DELETE /api/v1/ai/providers/{id}", s.requireAuth(s.handleAIProvider))
 	mux.HandleFunc("GET /api/v1/assistant", s.requireAuth(s.handleAssistantConfig))
 	mux.HandleFunc("POST /api/v1/assistant", requireJSON(s.requireAuth(s.handleAssistantConfig)))

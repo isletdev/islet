@@ -43,6 +43,31 @@ func (s *Server) handleVault(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleVaultPut writes one secret by name, which is the shape every other
+// collection uses. It shares the body with POST /vault so a client can send
+// either; the name in the path wins, because that is what a PUT means.
+func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request) {
+	if s.vault == nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "unavailable", Message: "the vault is not available"})
+		return
+	}
+	var req struct {
+		Value       string `json:"value"`
+		Description string `json:"description"`
+	}
+	if err := decode(r, &req); err != nil {
+		s.badJSON(w, err)
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if err := s.vault.Set(r.Context(), name, req.Value, req.Description); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	}
+	_ = s.store.Audit(r.Context(), userFrom(r.Context()).Username, "vault.set", name, "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) handleVaultDelete(w http.ResponseWriter, r *http.Request) {
 	if s.vault == nil {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "unavailable", Message: "the vault is not available"})
