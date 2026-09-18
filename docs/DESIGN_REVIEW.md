@@ -995,6 +995,34 @@ they are not repeated:
 Ordered by (value) ÷ (risk of touching it). Everything in the first group is
 cheaper before a freeze than after, because it changes a contract.
 
+**Done so far**, each with a test that fails without the fix:
+
+| Item | What shipped |
+|---|---|
+| D-1 | the SSE end event is JSON; a coloured build failure is readable again |
+| S-1 | one `(method, pattern) → role` table, enforced in `requireAuth`, with a mirror test — closes the vault and `notify/emit` gaps (S-3) |
+| S-2 | the workspace token loses `cron`; writing a stack needs `system`; the docs say what is left |
+| S-4/S-5 | deleting a protected domain is admin-only; a url target cannot be the panel or link-local |
+| S-6 | the fleet proxy re-checks scopes against the path it forwards to |
+| S-14 | `govulncheck` in CI — which immediately found a reachable goldmark XSS, now fixed |
+| C-2 | editing a domain no longer deletes its basic-auth users |
+| D-3 | four `null`-slice crashes, and a test over every response type |
+| D-6 | `UNIQUE (server_id, name)` on checks, channels and jobs, with existing duplicates renamed rather than the migration failing |
+| D-10 | five indexes; the plans are asserted in a test |
+| O-1/O-2 | the uptime probe stops recomputing two aggregates it discards |
+| O-4 | the backup run has a deadline, a bounded stderr and an unlock |
+| O-5 | `cmdrun` bounds a command whose caller did not |
+| O-7 | Traefik's access log is rotated |
+| U-1 | seven destructive controls ask first; the last `window.confirm` is gone |
+| U-2 | one definition of "failing", computed once, cache dropped after a fix |
+| U-6/U-8 | three wrong settings pointers; three dead drill-down links |
+
+**Deliberately not done**, with the reason: D-9's five table rebuilds (latent,
+and five rebuilds before a freeze is a poor trade — `CLAUDE.md`'s claim was
+corrected instead); S-12's backup exclusion (removing `secret.key` from the
+backup makes a restored Islet unable to decrypt what it restored, so it needs a
+recovery-kit design first).
+
 ### Before the freeze — breaking or contract-changing
 
 | # | Task | Why now |
