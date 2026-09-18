@@ -290,7 +290,33 @@ func (s *Service) tmux(ctx context.Context, actor string, args ...string) (strin
 }
 
 // running reports whether the session exists, and when it started.
+// running reports whether this workspace's session exists, and when it started.
+//
+// The existence check has to come first, and it has to be has-session.
+//
+// tmux 3.2a — what Ubuntu 22.04 ships, and what this is written against —
+// segfaults the whole server when it expands a format for a target that does
+// not exist. Not the client: the server, taking every session on it with it.
+// This function asked for #{session_created} of a session that may well not be
+// there, which is the ordinary case for a workspace nobody has started — so
+// creating a second workspace, and then asking whether it was running, killed
+// the first one and everything in it. That is the "server exited unexpectedly"
+// people were seeing; it is tmux's own words for its server dying.
+//
+//	$ tmux new-session -d -s alive
+//	$ tmux display-message -p -t nosuch '#{session_created}'
+//	server exited unexpectedly
+//	$ tmux ls
+//	no server running
+//
+// has-session takes no format and is safe against a missing target, which is
+// exactly why it is the thing to ask first. Every other tmux call in this
+// package was checked against the same case: list-windows -F, capture-pane and
+// a formatted display-message with no -t all survive. This was the only one.
 func (s *Service) running(ctx context.Context, id string) (bool, string) {
+	if _, err := s.tmuxRead(ctx, "has-session", "-t", SessionName(id)); err != nil {
+		return false, ""
+	}
 	out, err := s.tmuxRead(ctx, "display-message", "-p", "-t", SessionName(id), "#{session_created}")
 	if err != nil || out == "" {
 		return false, ""
