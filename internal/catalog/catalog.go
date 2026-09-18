@@ -58,8 +58,8 @@ type App struct {
 	Website     string   `yaml:"website" json:"website"`
 	Service     string   `yaml:"service" json:"service"` // service that receives the domain
 	Port        int      `yaml:"port" json:"port"`
-	Fields      []Field  `yaml:"fields" json:"fields"`
-	Volumes     []string `yaml:"volumes" json:"volumes"`
+	Fields      []Field  `yaml:"fields" json:"fields,omitempty"`
+	Volumes     []string `yaml:"volumes" json:"volumes,omitempty"`
 	Notes       string   `yaml:"notes" json:"notes"`
 	NeedsDomain bool     `yaml:"-" json:"needsDomain"`
 	Compose     string   `yaml:"-" json:"compose,omitempty"`

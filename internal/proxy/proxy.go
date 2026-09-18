@@ -626,7 +626,7 @@ type Domain struct {
 	UpdatedAt     string `json:"updatedAt"`
 	// Locations are extra paths on this host that go somewhere else. The
 	// domain's own target stays the root; a location is an exception to it.
-	Locations []Location `json:"locations"`
+	Locations []Location `json:"locations,omitempty"`
 }
 
 // Location is one path on a host forwarded somewhere of its own — what Nginx

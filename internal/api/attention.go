@@ -61,7 +61,17 @@ func (s *Server) securityScore(ctx context.Context) (int, int) {
 // and jobs, and recent critical events.
 func (s *Server) handleAttention(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	out := map[string]any{}
+	// Every list this answers with is present even when the subsystem behind it
+	// is not configured or its query failed. They were written only on success,
+	// so a notify error — or a build with a service switched off — sent a
+	// dashboard payload missing fields the page iterates without a guard, and
+	// the whole dashboard went blank rather than one card.
+	out := map[string]any{
+		"checksDown":    []string{},
+		"deploysFailed": []string{},
+		"jobsFailed":    []string{},
+		"criticals":     []map[string]string{},
+	}
 	out["securityScore"], out["securityFailing"] = s.securityScore(ctx)
 	if s.backup != nil {
 		out["backups"] = s.backup.Health(ctx)

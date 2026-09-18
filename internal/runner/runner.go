@@ -53,7 +53,7 @@ type Pool struct {
 	CreatedAt     string  `json:"createdAt"`
 
 	// Derived
-	Runners []Runner `json:"runners"`
+	Runners []Runner `json:"runners,omitempty"`
 	Idle    int      `json:"idle"`
 	Busy    int      `json:"busy"`
 	Error   string   `json:"error,omitempty"`
@@ -326,7 +326,10 @@ func (s *Service) prefix(p *Pool) string { return "islet-runner-" + p.Name + "-"
 func (s *Service) runners(ctx context.Context, p *Pool) []Runner {
 	res, err := s.run.Run(ctx, "system", "docker", "ps", "-a", "--filter", "label=islet.runner="+p.ID, "--format", "{{.Names}}\t{{.State}}\t{{.CreatedAt}}\t{{.Label \"islet.runner.busy\"}}")
 	if err != nil {
-		return nil
+		// Empty, not nil: this is rendered as JSON and a nil slice becomes
+		// null, which the page maps over. A Docker that is not answering
+		// should show a pool with no runners, not break the page.
+		return []Runner{}
 	}
 	out := []Runner{}
 	for _, l := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {

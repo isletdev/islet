@@ -144,7 +144,7 @@ export interface DNSCheck { host: string; expected: string; resolved: string[]; 
 
 export interface CatalogOption { value: string; label: string; hint?: string }
 export interface CatalogField { key: string; label: string; type: string; default: string; hint?: string; options?: CatalogOption[]; required?: boolean }
-export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields: CatalogField[]; volumes: string[]; notes: string; needsDomain: boolean; compose?: string }
+export interface CatalogApp { name: string; slug: string; category: string; description: string; website: string; service: string; port: number; fields?: CatalogField[]; volumes?: string[]; notes: string; needsDomain: boolean; compose?: string }
 export interface MailRelay { domain: string; hostname: string; relayhost?: string; installed: boolean; running: boolean; publicIp: string; panelSmtp: string; appSmtp: string; records: { name: string; type: string; value: string; found?: string; ok: boolean; purpose: string }[] }
 export interface Recipe { name: string; slug: string; category: string; description: string; time: string; inputs: { key: string; label: string; type?: string; default?: string; hint?: string; optional?: boolean; options?: string }[]; steps: { type: string; label?: string }[]; done: string }
 export interface InstalledApp { slug: string; name: string; domain?: string; installedAt: string; values?: Record<string, string> }
@@ -259,11 +259,11 @@ export interface AssistantRun {
 
 export interface ApiToken { id: string; userId: string; name: string; scopes: string; lastUsedAt: string; expiresAt: string; createdAt: string; prefix?: string }
 
-export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
+export interface RunnerPool { id: string; provider: string; name: string; url: string; token?: string; labels: string; minIdle: number; maxRunners: number; dockerAccess: boolean; memoryMb: number; cpus: number; webhookSecret?: string; enabled: boolean; createdAt: string; runners?: { name: string; state: string; busy: boolean; started: string }[]; idle: number; busy: number; error?: string }
 export interface RunnerJob { id: number; poolId: string; externalId: string; name: string; repo: string; runner: string; status: string; conclusion: string; url: string; queuedAt: string; startedAt: string; finishedAt: string }
 
 export interface SecCheck { id: string; title: string; detail: string; weight: number; status: "pass" | "fail" | "warn" | "unknown"; fix?: string; fixNote?: string }
-export interface SecReport { score: number; max: number; checks: SecCheck[]; linux: boolean; computedAt: string }
+export interface SecReport { score: number; max: number; checks?: SecCheck[]; linux: boolean; computedAt: string }
 export interface FirewallRule { port: string; proto: string; from: string; comment: string; routed?: boolean }
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
 export interface HostAudit { at: string; suid: string[]; worldWritable: string[]; etcChanged: string[]; etcAdded: string[]; etcRemoved: string[]; baselineAt: string; rkhunter: string; rkhunterRan: boolean; notes: string[] }
@@ -274,7 +274,7 @@ export interface SecurityState { panelCidr?: string; report: SecReport; firewall
 
 export interface BackupDestination { id: string; name: string; type: "s3" | "sftp" | "local" | "rest"; config: Record<string, string>; password?: string; lastCheck: string; checkOk: boolean; size: number; lastRestoreTest: string; restoreTestOk: boolean; createdAt: string; repo: string }
 export interface BackupSource { type: "volume" | "path" | "database" | "islet"; value: string }
-export interface BackupPlan { id: string; name: string; destinationId: string; sources: BackupSource[]; schedule: string; keepDaily: number; keepWeekly: number; keepMonthly: number; keepYearly: number; enabled: boolean; preCmd?: string; postCmd?: string; pause?: boolean; nextRunAt: string; lastRunAt: string; lastStatus: string; createdAt: string; described: string; running: boolean; stale: boolean }
+export interface BackupPlan { id: string; name: string; destinationId: string; sources?: BackupSource[]; schedule: string; keepDaily: number; keepWeekly: number; keepMonthly: number; keepYearly: number; enabled: boolean; preCmd?: string; postCmd?: string; pause?: boolean; nextRunAt: string; lastRunAt: string; lastStatus: string; createdAt: string; described: string; running: boolean; stale: boolean }
 export interface BackupRun { id: number; planId: string; trigger: string; status: string; snapshot: string; filesNew: number; filesChanged: number; bytesAdded: number; bytesTotal: number; log?: string; error: string; startedAt: string; finishedAt: string; durationMs: number }
 export interface Snapshot { id: string; time: string; paths: string[]; tags: string[]; size: number }
 export interface Registry { host: string; username: string }

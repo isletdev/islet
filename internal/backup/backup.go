@@ -65,7 +65,7 @@ type Plan struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
 	DestinationID string   `json:"destinationId"`
-	Sources       []Source `json:"sources"`
+	Sources       []Source `json:"sources,omitempty"`
 	Schedule      string   `json:"schedule"`
 	KeepDaily     int      `json:"keepDaily"`
 	KeepWeekly    int      `json:"keepWeekly"`

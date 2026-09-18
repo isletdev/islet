@@ -56,7 +56,8 @@ export default function Security() {
   if (!s) return <p className="text-sm text-ink-muted">Computing the score…</p>;
   const r = s.report;
   const tone = r.score >= 90 ? "text-success" : r.score >= 60 ? "text-warning" : "text-danger";
-  const failing = r.checks.filter((c) => c.status !== "pass");
+  const checks = r.checks ?? [];
+  const failing = checks.filter((c) => c.status !== "pass");
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -90,7 +91,7 @@ export default function Security() {
         </Card>
         <Card title="Checks" description="Weighted. Fixes run as root on this server and are recorded in the audit log.">
           <ul className="divide-y divide-border text-sm">
-            {r.checks.map((c) => (
+            {checks.map((c) => (
               <li key={c.id} className="flex items-start gap-3 py-2">
                 <span className={`mt-1.5 h-2 w-2 flex-none rounded-full ${c.status === "pass" ? "bg-success" : c.status === "fail" ? "bg-danger" : c.status === "warn" ? "bg-warning" : "bg-ink-faint"}`} />
                 <div className="min-w-0 flex-1"><div className="font-medium">{c.title} {c.status !== "pass" && <span className="font-mono text-[11px] text-ink-faint" title="Points this is worth">+{c.weight}</span>}</div><div className="text-xs text-ink-muted">{c.detail}</div></div>

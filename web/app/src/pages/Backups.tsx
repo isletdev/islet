@@ -75,7 +75,7 @@ export default function Backups() {
             {o.plans.map((p) => (
               <li key={p.id} className={`cursor-pointer py-2 ${selPlan === p.id ? "text-ink" : ""}`} onClick={() => setSelPlan(p.id)}>
                 <div className="flex items-center justify-between"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${!p.enabled ? "bg-ink-faint" : p.running ? "bg-accent animate-pulse" : p.stale || p.lastStatus === "failed" ? "bg-danger" : p.lastStatus === "success" ? "bg-success" : "bg-warning"}`} /><span className="font-medium">{p.name}</span></div><span className="text-xs text-ink-muted">{p.described}</span></div>
-                <div className="ml-4 text-xs text-ink-muted">{p.sources.map((s) => s.type === "islet" ? "Islet state" : `${s.type} ${s.value}`).join(", ")} → {o.destinations.find((d) => d.id === p.destinationId)?.name ?? "?"} · {p.lastRunAt ? `last ${p.lastStatus} ${fmt(p.lastRunAt)}` : "never run"}</div>
+                <div className="ml-4 text-xs text-ink-muted">{(p.sources ?? []).map((s) => s.type === "islet" ? "Islet state" : `${s.type} ${s.value}`).join(", ")} → {o.destinations.find((d) => d.id === p.destinationId)?.name ?? "?"} · {p.lastRunAt ? `last ${p.lastStatus} ${fmt(p.lastRunAt)}` : "never run"}</div>
               </li>
             ))}
             {o.plans.length === 0 && <li className="py-2 text-ink-muted">None yet.</li>}

@@ -65,8 +65,8 @@ function PoolDetail({ pool, isAdmin, onEdit, onDelete }: { pool: RunnerPool; isA
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card title={pool.name} description={`${PROVIDERS[pool.provider]?.label} · ${pool.url}`}>
         <ul className="divide-y divide-border text-sm">
-          {pool.runners.map((r) => <li key={r.name} className="flex items-center justify-between py-1.5"><span className="font-mono text-xs">{r.name}</span><span className="text-xs text-ink-muted">{r.state}{r.busy && " · running a job"}{r.state === "running" && <Link to={`/logs?source=container:${r.name}`} className="ml-2 hover:text-ink">logs</Link>}</span></li>)}
-          {pool.runners.length === 0 && <li className="py-2 text-xs text-ink-muted">{pool.enabled ? "No runner containers yet; the first one starts within 30 seconds." : "Pool is paused."}</li>}
+          {(pool.runners ?? []).map((r) => <li key={r.name} className="flex items-center justify-between py-1.5"><span className="font-mono text-xs">{r.name}</span><span className="text-xs text-ink-muted">{r.state}{r.busy && " · running a job"}{r.state === "running" && <Link to={`/logs?source=container:${r.name}`} className="ml-2 hover:text-ink">logs</Link>}</span></li>)}
+          {(pool.runners ?? []).length === 0 && <li className="py-2 text-xs text-ink-muted">{pool.enabled ? "No runner containers yet; the first one starts within 30 seconds." : "Pool is paused."}</li>}
         </ul>
         {isAdmin && <div className="mt-3 flex gap-3 text-xs"><button type="button" onClick={onEdit} className="text-ink-muted hover:text-ink">Settings</button><button type="button" onClick={onDelete} className="text-danger hover:underline">Delete pool</button></div>}
         {pool.provider === "github" && isAdmin && (

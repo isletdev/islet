@@ -84,9 +84,16 @@ func (s *Server) handleDBGet(w http.ResponseWriter, r *http.Request) {
 		DumpJob    *cron.Job      `json:"dumpJob,omitempty"`
 	}{Instance: inst, Databases: []db.Database{}, Extensions: []db.Extension{}, Dumps: []db.Dump{}}
 	if inst.State == "running" {
-		var err error
-		if out.Databases, err = s.db.Databases(r.Context(), u.Username, inst); err != nil {
+		// Assign only on success. Writing the result before checking the error
+		// put the nil that comes back with it straight into the response, so a
+		// running-but-unreachable instance answered with "databases": null
+		// beside its error message — and the page that reads it maps over that
+		// field without a guard, so the error the daemon carefully reported was
+		// never seen by anybody.
+		if list, err := s.db.Databases(r.Context(), u.Username, inst); err != nil {
 			out.Error = err.Error()
+		} else {
+			out.Databases = list
 		}
 		if st, err := s.db.Stats(r.Context(), u.Username, inst); err == nil {
 			out.Stats = st
@@ -95,7 +102,9 @@ func (s *Server) handleDBGet(w http.ResponseWriter, r *http.Request) {
 			out.Extensions = ext
 		}
 	}
-	out.Dumps, _ = s.db.Dumps(inst)
+	if dumps, err := s.db.Dumps(inst); err == nil {
+		out.Dumps = dumps
+	}
 	if jobs, err := s.cron.List(r.Context()); err == nil {
 		for i := range jobs {
 			if jobs[i].Name == dumpJobName(inst) {

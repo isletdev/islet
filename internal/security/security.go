@@ -40,7 +40,7 @@ type Check struct {
 type Report struct {
 	Score      int     `json:"score"`
 	Max        int     `json:"max"`
-	Checks     []Check `json:"checks"`
+	Checks     []Check `json:"checks,omitempty"`
 	Linux      bool    `json:"linux"`
 	ComputedAt string  `json:"computedAt"`
 }
