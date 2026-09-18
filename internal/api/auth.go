@@ -153,6 +153,12 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, api.Error{Error: "mfa_required", Message: "second factor required"})
 			return
 		}
+		// The role floor, from the one table in roles.go rather than from
+		// whatever each handler remembered to check. r.Pattern is set by then:
+		// routing has already happened, which is how this handler was reached.
+		if !s.enforceRole(w, r) {
+			return
+		}
 		next(w, r)
 	}
 }
