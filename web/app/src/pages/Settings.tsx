@@ -4,6 +4,7 @@ import { api, getServer, RequestError, type Session, type ApiToken, type User, t
 import { useAuth } from "@/lib/auth";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Alert, Button, Card, Field, FieldAction, Input, Select, Tab, Tabs } from "@/components/ui";
+import { TrashIcon } from "@/components/icons";
 import AuditLog from "@/components/AuditLog";
 import Vault from "@/pages/Vault";
 import CommandLog from "@/components/CommandLog";
@@ -324,15 +325,43 @@ function Users({ meId }: { meId: string }) {
         "Admins do everything. Deployers can deploy, run jobs and manage containers but not change users, secrets or the host. Viewers only read. A projects list narrows a deployer or viewer to some apps and what belongs to them."
       }
     >
-      <ul className="divide-y divide-border">
+      {/* One grid for the whole list, with each row taking its columns from it.
+          Every cell used to size itself to its own content — a role name, then
+          "all projects" or "projects: shop, shop-*, staging-*", then an actions
+          group that is one button shorter on your own row — so no two rows put
+          anything in the same place. A grid per row does not fix that, because
+          the rows are still sized apart; a subgrid is what makes one column
+          mean one width down the whole list. */}
+      <ul className="grid grid-cols-1 divide-y divide-border sm:grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,11rem)_auto]">
         {list.map((u) => (
-          <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-            <div><span className="font-medium">{u.username}</span>{u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}<div className="text-xs text-ink-muted">{u.isService ? "service account · no sign-in" : u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}</div></div>
-            <div className="flex items-center gap-2 text-xs">
-              <Select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 w-auto px-2 text-xs"><option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option></Select>
-              {u.role !== "admin" && <button type="button" onClick={() => void setProjects(u)} className="text-ink-muted hover:text-ink" title="Limit this account to some apps">{u.projects ? `projects: ${u.projects}` : "all projects"}</button>}
-              <button type="button" onClick={() => void resetPw(u)} className="text-ink-muted hover:text-ink">Reset password</button>
-              {u.id !== meId && <button type="button" onClick={() => void remove(u)} className="text-danger hover:underline">Delete</button>}
+          <li key={u.id} className="col-span-1 grid grid-cols-1 items-center gap-x-3 gap-y-1 py-2.5 text-sm sm:col-span-4 sm:grid-cols-subgrid">
+            <div className="min-w-0">
+              <span className="font-medium">{u.username}</span>
+              {u.id === meId && <span className="ml-1 text-xs text-ink-muted">(you)</span>}
+              <div className="truncate text-xs text-ink-muted">
+                {u.isService ? "service account · no sign-in" : u.totpEnabled ? "2FA on" : "2FA off"} · {u.lastLoginAt ? `last login ${new Date(u.lastLoginAt).toLocaleString()}` : "never logged in"}
+              </div>
+            </div>
+            <Select value={u.role} onChange={(e) => void setRoleFor(u, e.target.value)} disabled={u.id === meId} className="h-8 w-full px-2 text-xs" aria-label={`Role for ${u.username}`}>
+              <option value="admin">admin</option><option value="deployer">deployer</option><option value="viewer">viewer</option>
+            </Select>
+            <div className="min-w-0 text-xs">
+              {u.role !== "admin"
+                ? <button type="button" onClick={() => void setProjects(u)} className="-my-1 block w-full truncate py-1 text-left text-ink-muted hover:text-ink" title={u.projects ? `Limited to ${u.projects}` : "Limit this account to some apps"}>{u.projects ? u.projects : "all projects"}</button>
+                : <span className="text-ink-faint">everything</span>}
+            </div>
+            <div className="flex items-center justify-end gap-1">
+              <button type="button" onClick={() => void resetPw(u)} className="-my-1 py-1 text-xs text-ink-muted hover:text-ink">Reset password</button>
+              {/* Your own row has nothing to delete, but it keeps the space:
+                  without it "Reset password" sits where no other row's does. */}
+              {u.id !== meId ? (
+                <button type="button" onClick={() => void remove(u)} aria-label={`Delete ${u.username}`} title={`Delete ${u.username}`}
+                  className="-my-1 inline-flex items-center rounded-md p-1 text-ink-muted hover:bg-surface-2 hover:text-danger">
+                  <TrashIcon className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <span className="p-1" aria-hidden><TrashIcon className="h-3.5 w-3.5 opacity-0" /></span>
+              )}
             </div>
           </li>
         ))}
