@@ -103,9 +103,33 @@ func (s *Service) Start(ctx context.Context) error {
 	return nil
 }
 
+// purge drops results older than the longest window anything reports on.
+//
+// It ran as a full scan of what is structurally the largest table in the
+// database — a check every sixty seconds is 1,440 rows a day — because nothing
+// indexed the column it filters on. Migration 0035 adds that index, and this
+// deletes per check so the plan is a range rather than a scan.
 func (s *Service) purge(ctx context.Context) {
 	cut := time.Now().Add(-31 * 24 * time.Hour).UTC().Format(sqlTime)
-	_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM check_results WHERE at < ?`, cut)
+	rows, err := s.st.DB.QueryContext(ctx, `SELECT id FROM checks WHERE server_id = ?`, s.st.ServerID)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM check_results WHERE check_id = ? AND at < ?`, id, cut)
+	}
+	// Results belonging to checks that no longer exist have no check to be
+	// ranged by. They are deleted by the foreign key when a check goes, so this
+	// is only a floor under rows that predate it.
+	_, _ = s.st.DB.ExecContext(ctx, `DELETE FROM check_results WHERE at < ? AND check_id NOT IN (SELECT id FROM checks)`, cut)
 }
 
 func (s *Service) schedule(ctx context.Context, c *Check) {
@@ -209,8 +233,25 @@ func (s *Service) List(ctx context.Context) ([]Check, error) {
 	return out, rows.Err()
 }
 
-// Get returns one check.
+// Get returns one check, with its uptime percentages.
 func (s *Service) Get(ctx context.Context, id string) (*Check, error) {
+	c, err := s.get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	c.Uptime24h, c.Uptime30d = s.uptime(ctx, c.ID)
+	return c, nil
+}
+
+// get is the row on its own, without the two aggregates over its history.
+//
+// Every probe called Get, used four fields of it — enabled, status, failures,
+// down_since — and threw both percentages away. Each of those percentages is an
+// aggregate over every result retained for that check, so a monitor running
+// every sixty seconds re-read a month of its own history twice a minute to
+// decide whether a target answered. Twenty monitors spent 2% of a core doing
+// it; a hundred spent a third of one.
+func (s *Service) get(ctx context.Context, id string) (*Check, error) {
 	c, err := scan(s.st.DB.QueryRowContext(ctx, `SELECT `+cols+` FROM checks WHERE id = ? AND server_id = ?`, id, s.st.ServerID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -218,7 +259,6 @@ func (s *Service) Get(ctx context.Context, id string) (*Check, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.Uptime24h, c.Uptime30d = s.uptime(ctx, c.ID)
 	return &c, nil
 }
 
@@ -248,7 +288,7 @@ func (s *Service) Save(ctx context.Context, c *Check) (*Check, error) {
 			return nil, err
 		}
 	} else {
-		if _, err := s.Get(ctx, c.ID); err != nil {
+		if _, err := s.get(ctx, c.ID); err != nil {
 			return nil, err
 		}
 		_, err := s.st.DB.ExecContext(ctx, `UPDATE checks SET name = ?, type = ?, target = ?, keyword = ?, interval_sec = ?, timeout_sec = ?, expect_status = ?, enabled = ?, status = CASE WHEN ? THEN status ELSE 'paused' END WHERE id = ?`,
@@ -297,7 +337,7 @@ func (s *Service) Results(ctx context.Context, id string, limit int) ([]Result, 
 
 // Probe runs one check immediately and returns the result.
 func (s *Service) Probe(ctx context.Context, id string) (*Result, error) {
-	c, err := s.Get(ctx, id)
+	c, err := s.get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +346,7 @@ func (s *Service) Probe(ctx context.Context, id string) (*Result, error) {
 }
 
 func (s *Service) probe(ctx context.Context, id string) {
-	c, err := s.Get(ctx, id)
+	c, err := s.get(ctx, id)
 	if err != nil || !c.Enabled {
 		return
 	}
