@@ -470,6 +470,14 @@ export const VaultIcon = (p: IconProps) => (
   </svg>
 );
 
+export const MediaIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.8" y="4.6" width="18.4" height="14.8" rx="2" />
+    <circle cx="8.4" cy="9.8" r="1.5" />
+    <path d="m3.2 17.2 4.6-4.4 3.2 3 3.4-3.6 5.2 5" />
+  </Icon>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   assistant: AssistantIcon,
   vault: VaultIcon,
@@ -484,6 +492,7 @@ export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
   cron: CronIcon,
   notifications: NotificationsIcon,
   runners: RunnersIcon,
+  media: MediaIcon,
   uptime: UptimeIcon,
   backups: BackupsIcon,
   security: SecurityIcon,

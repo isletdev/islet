@@ -41,6 +41,7 @@ export const NAV: NavItem[] = [
   { path: "/domains", key: "domains", label: "Domains", group: "deploy", phase: "v0.3", ready: true, blurb: "Point a domain at a container and get HTTPS." },
   { path: "/databases", key: "databases", label: "Databases", group: "deploy", phase: "v0.4", ready: true, blurb: "Postgres, MySQL, Redis and friends with backups." },
   { path: "/runners", key: "runners", label: "Runners", group: "deploy", phase: "v0.5", ready: true, blurb: "GitHub Actions, GitLab and Gitea runners on this server." },
+  { path: "/media", key: "media", label: "Media", group: "deploy", phase: "v0.27", ready: true, blurb: "An upload and image API your apps call, storing here or on S3, R2, MinIO." },
 
   { path: "/cron", key: "cron", label: "Cron", group: "operate", phase: "v0.4", ready: true, blurb: "Scheduled commands and scripts with run history." },
   { path: "/uptime", key: "uptime", label: "Logs & Uptime", group: "operate", phase: "v0.4", ready: true, blurb: "Whether it is up, and the logs that say why not." },

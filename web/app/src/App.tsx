@@ -10,6 +10,7 @@ import Placeholder from "./pages/Placeholder";
 const Settings = lazy(() => import("./pages/Settings"));
 const Terminal = lazy(() => import("./pages/Terminal"));
 const Workspaces = lazy(() => import("./pages/Workspaces"));
+const Media = lazy(() => import("./pages/Media"));
 const Assistant = lazy(() => import("./pages/Assistant"));
 const Console = lazy(() => import("./pages/Console"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/servers" element={<Servers />} />
         <Route path="/terminal" element={<Terminal />} />
         <Route path="/workspaces" element={<Workspaces />} />
+        <Route path="/media" element={<Media />} />
         <Route path="/assistant" element={<Assistant />} />
         {/* The vault is a section of Settings now. The old path still works,
             because it is in the docs, in the MCP tool description and in

@@ -17,6 +17,8 @@
   "nav.notifications.blurb": "Telegram, Discord, Slack, email and webhooks.",
   "nav.runners": "Runners",
   "nav.runners.blurb": "GitHub Actions, GitLab and Gitea runners on this server.",
+  "nav.media": "Media",
+  "nav.media.blurb": "An upload and image API your apps call, storing here or on S3, R2, MinIO.",
   "nav.uptime": "Logs & Uptime",
   "nav.uptime.blurb": "Whether it is up, and the logs that say why not.",
   "nav.backups": "Backups",

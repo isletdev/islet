@@ -3016,3 +3016,74 @@ Safari; in Firefox, which has none, the button is not drawn rather than drawn
 and broken. Chrome's implementation sends the audio to Google, which is not what
 everybody expects on a self-hosted panel, so the button says so rather than
 leaving it to be discovered.
+
+## The media service
+
+**The converters are a container, and there is no protocol between us and it.**
+libvips, ffmpeg and poppler are about three hundred megabytes and several want
+cgo, which is not a thing to put inside a single static binary that has to run
+on a 1 vCPU box. The plan said a worker with an HTTP API. What was built is a
+container that runs `sleep infinity` and gets work by `docker exec` with a
+shared directory — because an HTTP worker is a second API to design, version and
+secure, and it would have bought about fifty milliseconds of process spawn on a
+path that is cached after its first request. Going through `docker exec` also
+means every conversion goes through `cmdrun`, so it appears in the command
+drawer with its exit code and duration like everything else the daemon does.
+
+The image is built on the server from a four-line Dockerfile rather than pulled.
+There is no official Islet image yet, and Debian's own packages are a supply
+chain the operator already trusts. It costs a few minutes once, streamed so
+nobody wonders whether it has hung.
+
+**vips picks its encoder from the output file name.** Worth writing down because
+it cost a debugging round: `vips thumbnail in out[Q=78]` fails with
+`VipsForeignSave: "out" is not a known file format` — a sentence about the
+output, read as one about the input. The extension is what chooses the encoder;
+the brackets only tune it.
+
+**No table of derivatives.** A variant's key carries everything that decides its
+bytes — preset name, dimensions, fit, quality, format — so a missing one is
+made again and a changed preset addresses a different name rather than serving
+stale bytes as if they were new. The object store is the state, which is the
+same rule the rest of this project follows about tmux and Docker.
+
+**An upload ticket is signed, not stored.** The alternative is a row for every
+upload somebody started, most of which never finish, and a sweeper for the rest.
+Signed, the ticket cannot be edited to point at another namespace, it expires by
+itself, and an abandoned upload leaves nothing anywhere.
+
+**Media keys are not API tokens, and the two APIs do not share a router.** An
+API token carries the operator's authority narrowed by scopes. A media key
+carries none, is held by software on the open internet, and is refused by the
+panel API — checked by test and by hand: a media key against `/api/v1/users` is
+401, a panel session against `/svc/media/v1/upload` is 401. They are separate
+tables, separate middleware chains and separate muxes, chosen before any handler
+runs. The service is also reachable at the root of a hostname of its own,
+because the panel's origin holds a session cookie and nothing that serves
+user-uploaded bytes belongs on it.
+
+**The read path is limited by address, and that limit is not what protects the
+expensive work.** Public objects are read without a key — that is what public
+means — so the anonymous limit is per address, which behind Islet's own proxy is
+one shared ceiling rather than one per visitor. Trusting `X-Forwarded-For`
+instead would make it a limit anybody steps around by setting a header. What
+actually bounds the cost is elsewhere: a cached variant is a file read or a
+redirect, and a cache miss waits for one of a small number of conversion slots
+or is refused after twenty seconds.
+
+**Presets, not query strings.** `?w=812&q=71` invites ten thousand distinct
+sizes of one photograph, each a conversion. An application asks for `thumb`.
+Arbitrary transforms remain possible behind a signature, for the cases presets
+cannot cover.
+
+**Storage is hand-written against each provider's HTTP API.** One SigV4
+implementation, about three hundred lines, covers S3, R2, MinIO, Backblaze,
+Wasabi and Hetzner. The AWS SDK alone is larger than this whole daemon, and the
+same argument already decided how `internal/assistant` talks to model providers.
+`UNSIGNED-PAYLOAD` on uploads, because the body is a stream being forwarded and
+hashing it first would mean holding a video in memory to sign it.
+
+**Media keeps its own buckets rather than sharing a storage section with backup
+destinations.** The cost is that an R2 key is entered twice and can drift. What
+it buys is not migrating a table people's restores depend on. If a third
+consumer of object storage appears, that is the moment to reconsider.

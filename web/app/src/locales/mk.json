@@ -17,6 +17,8 @@
   "nav.notifications.blurb": "Telegram, Discord, Slack, е-пошта и webhooks.",
   "nav.runners": "Runner-и",
   "nav.runners.blurb": "GitHub Actions, GitLab и Gitea runner-и на овој сервер.",
+  "nav.media": "Медиуми",
+  "nav.media.blurb": "API за прикачување и слики што вашите апликации го повикуваат, со чување тука или на S3, R2, MinIO.",
   "nav.uptime": "Логови и достапност",
   "nav.uptime.blurb": "Дали работи, и логовите што кажуваат зошто не.",
   "nav.backups": "Бекапи",

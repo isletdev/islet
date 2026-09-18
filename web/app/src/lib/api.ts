@@ -233,6 +233,32 @@ export interface Upload {
   addedAt: string;
 }
 
+/** The media service: a thing applications call, not operators. */
+export interface MediaSettings { enabled: boolean; host: string; transforms: number; maxBytes: number }
+export interface MediaTools { running: boolean; image: string; vips?: string; ffmpeg?: string; poppler?: string }
+export interface MediaUsage { namespace: string; objects: number; bytes: number }
+export interface MediaOverview { settings: MediaSettings; tools: MediaTools; buckets: number; usage: MediaUsage[]; maxBytes: number }
+export interface MediaBucket {
+  id: string; name: string; driver: "local" | "s3";
+  config: Record<string, string> | null;
+  accessKey?: string; secretSet: boolean; publicBase: string;
+  maxBytes: number; allowTypes: string; scanUploads: boolean; default: boolean;
+  createdAt: string; updatedAt: string;
+}
+export interface MediaKey {
+  id: string; name: string; prefix: string; namespace: string; bucketId?: string;
+  scopes: string; ratePerMin: number; quotaBytes: number; origins: string;
+  expiresAt?: string; lastUsedAt?: string; createdAt: string;
+  /** Present exactly once, in the response that created it. */
+  secret?: string;
+}
+export interface MediaPreset { id: string; name: string; width: number; height: number; fit: "cover" | "contain"; format: string; quality: number }
+export interface MediaObject {
+  id: string; bucketId: string; namespace?: string; key: string; filename: string;
+  contentType: string; size: number; checksum?: string; width?: number; height?: number;
+  visibility: "public" | "private"; scanner?: string; keyId?: string; createdAt: string;
+}
+
 export interface Uploads {
   files: Upload[];
   /** The malware scanner this server has, empty when it has none. */
@@ -456,6 +482,21 @@ export const api = {
   aiProviderDefault: (id: string) => post<AIProvider[]>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, {}),
   aiProviderDelete: (id: string) => post<void>(`/api/v1/ai/providers/${encodeURIComponent(id)}`, undefined, "DELETE"),
   assistantRuns: () => request<AssistantRun[]>("/api/v1/assistant/runs"),
+  media: () => request<MediaOverview>("/api/v1/media"),
+  mediaSave: (s: MediaSettings) => post<MediaOverview>("/api/v1/media", s),
+  mediaWorkerRemove: () => request<void>("/api/v1/media/worker", { method: "DELETE" }),
+  mediaBuckets: () => request<MediaBucket[]>("/api/v1/media/buckets"),
+  mediaBucketSave: (b: Partial<MediaBucket> & { secret?: string }) => post<MediaBucket>("/api/v1/media/buckets", b),
+  mediaBucketCheck: (id: string) => post<{ ok: boolean }>(`/api/v1/media/buckets/${encodeURIComponent(id)}/check`),
+  mediaBucketRemove: (id: string) => request<void>(`/api/v1/media/buckets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  mediaKeys: () => request<MediaKey[]>("/api/v1/media/keys"),
+  mediaKeyMint: (k: Partial<MediaKey>) => post<MediaKey>("/api/v1/media/keys", k),
+  mediaKeyRemove: (id: string) => request<void>(`/api/v1/media/keys/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  mediaPresets: () => request<MediaPreset[]>("/api/v1/media/presets"),
+  mediaPresetSave: (p: Partial<MediaPreset>) => post<MediaPreset>("/api/v1/media/presets", p),
+  mediaPresetRemove: (id: string) => request<void>(`/api/v1/media/presets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  mediaObjects: (limit = 60) => request<MediaObject[]>(`/api/v1/media/objects?limit=${limit}`),
+  mediaObjectRemove: (id: string) => request<void>(`/api/v1/media/objects/${encodeURIComponent(id)}`, { method: "DELETE" }),
   assistantUploads: () => request<Uploads>("/api/v1/assistant/uploads"),
   assistantUploadDelete: (id: string) => request<void>(`/api/v1/assistant/uploads/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** Where the bytes are, for a thumbnail of what is about to be sent. */

@@ -30,7 +30,7 @@ type Token struct {
 var Scopes = []string{
 	"read", "deploy", "cron", "db", "containers", "domains", "files",
 	"backups", "security", "uptime", "runners", "catalog", "workspaces",
-	"vault", "notify", "logs", "system", "settings", "shell",
+	"vault", "notify", "logs", "system", "settings", "media", "shell",
 }
 
 // ErrBadToken is returned for unknown, expired or malformed tokens.
@@ -224,6 +224,10 @@ var areas = []struct{ prefix, scope string }{
 	{"/api/v1/proxy", "domains"},
 	{"/api/v1/certificates", "domains"},
 	{"/api/v1/backups", "backups"},
+	// Its own scope rather than "settings": configuring the media service mints
+	// credentials that applications on the open internet hold, and a token that
+	// may change a setting should not thereby be able to issue those.
+	{"/api/v1/media", "media"},
 	{"/api/v1/security", "security"},
 	{"/api/v1/uptime", "uptime"},
 	{"/api/v1/runners", "runners"},

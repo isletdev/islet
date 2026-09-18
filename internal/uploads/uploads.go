@@ -31,6 +31,7 @@ import (
 	"unicode"
 
 	"github.com/isletdev/islet/internal/cmdrun"
+	"github.com/isletdev/islet/internal/scan"
 )
 
 // MaxSize is the most one file may be. Large enough for a phone's video of a
@@ -61,23 +62,16 @@ var (
 	ErrNotFound = errors.New("no such upload")
 )
 
-// Infected is a file that a scanner objected to. It carries what the scanner
-// said, because "rejected" without the signature name is not something anyone
-// can act on.
-type Infected struct{ Signature string }
-
-func (e *Infected) Error() string {
-	if e.Signature == "" {
-		return "the virus scanner rejected this file"
-	}
-	return "the virus scanner rejected this file: " + e.Signature
-}
+// Infected is a file that a scanner objected to, re-exported so callers of this
+// package do not have to know which package does the looking.
+type Infected = scan.Infected
 
 // Service stores uploads under the data directory.
 type Service struct {
-	dir  string
-	cmds *cmdrun.Runner
-	log  *slog.Logger
+	dir     string
+	cmds    *cmdrun.Runner
+	scanner *scan.Scanner
+	log     *slog.Logger
 	// scanTimeout bounds one scan. A zip of a brand kit is a few thousand
 	// files and clamscan is not fast; a video is one file and large.
 	scanTimeout time.Duration
@@ -93,7 +87,7 @@ func New(cmds *cmdrun.Runner, dataDir string, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Service{dir: filepath.Join(dataDir, "uploads"), cmds: cmds, log: log, scanTimeout: 3 * time.Minute}
+	s := &Service{dir: filepath.Join(dataDir, "uploads"), cmds: cmds, scanner: scan.New(cmds, log), log: log, scanTimeout: 3 * time.Minute}
 	s.scanFile = s.clamav
 	return s
 }
@@ -235,77 +229,11 @@ func (s *Service) Remove(id string) error {
 // ---- scanning -------------------------------------------------------------
 
 // Scanner is the malware scanner this machine has, or empty.
-//
-// clamdscan first: it asks a running daemon that already holds the signatures,
-// which is the difference between a second and half a minute. clamscan loads
-// them itself every time, which is slow but works on a machine where nobody
-// wanted a resident daemon on a gigabyte of RAM.
-func (s *Service) Scanner(ctx context.Context) string {
-	if s.cmds == nil {
-		return ""
-	}
-	for _, name := range []string{"clamdscan", "clamscan"} {
-		if _, err := s.cmds.Read(ctx, "sh", "-c", "command -v "+name); err == nil {
-			return name
-		}
-	}
-	return ""
-}
+func (s *Service) Scanner(ctx context.Context) string { return s.scanner.Name(ctx) }
 
-// clamav runs the scanner over one file. An empty name back means nothing was
-// installed to look, which is a fact for the caller to pass on rather than a
-// failure.
+// clamav is the default check: whatever internal/scan finds installed.
 func (s *Service) clamav(ctx context.Context, actor, path string) (string, error) {
-	name := s.Scanner(ctx)
-	if name == "" {
-		return "", nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, s.scanTimeout)
-	defer cancel()
-	args := []string{"--no-summary", path}
-	if name == "clamdscan" {
-		// --fdpass hands the open descriptor over, so the daemon reads a file
-		// it would otherwise have no permission to open: uploads live under
-		// the data directory, which is the daemon's and not clamav's.
-		args = append([]string{"--no-summary", "--fdpass"}, path)
-	}
-	res, err := s.cmds.Run(ctx, actor, name, args...)
-	switch {
-	case err == nil:
-		return name, nil
-	case res.ExitCode == 1:
-		return "", &Infected{Signature: signature(res.Stdout)}
-	default:
-		// The scanner is installed and could not answer. Refusing is the only
-		// honest option: the file is unknown, and saying "clean" because the
-		// check broke is how a scanner becomes decoration.
-		out := strings.TrimSpace(res.Stderr)
-		if out == "" {
-			out = strings.TrimSpace(res.Stdout)
-		}
-		if out == "" {
-			out = err.Error()
-		}
-		s.log.Warn("the virus scanner could not check an upload", "scanner", name, "err", out)
-		return "", fmt.Errorf("%s could not check this file: %s", name, firstLine(out))
-	}
-}
-
-// signature pulls the name out of "…/file: Eicar-Signature FOUND".
-func signature(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		if i := strings.LastIndex(line, ": "); i >= 0 && strings.HasSuffix(strings.TrimSpace(line), "FOUND") {
-			return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line[i+2:]), "FOUND"))
-		}
-	}
-	return ""
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
+	return s.scanner.File(ctx, actor, path)
 }
 
 // ---- names ----------------------------------------------------------------

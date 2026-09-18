@@ -33,6 +33,7 @@ import (
 	"github.com/isletdev/islet/internal/files"
 	"github.com/isletdev/islet/internal/fleet"
 	"github.com/isletdev/islet/internal/github"
+	"github.com/isletdev/islet/internal/media"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
@@ -177,6 +178,7 @@ func run() error {
 	}
 	ws := workspace.New(st, cmds, bus, *dataDir, log)
 	upl := uploads.New(cmds, *dataDir, log)
+	med := media.New(st, keys, cmds, *dataDir, log)
 	vlt := vault.New(st, keys)
 	go watch.Docker(ctx, cmds, bus, log)
 	go watch.Resources(ctx, sampler, bus)
@@ -210,7 +212,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, Uploads: upl, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, Uploads: upl, Media: med, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

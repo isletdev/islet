@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/isletdev/islet/internal/ai"
@@ -27,6 +28,7 @@ import (
 	"github.com/isletdev/islet/internal/fleet"
 	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/internal/mcp"
+	"github.com/isletdev/islet/internal/media"
 	"github.com/isletdev/islet/internal/metrics"
 	"github.com/isletdev/islet/internal/notify"
 	"github.com/isletdev/islet/internal/proxy"
@@ -67,6 +69,7 @@ type Deps struct {
 	Fleet      *fleet.Service
 	Backup     *backup.Service
 	Uploads    *uploads.Service
+	Media      *media.Service
 	GitHub     *github.Client
 	UI         http.Handler
 	Log        *slog.Logger
@@ -103,6 +106,7 @@ type Server struct {
 	sqlInstances func(context.Context, string) ([]sqlInstance, error)
 	backup       *backup.Service
 	uploads      *uploads.Service
+	media        *media.Service
 	github       *github.Client
 	mcp          *mcp.Server
 	// routes is the bare router, kept so the generic MCP tool can reach any
@@ -131,7 +135,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
 	}
@@ -251,6 +255,22 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/assistant/chats/{id}", s.requireAuth(s.handleAssistantChat1))
 	mux.HandleFunc("POST /api/v1/assistant/chats/{id}", requireJSON(s.requireAuth(s.handleAssistantChat1)))
 	mux.HandleFunc("DELETE /api/v1/assistant/chats/{id}", s.requireAuth(s.handleAssistantChat1))
+	mux.HandleFunc("GET /api/v1/media", s.requireAuth(s.handleMedia))
+	mux.HandleFunc("POST /api/v1/media", requireJSON(s.requireAuth(s.handleMedia)))
+	mux.HandleFunc("POST /api/v1/media/worker", s.requireAuth(s.handleMediaWorker))
+	mux.HandleFunc("DELETE /api/v1/media/worker", s.requireAuth(s.handleMediaWorker))
+	mux.HandleFunc("GET /api/v1/media/buckets", s.requireAuth(s.handleMediaBuckets))
+	mux.HandleFunc("POST /api/v1/media/buckets", requireJSON(s.requireAuth(s.handleMediaBuckets)))
+	mux.HandleFunc("POST /api/v1/media/buckets/{id}/check", s.requireAuth(s.handleMediaBucket1))
+	mux.HandleFunc("DELETE /api/v1/media/buckets/{id}", s.requireAuth(s.handleMediaBucket1))
+	mux.HandleFunc("GET /api/v1/media/keys", s.requireAuth(s.handleMediaKeys))
+	mux.HandleFunc("POST /api/v1/media/keys", requireJSON(s.requireAuth(s.handleMediaKeys)))
+	mux.HandleFunc("DELETE /api/v1/media/keys/{id}", s.requireAuth(s.handleMediaKey1))
+	mux.HandleFunc("GET /api/v1/media/presets", s.requireAuth(s.handleMediaPresets))
+	mux.HandleFunc("POST /api/v1/media/presets", requireJSON(s.requireAuth(s.handleMediaPresets)))
+	mux.HandleFunc("DELETE /api/v1/media/presets/{id}", s.requireAuth(s.handleMediaPreset1))
+	mux.HandleFunc("GET /api/v1/media/objects", s.requireAuth(s.handleMediaObjects))
+	mux.HandleFunc("DELETE /api/v1/media/objects/{id}", s.requireAuth(s.handleMediaObject1))
 	mux.HandleFunc("GET /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))
 	mux.HandleFunc("POST /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))
 	mux.HandleFunc("GET /api/v1/assistant/uploads/{id}", s.requireAuth(s.handleUpload1))
@@ -536,7 +556,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", s.ui)
 	s.routes = mux
-	return s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
+	panel := s.recover(s.logRequests(s.securityHeaders(s.withSession(mux))))
+	return s.dispatch(panel, s.serviceHandler())
 }
 
 // handleHealth says whether the daemon is up, and — to somebody who has signed
@@ -641,5 +662,36 @@ func (s *Server) recover(next http.Handler) http.Handler {
 			}
 		}()
 		next.ServeHTTP(w, r)
+	})
+}
+
+// dispatch decides which of the two APIs a request belongs to.
+//
+// The split is the security property this daemon now depends on: the panel
+// chain carries a session and the panel's own security headers, the service
+// chain carries neither and cannot reach a route under /api/v1. A request goes
+// to exactly one of them, chosen before any handler runs.
+//
+// Two ways in. `/svc/...` on any address, which is what an application on this
+// server uses over localhost or the Docker network; and every path on the
+// hostname the operator pointed at the service, which is what a browser uses —
+// the panel's origin holds a session cookie, and nothing that serves
+// user-uploaded bytes belongs on it.
+func (s *Server) dispatch(panel, service http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, svcPrefix) {
+			service.ServeHTTP(w, r)
+			return
+		}
+		if s.svcHost(r) {
+			// On the service's own hostname the paths are shorter, because an
+			// application writing https://media.example.com/svc/media/v1/upload
+			// is an application saying the same word three times.
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/svc/media" + r.URL.Path
+			service.ServeHTTP(w, r2)
+			return
+		}
+		panel.ServeHTTP(w, r)
 	})
 }

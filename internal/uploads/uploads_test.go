@@ -179,15 +179,3 @@ func TestSafeName(t *testing.T) {
 		t.Errorf("a very long name came back as %d characters: %q", len(long), long)
 	}
 }
-
-// The signature is pulled out of clamscan's own output, because "rejected" on
-// its own is not something anyone can act on.
-func TestTheSignatureIsReadFromTheScannersOutput(t *testing.T) {
-	out := "/var/lib/islet/uploads/aa/x.zip: Eicar-Test-Signature FOUND\n"
-	if got := signature(out); got != "Eicar-Test-Signature" {
-		t.Errorf("signature = %q", got)
-	}
-	if got := signature("/x: OK\n"); got != "" {
-		t.Errorf("a clean line produced a signature: %q", got)
-	}
-}

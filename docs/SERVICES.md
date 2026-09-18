@@ -1,8 +1,16 @@
 # Islet Services — the plan
 
-> Status: plan, nothing built. Decisions here are settled unless marked open.
-> Where the work stands is [STATUS.md](STATUS.md); why non-obvious calls were
-> made goes in [DECISIONS.md](DECISIONS.md) as each one lands.
+> Status: Phase A and Phase B are built and shipped. Phase C is not. Where the
+> work stands is [STATUS.md](STATUS.md); why non-obvious calls were made is in
+> [DECISIONS.md](DECISIONS.md).
+>
+> Three things changed between this plan and the code, each for a reason worth
+> reading: there is **no worker protocol** — a conversion is `docker exec` into
+> the container with a shared directory, so it goes through `cmdrun` like every
+> other command this daemon runs; the worker image is **built on the server**
+> from a four-line Dockerfile rather than pulled, because there is no official
+> Islet image to trust yet; and an **upload ticket is signed rather than
+> stored**, so a started-and-abandoned upload leaves nothing to sweep up.
 
 ## What a service is, and why it is a new thing
 
@@ -81,8 +89,15 @@ second service is cheap.
 
 Scope: **images and files.** Upload, store, serve, delete; images resized,
 compressed and converted on the way out; anything else stored and served as it
-was, scanned on the way in. PDF and video are Phase C and the API is shaped so
-they slot in rather than change it.
+was, scanned on the way in.
+
+PDF and video came along for less than they were budgeted. The converter
+container has poppler and ffmpeg in it anyway, and a preset works by turning a
+source into a picture and then resizing that picture — so a PDF gives up its
+first page and a video gives up a frame three seconds in, and `thumb` means the
+same thing for all three. Probing came with it: an image reports its dimensions,
+a PDF its page count, a video its duration. What is still Phase C is
+transcoding, which is a job rather than a request.
 
 ### Storage
 
@@ -168,12 +183,13 @@ bucket is what exists.
 ## Phase C — the rest of the media brief
 
 - **GCS and Azure drivers.**
-- **PDF**: page count, a thumbnail of page one, text extraction for search.
-- **Video**: probe, thumbnail, and transcode to web formats. Transcoding is not
-  a request — it is a job with progress, failure and a notification, and it
-  needs a queue that does not exist yet. On a small server it is one at a time
-  and the panel says plainly what it will do to the box before it is switched
-  on.
+- **PDF**: text extraction for search. Page count and a thumbnail of page one
+  shipped with Phase B.
+- **Video**: transcoding to web formats. Probing and a thumbnail shipped with
+  Phase B; transcoding is not a request but a job with progress, failure and a
+  notification, and it needs a queue that does not exist yet. On a small server
+  it is one at a time and the panel should say plainly what it will do to the
+  box before it is switched on.
 - **Image extras** as they earn their place: focal-point cropping, AVIF, EXIF
   stripping by default with an opt-out.
 
