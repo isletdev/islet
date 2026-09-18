@@ -223,6 +223,9 @@ export default function Workspaces() {
   const [editingAgent, setEditingAgent] = useState<Partial<Agent> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string[] | null>(null);
+  // Bumped whenever an agent's window has been killed, to make the terminal
+  // attach again. See attachedWindow below for why that is not optional.
+  const [termGen, setTermGen] = useState(0);
 
   const ws = useMemo(() => list.find((w) => w.id === wsID) ?? null, [list, wsID]);
   const agent = useMemo(() => agents.find((a) => a.id === tab) ?? null, [agents, tab]);
@@ -305,7 +308,9 @@ export default function Workspaces() {
       ),
       confirmLabel: "Stop it", tone: "danger",
     });
-    if (ok) await run(a.id + "stop", () => api.agentStop(ws!.id, a.id));
+    if (!ok) return;
+    await run(a.id + "stop", () => api.agentStop(ws!.id, a.id));
+    setTermGen((n) => n + 1);
   };
 
   const restartAgent = async (a: Agent) => {
@@ -326,6 +331,7 @@ export default function Workspaces() {
       await api.agentStop(ws!.id, a.id);
       await api.agentStart(ws!.id, a.id);
     });
+    setTermGen((n) => n + 1);
   };
 
   const removeAgent = async (a: Agent) => {
@@ -424,6 +430,22 @@ export default function Workspaces() {
       ? `/api/v1/workspaces/${ws.id}/agents/${agent.id}/attach`
       : `/api/v1/workspaces/${ws.id}/attach`
     : "";
+
+  // Which window this terminal is showing, and why it has to be re-established.
+  //
+  // A workspace is one tmux session and an agent is a window in it. A tmux
+  // client displays the session's current window, and the attach picks it —
+  // once, as it connects. Killing a window moves the session on to another one,
+  // and every client follows, so stopping an agent silently left this terminal
+  // showing a sibling's window under the stopped agent's name: starting it
+  // again put Claude on screen somewhere nobody was looking, which is why the
+  // page had to be reloaded to see it, and a keystroke meant for one agent went
+  // to another. Measured, not guessed: typing into the panel while it showed
+  // the stopped agent's tab landed the line in the neighbouring window.
+  //
+  // So the attach is redone whenever an agent's window has been killed. It is
+  // the same thing the reload did, at the moment that makes it necessary.
+  const termKey = `${termPath}#${termGen}`;
 
   return (
     <div className="mx-auto flex h-full min-h-0 max-w-[110rem] flex-col gap-3 sm:gap-4">
@@ -535,7 +557,7 @@ export default function Workspaces() {
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 {agent ? (
                   <TermView
-                    key={termPath}
+                    key={termKey}
                     path={termPath}
                     reattaches
                     className="min-h-[14rem] flex-1"
