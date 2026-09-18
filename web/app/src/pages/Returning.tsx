@@ -73,7 +73,7 @@ export default function Returning() {
         ) : (
           <p className="text-sm text-ink-muted">
             {to.suggest
-              ? `An admin can set the session cookie domain to ${to.suggest} under Settings, Sessions.`
+              ? `An admin can set the session cookie domain to ${to.suggest} under Settings, Team, "Protect apps with Islet login".`
               : "These two names share no parent domain a cookie may be scoped to, so an Islet login cannot protect that host."}
           </p>
         )}

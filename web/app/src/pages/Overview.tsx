@@ -160,7 +160,7 @@ export default function Overview() {
                       <span className="ml-1 text-ink-faint" title={p.addresses.join("\n")}>+{p.addresses.length - 1}</span>
                     )}
                   </td>
-                  <td className="py-1.5">{p.container ? <Link to={`/containers?c=${p.container}`} className="-my-1 inline-block py-1 text-accent hover:underline">{p.container}</Link> : p.process || <span className="text-ink-faint">pid {p.pid || "?"}</span>}</td>
+                  <td className="py-1.5">{p.container ? <Link to={`/containers/${encodeURIComponent(p.container)}`} className="-my-1 inline-block py-1 text-accent hover:underline">{p.container}</Link> : p.process || <span className="text-ink-faint">pid {p.pid || "?"}</span>}</td>
                 </tr>
               ))}
               {ports.length === 0 && <tr><td colSpan={3} className="py-2 text-ink-muted">Reading sockets…</td></tr>}

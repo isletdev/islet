@@ -95,6 +95,7 @@ export default function Settings() {
 }
 
 function TwoFactor({ enabled, codesLeft, onChange }: { enabled: boolean; codesLeft: number; onChange: () => Promise<void> }) {
+  const ask = useDialog();
   const [setup, setSetup] = useState<{ secret: string; otpauthUrl: string; qr: string } | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
@@ -124,6 +125,12 @@ function TwoFactor({ enabled, codesLeft, onChange }: { enabled: boolean; codesLe
 
   async function disable(e: FormEvent) {
     e.preventDefault();
+    if (!(await ask.confirm({
+      title: "Turn off two-factor authentication?",
+      body: "From then on your password is the only thing between the internet and a panel that is root on this server. Your recovery codes stop working too, and setting it up again issues new ones.",
+      confirmLabel: "Turn it off",
+      tone: "danger",
+    }))) return;
     setError(null); setBusy(true);
     try {
       await api.totpDisable(code); setCode("");
@@ -235,6 +242,7 @@ function Sessions({ currentId }: { currentId: string }) {
 }
 
 function Tokens() {
+  const ask = useDialog();
   const [list, setList] = useState<ApiToken[]>([]);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<string[]>([]);
@@ -260,7 +268,7 @@ function Tokens() {
         {list.map((t) => (
           <li key={t.id} className="flex items-center justify-between gap-4 py-2.5 text-sm">
             <div className="min-w-0"><div className="font-medium">{t.name} <span className="ml-1 font-mono text-[11px] text-ink-muted">{t.scopes}</span></div><div className="text-xs text-ink-muted">created {new Date(t.createdAt).toLocaleDateString()}{t.lastUsedAt && ` · last used ${new Date(t.lastUsedAt).toLocaleString()}`}{t.expiresAt && ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`}</div></div>
-            <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={async () => { await api.tokenRevoke(t.id); await load(); }}>Revoke</Button>
+            <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={async () => { if (!(await ask.confirm({ title: `Revoke the token ${t.name}?`, body: "Anything using it stops working immediately — a script, a workspace agent, another server. It cannot be undone and the secret cannot be shown again, so replacing it means issuing a new one.", confirmLabel: "Revoke it", tone: "danger" }))) return; await api.tokenRevoke(t.id); await load(); }}>Revoke</Button>
           </li>
         ))}
         {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No tokens yet.</li>}

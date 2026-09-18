@@ -134,7 +134,7 @@ export default function Servers() {
               )}
               {s.status === "joining" && <Button variant="secondary" className="h-7 px-2 text-xs" onClick={() => setJoining(s)}>Watch progress</Button>}
               {s.status === "ready" && <Button variant="secondary" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void check(s)}><RefreshIcon className="h-3.5 w-3.5" />Check</Button>}
-              {isAdmin && <Button variant="danger" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void forget(s)}><TrashIcon className="h-3.5 w-3.5" />Remove</Button>}
+              {isAdmin && <Button variant="danger" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void forget(s)}><TrashIcon className="h-3.5 w-3.5" />Stop managing</Button>}
               {s.version && <span className="ml-auto font-mono text-[11px] text-ink-faint">{s.version}</span>}
             </div>
           </div>

@@ -38,11 +38,30 @@ type Check struct {
 
 // Report is the score with its checks.
 type Report struct {
-	Score      int     `json:"score"`
-	Max        int     `json:"max"`
+	Score int `json:"score"`
+	Max   int `json:"max"`
+	// Failing is how many checks are not passing, counted once, here.
+	//
+	// The dashboard counted status == "fail" and the Security page counted
+	// status != "pass", from the same report, so one click apart the product
+	// said "3 to fix" and "7 items to fix" about the same server. A warning is
+	// still something to do, so this is the second definition — and it is a
+	// field rather than something each reader works out, because two readers
+	// working it out is how they came to disagree.
+	Failing    int     `json:"failing"`
 	Checks     []Check `json:"checks,omitempty"`
 	Linux      bool    `json:"linux"`
 	ComputedAt string  `json:"computedAt"`
+}
+
+// countFailing fills in Failing. Called wherever a Report is finished.
+func (r *Report) countFailing() {
+	r.Failing = 0
+	for _, c := range r.Checks {
+		if c.Status != "pass" {
+			r.Failing++
+		}
+	}
 }
 
 // FirewallRule is one allowed port.
@@ -360,7 +379,9 @@ func (s *Service) Report(ctx context.Context) Report {
 	if max > 0 {
 		pct = score * 100 / max
 	}
-	return Report{Score: pct, Max: 100, Checks: checks, Linux: linux, ComputedAt: time.Now().UTC().Format(time.RFC3339)}
+	rep := Report{Score: pct, Max: 100, Checks: checks, Linux: linux, ComputedAt: time.Now().UTC().Format(time.RFC3339)}
+	rep.countFailing()
+	return rep
 }
 
 // ---- fixes ----

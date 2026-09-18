@@ -263,7 +263,7 @@ export interface RunnerPool { id: string; provider: string; name: string; url: s
 export interface RunnerJob { id: number; poolId: string; externalId: string; name: string; repo: string; runner: string; status: string; conclusion: string; url: string; queuedAt: string; startedAt: string; finishedAt: string }
 
 export interface SecCheck { id: string; title: string; detail: string; weight: number; status: "pass" | "fail" | "warn" | "unknown"; fix?: string; fixNote?: string }
-export interface SecReport { score: number; max: number; checks?: SecCheck[]; linux: boolean; computedAt: string }
+export interface SecReport { score: number; max: number; /** How many checks are not passing. Counted by the daemon so every page says the same number. */ failing: number; checks?: SecCheck[]; linux: boolean; computedAt: string }
 export interface FirewallRule { port: string; proto: string; from: string; comment: string; routed?: boolean }
 export interface SSHSettings { port: number; permitRootLogin: boolean; passwordAuth: boolean; pubkeyAuth: boolean; maxAuthTries: number; allowAgentForwarding: boolean; x11Forwarding: boolean; clientAliveCountMax: number }
 export interface HostAudit { at: string; suid: string[]; worldWritable: string[]; etcChanged: string[]; etcAdded: string[]; etcRemoved: string[]; baselineAt: string; rkhunter: string; rkhunterRan: boolean; notes: string[] }

@@ -29,6 +29,17 @@ var (
 // own context, because the score used to be computed from commands that were
 // killed when the first client disconnected, and the wrong number was then
 // cached for five minutes.
+// invalidateScore drops the cached score.
+//
+// Applying a fix changes the answer, and the dashboard kept showing the old one
+// for up to five minutes afterwards — so the one moment somebody wants the
+// number to move is the one moment it does not.
+func invalidateScore() {
+	scoreMu.Lock()
+	scoreAt = time.Time{}
+	scoreMu.Unlock()
+}
+
 func (s *Server) securityScore(ctx context.Context) (int, int) {
 	scoreMu.Lock()
 	fresh := time.Since(scoreAt) <= 5*time.Minute
@@ -44,16 +55,10 @@ func (s *Server) securityScore(ctx context.Context) (int, int) {
 	if cctx.Err() != nil {
 		return val, fail // timed out; keep the last good number
 	}
-	failing := 0
-	for _, c := range rep.Checks {
-		if c.Status == "fail" {
-			failing++
-		}
-	}
 	scoreMu.Lock()
-	scoreVal, scoreFail, scoreAt = rep.Score, failing, time.Now()
+	scoreVal, scoreFail, scoreAt = rep.Score, rep.Failing, time.Now()
 	scoreMu.Unlock()
-	return rep.Score, failing
+	return rep.Score, rep.Failing
 }
 
 // handleAttention aggregates what the dashboard should surface: security

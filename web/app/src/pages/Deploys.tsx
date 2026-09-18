@@ -88,6 +88,25 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
     catch (e) { setLog((p) => [...(p ?? []), `[islet] ${err(e)}`]); }
     finally { setBusy(false); await loadRel(); await onChanged(); }
   };
+  // Rolling back replaces what is serving traffic right now with an older
+  // image, in one click, from a table where the row above it is the release
+  // that is live. It is not destructive in the sense that nothing is deleted —
+  // the current release stays in the list — but it is a production change and
+  // it was the only one on this page that did not ask.
+  const rollback = async (r: Release) => {
+    const ok = await ask.confirm({
+      title: `Roll ${app.name} back to release ${r.number}?`,
+      body: (
+        <div className="space-y-2">
+          <p>The image built for release {r.number}{r.commit ? ` (${r.commit.slice(0, 7)})` : ""} starts and takes over traffic. {r.message ? <span className="text-ink-muted">“{r.message}”</span> : null}</p>
+          <p className="text-ink-muted">Nothing is deleted: the release serving now stays in this list and you can roll forward again the same way. A database migration that ran since is not undone by this.</p>
+        </div>
+      ),
+      confirmLabel: `Roll back to ${r.number}`,
+      tone: "danger",
+    });
+    if (ok) await run(`?release=${r.id}`);
+  };
   const cancel = async () => { try { await api.deployCancel(app.id); } catch (e) { setMsg(err(e)); } };
   const addService = async (engine: string) => {
     if (!(await ask.confirm({ title: `Add ${engine} to ${app.name}?`, body: "Islet installs it, creates a database, and puts the connection URL into the app's environment. The next deploy picks it up.", confirmLabel: `Add ${engine}` }))) return;
@@ -117,14 +136,14 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
           {canDeploy && <Button className="h-8 text-xs" disabled={busy || app.deploying} onClick={() => void run("")}>{busy || app.deploying ? "Deploying…" : app.currentRelease ? "Deploy latest" : "Deploy"}</Button>}
           {canDeploy && app.currentRelease > 0 && <Button variant="secondary" className="h-8 text-xs" disabled={busy || app.deploying} onClick={() => void run("?redeploy=1")}>Redeploy</Button>}
           {canDeploy && (busy || app.deploying) && <Button variant="danger" className="h-8 text-xs" onClick={() => void cancel()}>Cancel</Button>}
-          {app.container && <Link to={`/containers?c=${app.container}`} className="text-xs text-ink-muted hover:text-ink">Logs and shell</Link>}
+          {app.container && <Link to={`/containers/${encodeURIComponent(app.container)}`} className="text-xs text-ink-muted hover:text-ink">Logs and shell</Link>}
           {canEdit && <button type="button" onClick={onEdit} className="text-xs text-ink-muted hover:text-ink">Settings</button>}
           {canEdit && <span className="flex items-center gap-1 text-xs text-ink-muted">Add {(["postgres", "mysql", "redis"] as const).map((e) => <button key={e} type="button" disabled={busy || app.deploying} onClick={() => void addService(e)} className="rounded-sm border border-border-strong px-1.5 py-0.5 hover:text-ink">{e}</button>)}</span>}
           {canEdit && <button type="button" onClick={() => setShowHook(!showHook)} className="text-xs text-ink-muted hover:text-ink">Auto-deploy</button>}
           {canDeploy && app.currentRelease > 0 && app.strategy !== "compose" && targets.length > 0 && <Select value="" disabled={busy || app.deploying} onChange={(e) => { if (e.target.value) void promote(e.target.value); }} className="h-7 w-auto px-1.5 text-xs"><option value="">Promote to…</option>{targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>}
           {canEdit && <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-danger hover:underline">Delete app</button>}
         </div>
-        {(app.processList?.length ?? 0) > 0 && <p className="mt-2 text-xs text-ink-muted">Processes: web{app.processList!.map((p) => <span key={p.name}> · <Link to={`/containers?c=islet-${app.name}-${p.name}-1-r${app.currentRelease}`} className="hover:text-ink">{p.name}{p.count > 1 ? ` ×${p.count}` : ""}</Link> <span className="font-mono">{p.cmd}</span></span>)}</p>}
+        {(app.processList?.length ?? 0) > 0 && <p className="mt-2 text-xs text-ink-muted">Processes: web{app.processList!.map((p) => <span key={p.name}> · <Link to={`/containers/${encodeURIComponent(`islet-${app.name}-${p.name}-1-r${app.currentRelease}`)}`} className="hover:text-ink">{p.name}{p.count > 1 ? ` ×${p.count}` : ""}</Link> <span className="font-mono">{p.cmd}</span></span>)}</p>}
         {app.source === "upload" && canEdit && <UploadZone appId={app.id} busy={busy || app.deploying} onUploaded={(m) => { setMsg(m); void run(""); }} onError={(m) => setMsg(m)} />}
         {msg && <p className="mt-2 text-xs text-ink-muted">{msg}</p>}
         {last && !log && !open && <p className="mt-2 text-xs text-ink-muted">Last: release #{last.number} <RelStatus s={last.status} /> · {last.trigger} · {fmt(last.startedAt)}{last.durationMs > 0 && ` · ${dur(last.durationMs)}`}{last.error && <span className="text-danger"> · {last.error}</span>}</p>}
@@ -150,7 +169,7 @@ function AppDetail({ app, apps, canEdit, canDeploy, onChanged, onEdit }: { app: 
               <td className="py-1.5 pr-2 text-xs"><RelStatus s={r.status} /></td>
               <td className="py-1.5 pr-2 text-xs"><span className="font-mono">{r.commit.slice(0, 7)}</span> <span className="text-ink-muted">{r.message.slice(0, 60)}{r.author && ` · ${r.author}`}</span></td>
               <td className="py-1.5 pr-2 text-xs text-ink-muted whitespace-nowrap">{r.trigger} · {fmt(r.startedAt)}{r.durationMs > 0 && ` · ${dur(r.durationMs)}`}</td>
-              <td className="py-1.5 text-right text-xs whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{canDeploy && r.image && r.status !== "live" && r.status !== "failed" && r.status !== "cancelled" && <button type="button" disabled={busy || app.deploying} onClick={() => void run(`?release=${r.id}`)} className="text-ink-muted hover:text-ink">Roll back</button>}</td>
+              <td className="py-1.5 text-right text-xs whitespace-nowrap" onClick={(e) => e.stopPropagation()}>{canDeploy && r.image && r.status !== "live" && r.status !== "failed" && r.status !== "cancelled" && <button type="button" disabled={busy || app.deploying} onClick={() => void rollback(r)} className="text-ink-muted hover:text-ink">Roll back</button>}</td>
             </tr>
           ))}
           {releases.length === 0 && <tr><td className="py-2 text-ink-muted">Nothing deployed yet. Press Deploy: Islet clones, detects, builds, health-checks and routes; each attempt lands here with its log.</td></tr>}

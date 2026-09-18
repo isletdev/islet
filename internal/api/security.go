@@ -38,6 +38,7 @@ func (s *Server) handleSecurityFix(w http.ResponseWriter, r *http.Request) {
 	}
 	u := userFrom(r.Context())
 	out, err := s.security.Fix(r.Context(), u.Username, r.PathValue("id"), clientIP(r))
+	invalidateScore()
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "fix_failed", Message: err.Error() + "\n" + out})
 		return
@@ -49,7 +50,9 @@ func (s *Server) handleSecurityFixAll(w http.ResponseWriter, r *http.Request) {
 	if !s.adminOnly(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, s.security.FixAll(r.Context(), userFrom(r.Context()).Username, clientIP(r)))
+	res := s.security.FixAll(r.Context(), userFrom(r.Context()).Username, clientIP(r))
+	invalidateScore()
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleFirewallRule(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,7 @@ import { pollInterval } from "@/lib/poll";
 import { api, RequestError, type Container, type Domain, type DomainLocation, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
-import { useDialog } from "@/lib/dialogs";
+import { failure, useDialog } from "@/lib/dialogs";
 import { DownloadIcon, PlusIcon, RefreshIcon, RenameIcon, TrashIcon } from "@/components/icons";
 
 const EMPTY: Domain = { id: "", host: "", targetType: "container", target: "", port: 80, pathPrefix: "", tls: "letsencrypt", redirectWww: false, basicAuth: "", ipAllowlist: "", rateLimit: 0, headers: "", maintenance: false, protect: false, protectUsers: "", enabled: true, passHost: true, blockExploits: false, locations: [], createdAt: "", updatedAt: "" };
@@ -95,7 +95,7 @@ function protectWarning(host: string, cookieDom: string, tls: Domain["tls"] = "l
     return `${h} is served over plain HTTP, and the cookie that proves a visitor is signed in is marked Secure, so a browser will never send it to an http:// address. The gate would never see a signed-in visitor and the login would loop. Give this host a certificate first.`;
   }
   if (!cookieDom) {
-    return `This needs a session cookie domain, and none is set. Without one there is no cookie a browser would send to ${h}, so it can never tell that a visitor is signed in and the login will loop. Set one under Settings, Sessions.`;
+    return `This needs a session cookie domain, and none is set. Without one there is no cookie a browser would send to ${h}, so it can never tell that a visitor is signed in and the login will loop. Set one under Settings, Team, "Protect apps with Islet login".`;
   }
   if (h === cookieDom || h.endsWith("." + cookieDom)) return "";
   return `${h} is not under ${cookieDom}, which is what the session cookie is scoped to, so a browser will never send it there and the login will loop. An Islet login can only protect names under ${cookieDom} — for ${h} you would need a panel on a name under ${h} instead.`;
@@ -289,6 +289,28 @@ export default function Domains() {
   // render on a page nobody is interacting with.
   useEffect(() => pollInterval(() => setNow(Date.now()), 60000), []);
 
+  // Removing the proxy takes every site on this server offline at once. It was
+  // one click with no dialog, on a page where removing a single domain asks —
+  // the guarding was inverted, and this is the control that can do the most.
+  const removeProxy = async () => {
+    const n = domains.filter((d) => d.enabled).length;
+    const ok = await ask.confirm({
+      title: "Remove the proxy?",
+      body: (
+        <div className="space-y-2">
+          <p>{n === 0 ? "Nothing is routed through it yet." : `${n} ${n === 1 ? "site stops" : "sites stop"} answering the moment it goes: ports 80 and 443 belong to the proxy, and nothing else is listening on them.`}</p>
+          <p className="text-ink-muted">The domains you have configured are kept, and installing the proxy again brings them back. Certificates are kept too, so nothing has to be issued a second time.</p>
+        </div>
+      ),
+      typeToConfirm: "REMOVE",
+      confirmLabel: "Remove the proxy",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try { await api.proxyRemove(); } catch (e) { void ask.alert({ title: "Could not remove the proxy", body: failure(e), tone: "danger" }); }
+    await load();
+  };
+
   const checkDns = async (d: Domain) => {
     try { const r = await api.domainDns(d.id); setDns((m) => ({ ...m, [d.id]: r })); } catch { /* ignore */ }
   };
@@ -410,7 +432,7 @@ export default function Domains() {
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {isAdmin && <Button onClick={() => void install()} disabled={busy}>{status?.installed ? "Apply" : "Install the proxy"}</Button>}
               {settings && <Button variant="secondary" onClick={() => setSettings(false)}>Cancel</Button>}
-              {isAdmin && status?.installed && <Button variant="danger" className="ml-auto" onClick={() => api.proxyRemove().then(load)}>Remove the proxy</Button>}
+              {isAdmin && status?.installed && <Button variant="danger" className="ml-auto" onClick={() => void removeProxy()}>Remove the proxy</Button>}
               {msg && <span className="text-sm text-ink-muted">{msg}</span>}
             </div>
             <p className="mt-3 text-xs text-ink-muted">

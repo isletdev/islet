@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, RequestError, type Blocklist, type HostAudit, type SecurityState, type SSHSettings } from "@/lib/api";
+import { api, RequestError, type Blocklist, type HostAudit, type SecCheck, type SecurityState, type SSHSettings } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
 import { streamLines } from "@/lib/stream";
@@ -24,10 +24,46 @@ export default function Security() {
   // Two checks can share one fix (ssh-root and ssh-password are both
   // ssh-harden; firewall and firewall-docker are both firewall), so the
   // spinner is keyed to the row pressed, not to the fix it runs.
+  // Fix everything safe applies root-level changes across the host — package
+  // installs, firewall rules, sshd settings — and did it on one click, with a
+  // try/finally that had no catch, so a rejection surfaced nowhere at all.
+  const fixAll = async (items: SecCheck[]) => {
+    const names = items.filter((c) => c.fix && c.fix !== "ssh-harden" && c.fix !== "apt-upgrade").map((c) => c.title);
+    const ok = await ask.confirm({
+      title: `Apply ${names.length} ${names.length === 1 ? "fix" : "fixes"} to this server?`,
+      body: (
+        <div className="space-y-2">
+          <p>Each one changes the host as root — installing packages, writing firewall rules, editing configuration:</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-ink-muted">{names.map((n) => <li key={n}>{n}</li>)}</ul>
+          <p className="text-ink-muted">Changing SSH and installing pending updates are not included; those are applied one at a time, on purpose.</p>
+        </div>
+      ),
+      confirmLabel: "Apply them",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setBusy("all"); setOut(null);
+    try {
+      const res = await api.securityFixAll();
+      const titles = new Map(items.map((c) => [c.fix, c.title]));
+      const done = res.filter((x) => !x.error).length;
+      setOut({
+        title: done === res.length ? `Applied ${done} ${done === 1 ? "fix" : "fixes"}` : `Applied ${done} of ${res.length}; the rest did not work`,
+        text: res.map((x) => `${titles.get(x.fix) ?? x.fix}: ${x.error ? "failed — " + x.error : x.status}`).join("\n"),
+      });
+      await load();
+    } catch (e) {
+      setOut({ title: "Could not apply the fixes", text: err(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const fix = async (id: string, key?: string) => {
     setBusy(key ?? id); setOut(null);
-    try { const r = await api.securityFix(id); setOut({ title: `Applied ${id}`, text: r.output || "done" }); await load(); }
-    catch (e) { setOut({ title: `${id} failed`, text: err(e) }); }
+    const title = s?.report.checks?.find((c) => c.id === id)?.title ?? id;
+    try { const r = await api.securityFix(id); setOut({ title: `Fixed: ${title}`, text: r.output || "Done. Nothing else to do for this one." }); await load(); }
+    catch (e) { setOut({ title: `Could not fix: ${title}`, text: err(e) }); }
     finally { setBusy(null); }
   };
   // The SSH fix in the checks list arms a five-minute rollback, and the banner
@@ -57,6 +93,9 @@ export default function Security() {
   const r = s.report;
   const tone = r.score >= 90 ? "text-success" : r.score >= 60 ? "text-warning" : "text-danger";
   const checks = r.checks ?? [];
+  // The list is still needed to render them; the count comes from the daemon,
+  // because two pages counting this themselves is how the dashboard and this
+  // page came to disagree about the same server.
   const failing = checks.filter((c) => c.status !== "pass");
 
   return (
@@ -67,7 +106,7 @@ export default function Security() {
           <p className="mt-1 text-ink-muted">{r.linux ? "Ten minutes of one-click fixes take a fresh server to 90." : "Host checks need a Linux server; panel checks are shown."}</p>
         </div>
         <div className="flex gap-2">
-          {isAdmin && r.linux && failing.some((c) => c.fix && c.fix !== "ssh-harden" && c.fix !== "apt-upgrade") && <Button className="h-8 text-xs" disabled={busy !== null} onClick={async () => { setBusy("all"); setOut(null); try { const res = await api.securityFixAll(); setOut({ title: "Ran all safe fixes", text: res.map((x) => `${x.fix}: ${x.status}${x.error ? " (" + x.error + ")" : ""}`).join("\n") }); await load(); } finally { setBusy(null); } }}>{busy === "all" ? "Fixing…" : "Fix everything safe"}</Button>}
+          {isAdmin && r.linux && failing.some((c) => c.fix && c.fix !== "ssh-harden" && c.fix !== "apt-upgrade") && <Button className="h-8 text-xs" disabled={busy !== null} onClick={() => void fixAll(failing)}>{busy === "all" ? "Fixing…" : "Fix everything safe"}</Button>}
           {isAdmin && r.linux && <Button variant="danger" className="h-8 text-xs" disabled={busy !== null} onClick={() => void panic()}>Panic button</Button>}
         </div>
       </div>
@@ -86,7 +125,7 @@ export default function Security() {
           <div className="text-center">
             <div className={`font-mono text-6xl font-semibold tabular-nums ${tone}`}>{r.score}</div>
             <div className="mt-1 text-sm text-ink-muted">Security Score out of {r.max}</div>
-            <div className="mt-3 text-xs text-ink-muted">{failing.length === 0 ? "Everything checked passes." : `${failing.length} item${failing.length === 1 ? "" : "s"} to fix`}</div>
+            <div className="mt-3 text-xs text-ink-muted">{r.failing === 0 ? "Everything checked passes." : `${r.failing} item${r.failing === 1 ? "" : "s"} to fix`}</div>
           </div>
         </Card>
         <Card title="Checks" description="Weighted. Fixes run as root on this server and are recorded in the audit log.">
@@ -345,7 +384,14 @@ function FirewallCard({ s, isAdmin, onChanged, onFix, onFixRoutes, busy }: { s: 
 function PanelRestrict({ cidr, onChanged }: { cidr: string; onChanged: () => Promise<void> }) {
   const ask = useDialog();
   const [v, setV] = useState(cidr); const [msg, setMsg] = useState<string | null>(null);
-  const apply = async (c: string) => { if (c && !(await ask.confirm({ title: `Reach the panel only from ${c}?`, body: "Connect through that range first and check it works. Your current address is kept as a fallback, but if it changes, SSH is the way back.", confirmLabel: "Restrict the panel", tone: "danger" }))) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
+  // Both directions ask. Only tightening did, so turning the restriction off —
+  // putting a panel that is root on this server back on the open internet —
+  // was the one click on this card that nothing questioned.
+  const apply = async (c: string) => {
+    const ok = c
+      ? await ask.confirm({ title: `Reach the panel only from ${c}?`, body: "Connect through that range first and check it works. Your current address is kept as a fallback, but if it changes, SSH is the way back.", confirmLabel: "Restrict the panel", tone: "danger" })
+      : await ask.confirm({ title: "Let the panel be reached from anywhere?", body: "The restriction is removed and the panel answers any address that can reach this server, which for a machine on the internet means the internet. Your password and second factor are then the only thing in front of it.", confirmLabel: "Remove the restriction", tone: "danger" });
+    if (!ok) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
   return (
     <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
       <Field label="Panel only via VPN" hint="CIDR of your VPN: 10.8.0.0/24 for wg-easy, 100.64.0.0/10 for Tailscale."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>
