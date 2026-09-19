@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- maximum-scale=1 stops iOS Safari zooming the page in when a field is
+         focused, which it does to any control whose text is under 16px and
+         which then stays zoomed until it is pinched back out. The cost is
+         real and is accepted deliberately: it also suppresses deliberate
+         pinch-zoom on the versions of Safari that honour it. The other way —
+         16px form text on phones — was weighed and not taken, because it
+         grows every dense screen in the panel. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#0A0A0A" />
     <title>Islet</title>

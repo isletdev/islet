@@ -262,9 +262,19 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
                 <option value="s3">S3-compatible</option>
               </Select>
             </Field>
-            <Field label="Public base URL" hint="A CDN or custom domain. Optional.">
-              <Input value={form.publicBase ?? ""} onChange={(e) => setForm({ ...form, publicBase: e.target.value })} placeholder="https://cdn.example.com" className="font-mono" />
-            </Field>
+            {/* Only for a bucket that is already reachable somewhere else. On
+                a bucket held here there is no second address to send anyone
+                to, so the field is not offered rather than offered and
+                refused. */}
+            {form.driver === "s3" ? (
+              <Field label="Public base URL" hint="Where this bucket is already public — an R2 custom domain, a CDN in front of S3. Optional.">
+                <Input value={form.publicBase ?? ""} onChange={(e) => setForm({ ...form, publicBase: e.target.value })} placeholder="https://cdn.example.com" className="font-mono" />
+              </Field>
+            ) : (
+              <Field label="Served by" hint="Islet serves these objects itself. To put a CDN in front, point it at the media hostname above.">
+                <Input value="this server" disabled readOnly />
+              </Field>
+            )}
           </div>
           {form.driver === "s3" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

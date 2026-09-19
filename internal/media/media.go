@@ -240,6 +240,16 @@ func (s *Service) SaveBucket(ctx context.Context, actor string, b *Bucket, secre
 			}
 		}
 	}
+	// A public base is "the bucket is already reachable at this address, send
+	// people there instead of through Islet" — an R2 custom domain, a CDN in
+	// front of S3. A bucket on this server has no such second address: Islet is
+	// the origin, and the objects live at /v1/objects/<id> rather than at the
+	// key path this would redirect to. Setting it does not make a domain
+	// appear; it makes every public object redirect to a host that answers
+	// nothing, which is worse than refusing it here.
+	if b.Driver == "local" && strings.TrimSpace(b.PublicBase) != "" {
+		return nil, errors.New("a bucket on this server is served by Islet itself, so it has no public base URL of its own — leave it empty, and put a CDN in front of the media service's own hostname instead")
+	}
 	cfg, _ := json.Marshal(b.Config)
 	sealed := ""
 	if secret != "" {
