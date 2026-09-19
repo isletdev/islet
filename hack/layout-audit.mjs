@@ -84,6 +84,34 @@ const PROBE = `(() => {
       if (!scrollable) out.push({ kind: "spills-past-viewport", by: Math.round(r.right - document.documentElement.clientWidth), el: label(el) });
     }
 
+    // Content cut off by a box that hides what does not fit.
+    //
+    // The check above only sees what passes the edge of the *window*. A card
+    // narrower than the window clips its own overflow instead, and then
+    // nothing scrolls and nothing spills: the text is simply not there. That
+    // is how a backup destination's repository — one unbreakable
+    // sixty-six-character word — ran a hundred pixels past its card on a phone
+    // and took the end of the line below it with it, with this audit reporting
+    // the page clean.
+    // Two kinds of clipping are on purpose and are not reported. Truncation
+    // with an ellipsis is a design saying "this is as much as fits"; and a box
+    // that scrolls sideways is a design saying "there is more, drag for it".
+    // Only the third kind is a fault: content cut off with no ellipsis to
+    // admit it and no way to reach it.
+    if (el.children.length === 0 && (el.textContent || "").trim().length > 0 && cs.textOverflow !== "ellipsis") {
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const ps = getComputedStyle(p);
+        if (ps.textOverflow === "ellipsis") break;
+        if (deliberateX(p, ps) && p.scrollWidth > p.clientWidth) break;
+        const clips = ps.overflowX === "hidden" || ps.overflowX === "clip";
+        if (!clips) continue;
+        const pr = p.getBoundingClientRect();
+        const over = Math.round(r.right - (pr.left + p.clientWidth));
+        if (over > 1) out.push({ kind: "clipped-by-container", by: over, el: label(el) });
+        break;
+      }
+    }
+
     // Interactive targets smaller than a fingertip.
     if ((el.tagName === "BUTTON" || el.tagName === "A" || el.tagName === "SELECT" || el.tagName === "INPUT") && cs.pointerEvents !== "none") {
       if (r.height > 0 && r.height < 20 && (el.textContent || "").trim().length > 0) {
