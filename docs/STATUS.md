@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `dd20431`, tagged `v0.28.0`, 2026-09-19. 214 commits, 87 tags, CI green on `main`.
+**Head:** `ad8a3a2`, tagged `v0.28.1`, 2026-09-19. 216 commits, 88 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.28.0
+## Shipped since the plan ran out — v0.6.0 to v0.28.1
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -101,6 +101,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.27.1 | `3e01cdc` | **Installing the converters worked and reported that it had failed.** The panel reads two stream shapes and nothing checked that a handler writes the one its caller reads: `postStream` parses server-sent events, this endpoint wrote newline-delimited JSON, so the parser saw a stream end without its end event and threw — with the converters visibly installed underneath the error. It emits SSE now, streams the build while it happens rather than summarising it afterwards, and a test reads the panel for which paths expect SSE and the daemon for which handlers write NDJSON and fails when one is the other |
 | v0.27.2 | `594ffed` | **A media hostname that nothing routes now says so.** Naming one tells Islet to answer on it; it does not tell the proxy the host exists, so every request got Traefik's own 404 while the daemon answered perfectly well on the panel's host — found on a real server with the service enabled and a hostname set. The page now reports whether a domain for that host points at the panel, beside the link to where it is added |
 | v0.28.0 | `dd20431` | **Naming a media hostname adds the domain for it.** It used to tell Islet to answer on the host and leave adding the domain — the half that makes the proxy aware the host exists — to be done by hand somewhere else, which produced a service reporting itself as answering while every request got the proxy's 404. It is created pointed at the panel with a certificate, saving twice changes nothing, and a hostname already serving an application is refused by name rather than taken over — before the settings are written, so a refused save keeps none of itself. The DNS record is the one part left to a person, which is the one part Islet cannot make |
+| v0.28.1 | `ad8a3a2` | **The assistant stopped losing what it had already said.** Pressing Stop deleted the answer, because the provider returned its error and nothing else; it hands back what it had written now and the transcript keeps it. A crashed Claude Code wedged the conversation for thirty minutes — its MCP child inherits the pipe the answer is read from, so killing the parent left the read waiting for an end-of-file that never came, with every new question refused as "still working"; it runs in a process group now, and once the process is gone the read is unblocked from this side. And the answer used to arrive all at once: `--include-partial-messages` streams it a few tokens at a time, first words in three seconds rather than eight |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
