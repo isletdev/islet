@@ -4,9 +4,9 @@ import { api, assistantUpload, RequestError, type AIProvider, type AssistantAtta
 import { getNDJSON, postNDJSON } from "@/lib/stream";
 import { useDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/auth";
-import { Alert, Button, Input, Select } from "@/components/ui";
+import { Alert, Button, Select } from "@/components/ui";
 import Markdown from "@/components/Markdown";
-import { ArchiveFileIcon, CloseIcon, FileIcon, ImageFileIcon, MicIcon, PaperclipIcon, VideoFileIcon } from "@/components/icons";
+import { ArchiveFileIcon, CloseIcon, CopyIcon, FileIcon, ImageFileIcon, MicIcon, PaperclipIcon, VideoFileIcon } from "@/components/icons";
 
 function err(e: unknown) {
   if (e instanceof RequestError) return e.message;
@@ -137,11 +137,15 @@ export default function Assistant() {
   const recog = useRef<Recognizer | null>(null);
   const [canDictate] = useState(() => newRecognizer() !== null);
   const [running, setRunning] = useState(false);
+  // Between asking the daemon to stop and its closing line arriving. Short, and
+  // worth saying: a Stop button that stays lit reads as one that did nothing.
+  const [stopping, setStopping] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const foot = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const abort = useRef<AbortController | null>(null);
   const runId = useRef<string | null>(null);
   const openChat = useRef<string | null>(null);
@@ -199,6 +203,19 @@ export default function Assistant() {
     foot.current?.scrollIntoView({ behavior: running ? "auto" : "smooth", block: "end" });
   }, [msgs, activity, running]);
 
+  // The box grows with what is in it, up to the height the CSS allows and no
+  // further. Reset to nothing first, or it can only ever get taller.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "0px";
+    // Plus the borders. scrollHeight is content and padding; the box is sized
+    // border-box, so setting it to scrollHeight leaves the box two pixels
+    // short of its own content and the textarea scrolls by exactly that —
+    // which the layout audit notices and a person feels as a jitter.
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [text]);
+
   const handle = useCallback((ev: AssistantEvent) => {
     switch (ev.type) {
       case "start":
@@ -242,6 +259,7 @@ export default function Assistant() {
         break;
       case "done":
         settled.current = true;
+        setStopping(false);
         setMsgs(ev.messages);
         setActivity([]);
         setRunning(false);
@@ -253,6 +271,7 @@ export default function Assistant() {
         // neither is somebody pressing Stop: that is a thing they did, and
         // answering it with a red banner reads as though it went wrong.
         settled.current = true;
+        setStopping(false);
         if (ev.messages?.length) setMsgs(ev.messages);
         if (!ev.stopped) setError(ev.message);
         setActivity([]);
@@ -487,6 +506,17 @@ export default function Assistant() {
   };
   useEffect(() => () => recog.current?.stop(), []);
 
+  // ask1 sends one question without the composer, for the buttons that offer
+  // a sensible next thing to say.
+  const ask1 = async (q: string) => {
+    if (running) return;
+    setMsgs((m) => [...m, { role: "user", text: q }]);
+    setActivity([]);
+    await follow((onEvent, signal) =>
+      postNDJSON<AssistantEvent>("/api/v1/assistant/chat", onEvent,
+        { chatId: chatId ?? undefined, text: q, providerId: chatId ? undefined : (provider || undefined) }, signal));
+  };
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const q = text.trim();
@@ -528,13 +558,31 @@ export default function Assistant() {
     setProvider("");
   };
 
+  // Stopping asks the daemon to stop and then keeps listening.
+  //
+  // It used to hang up immediately, which threw away the one event that
+  // matters: the daemon's closing line carries the turn it managed to write,
+  // and without it the half-finished answer stayed on screen as a loose block
+  // that was not part of the conversation — no copy button, nothing to
+  // continue from, and gone on the next click. The text was in the database
+  // the whole time; the page had simply stopped listening a moment too early.
+  //
+  // The fallback is there because a daemon that has gone away will not send
+  // anything: after a few seconds, hang up and read the conversation back.
   const stop = async () => {
     window.clearTimeout(retry.current);
     const id = runId.current;
+    setStopping(true);
     if (id) { try { await api.assistantRunCancel(id); } catch { /* it may have just finished */ } }
-    abort.current?.abort();
-    abort.current = null;
-    setRunning(false);
+    window.setTimeout(() => {
+      if (!settled.current) {
+        abort.current?.abort();
+        abort.current = null;
+        setRunning(false);
+        void resume();
+      }
+      setStopping(false);
+    }, 4000);
   };
 
   const remove = async (c: AssistantChat) => {
@@ -676,6 +724,13 @@ export default function Assistant() {
               </div>
             )}
             <Transcript msgs={msgs} />
+            {/* What to do about an answer that ended early, offered where it
+                ended rather than left to be retyped. Which one it is depends
+                on whether there is anything to carry on from: a stopped answer
+                is continued, a question that never got one is asked again. */}
+            {!running && msgs.length > 0 && !activity.length && (
+              <Resume last={msgs[msgs.length - 1]} onPick={(q) => void ask1(q)} />
+            )}
             {activity.length > 0 && <Working items={activity} />}
             {running && activity.length === 0 && (
               <p className="text-sm text-ink-muted">{reconnecting ? "Picking up where it got to…" : "Thinking…"}</p>
@@ -701,7 +756,7 @@ export default function Assistant() {
             </p>
           )}
 
-          <form onSubmit={send} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+          <form onSubmit={send} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2">
             <input
               ref={picker}
               type="file"
@@ -719,15 +774,29 @@ export default function Assistant() {
             >
               <PaperclipIcon className="h-4 w-4" />
             </button>
-            <Input
+            {/* A box that grows, not a one-line field.
+                A question worth asking a server is often three sentences, and
+                a single line hides all but the last of them while it is being
+                written. Enter sends, because that is what every chat does;
+                Shift+Enter is the newline, for the same reason. */}
+            <textarea
+              ref={box}
               value={text}
+              rows={1}
               onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void send(e as unknown as FormEvent);
+                }
+              }}
               // A screenshot pasted in is the fastest way there is to show
               // something, and every other box that takes files takes it.
               onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }}
               placeholder={ready ? (pending.length ? "Say what to do with these…" : "Ask for something, or drop in a file…") : "Configure an assistant first"}
               disabled={!ready || running}
               aria-label="Ask the assistant"
+              className="max-h-48 min-h-9 w-full resize-none rounded-md border border-border bg-bg px-3 py-2 text-sm leading-6 outline-none placeholder:text-ink-faint focus:border-border-strong disabled:opacity-60"
             />
             <div className="flex items-center gap-2">
               {canDictate && (
@@ -744,7 +813,9 @@ export default function Assistant() {
                 </button>
               )}
               {running ? (
-                <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void stop()}>Stop</Button>
+                <Button type="button" variant="secondary" className="h-9 text-xs" disabled={stopping} onClick={() => void stop()}>
+                  {stopping ? "Stopping…" : "Stop"}
+                </Button>
               ) : (
                 <Button type="submit" className="h-9 text-xs" disabled={!ready || uploading || (!text.trim() && attached.length === 0)}>
                   {uploading ? "Uploading…" : "Ask"}
@@ -807,6 +878,35 @@ function PendingFile({ file, onRemove }: { file: Pending; onRemove: () => void }
         </span>
       )}
     </li>
+  );
+}
+
+/**
+ * The next thing to say, when an answer ended before it was finished.
+ *
+ * A stopped or failed answer used to leave the person to work out what to type.
+ * Both cases have one obvious next move, and it is different in each: an answer
+ * that got halfway is continued, a question that never got one is asked again.
+ */
+function Resume({ last, onPick }: { last: AssistantMessage; onPick: (q: string) => void }) {
+  const stopped = last.role === "assistant" && Boolean(last.text?.trim());
+  const unanswered = last.role === "user";
+  if (!stopped && !unanswered) return null;
+  return (
+    <div className="flex flex-wrap gap-2 pt-1">
+      {stopped && (
+        <button type="button" onClick={() => onPick("Continue from where you stopped.")}
+          className="-my-1 rounded-md border border-border px-2.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
+          Continue
+        </button>
+      )}
+      {unanswered && (
+        <button type="button" onClick={() => onPick(last.text ?? "")}
+          className="-my-1 rounded-md border border-border px-2.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
+          Ask again
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -893,7 +993,7 @@ function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResu
   }
   const results = m.results ?? answers;
   return (
-    <div className="space-y-1.5">
+    <div className="group/turn space-y-1.5">
       {/* What this turn did, for a provider that ran its own loop. It comes
           before the prose because that is the order it happened in. */}
       {m.tools?.length ? (
@@ -901,7 +1001,22 @@ function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResu
           {m.tools.map((t, i) => <ToolLine key={i} name={t.name} input={t.input} ok={t.ok} ms={t.ms} output={t.output} />)}
         </ul>
       ) : null}
-      {m.text && <Markdown text={m.text} className="max-w-[90%] text-sm leading-relaxed" />}
+      {m.text && (
+        <div className="relative max-w-[90%]">
+          <Markdown text={m.text} className="text-sm leading-relaxed" />
+          {/* Every chatbot has this and people reach for it without looking.
+              Shown on hover so it is not a button beside every paragraph. */}
+          <button
+            type="button"
+            aria-label="Copy this answer"
+            title="Copy this answer"
+            onClick={() => void navigator.clipboard.writeText(m.text ?? "")}
+            className="absolute -top-1 right-0 rounded-md p-1 text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus:opacity-100 group-hover/turn:opacity-100"
+          >
+            <CopyIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {m.calls?.length ? (
         <ul className="space-y-1">
           {m.calls.map((c) => {
