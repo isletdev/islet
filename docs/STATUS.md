@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `3e01cdc`, x, 85 tags, CI green on `main`.
+**Head:** `594ffed`, tagged `v0.27.2`, 2026-09-19. 212 commits, 86 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
