@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `ad8a3a2`, tagged `v0.28.1`, 2026-09-19. 216 commits, 88 tags, CI green on `main`.
+**Head:** `9c5250f`, tagged `v0.29.0`, 2026-09-19. 219 commits, 89 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.28.1
+## Shipped since the plan ran out — v0.6.0 to v0.29.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -102,6 +102,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.27.2 | `594ffed` | **A media hostname that nothing routes now says so.** Naming one tells Islet to answer on it; it does not tell the proxy the host exists, so every request got Traefik's own 404 while the daemon answered perfectly well on the panel's host — found on a real server with the service enabled and a hostname set. The page now reports whether a domain for that host points at the panel, beside the link to where it is added |
 | v0.28.0 | `dd20431` | **Naming a media hostname adds the domain for it.** It used to tell Islet to answer on the host and leave adding the domain — the half that makes the proxy aware the host exists — to be done by hand somewhere else, which produced a service reporting itself as answering while every request got the proxy's 404. It is created pointed at the panel with a certificate, saving twice changes nothing, and a hostname already serving an application is refused by name rather than taken over — before the settings are written, so a refused save keeps none of itself. The DNS record is the one part left to a person, which is the one part Islet cannot make |
 | v0.28.1 | `ad8a3a2` | **The assistant stopped losing what it had already said.** Pressing Stop deleted the answer, because the provider returned its error and nothing else; it hands back what it had written now and the transcript keeps it. A crashed Claude Code wedged the conversation for thirty minutes — its MCP child inherits the pipe the answer is read from, so killing the parent left the read waiting for an end-of-file that never came, with every new question refused as "still working"; it runs in a process group now, and once the process is gone the read is unblocked from this side. And the answer used to arrive all at once: `--include-partial-messages` streams it a few tokens at a time, first words in three seconds rather than eight |
+| v0.29.0 | `9c5250f` | **The assistant had no tools on any server, and now has them.** The subscription provider is Claude Code, which calls tools over HTTP for itself, so the only way to give it Islet's tools is an MCP configuration — and that was a field for an operator to fill in by hand, with no screen for it and no reason to know it existed. Worse than empty: without `--mcp-config` there is no `--strict-mcp-config`, so it fell back to whatever MCP servers the root account had. The daemon writes the file itself now, per run, with a token it mints and revokes, scoped to everything except shell, security, vault and cron. Asked what is running, it calls `list_containers` and answers with real names in eleven seconds. Also: a chat window that behaves like one — a box that grows, Enter to send, Stop that waits for the closing turn instead of hanging up on it, Continue and Ask again where an answer ended early, and copy on an answer |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
