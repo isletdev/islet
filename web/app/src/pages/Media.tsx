@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   api, RequestError,
   type MediaBucket, type MediaKey, type MediaObject, type MediaOverview, type MediaPreset,
@@ -105,6 +106,17 @@ export default function Media() {
             Answering at <code className="font-mono text-ink">{base}</code>
             {!s.host && " — set a hostname above and point a domain at this panel to give browsers an origin of their own."}
           </p>
+        )}
+        {/* Naming a host here tells Islet to answer on it. It does not tell the
+            proxy the host exists, and a request for one it has never heard of
+            gets the proxy's own 404 — which reads exactly like a broken service
+            and is really a domain nobody added. */}
+        {s.enabled && s.host && !over.hostRouted && (
+          <Alert tone="warning">
+            Nothing routes <code className="font-mono">{s.host}</code> here yet, so requests to it get the proxy's 404.
+            Add it under <Link to="/domains" className="-my-1 inline-block py-1 underline">Domains</Link>, pointed at the panel, and give its DNS
+            an A record for this server.
+          </Alert>
         )}
       </Card>
 

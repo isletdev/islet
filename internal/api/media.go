@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,13 +51,39 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	buckets, _ := s.media.Buckets(r.Context())
 	usage, _ := s.media.Usage(r.Context())
+	set := s.media.Settings(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"settings": s.media.Settings(r.Context()),
+		"settings": set,
 		"tools":    s.media.WorkerStatus(r.Context()),
 		"buckets":  len(buckets),
 		"usage":    usage,
 		"maxBytes": media.DefaultMaxBytes,
+		// Whether the hostname somebody typed actually reaches this daemon.
+		// Naming a host here tells Islet to answer on it; it does not tell the
+		// proxy the host exists, and a request for one it has never heard of
+		// gets Traefik's own 404 — which reads exactly like a broken service
+		// and is really a domain nobody added.
+		"hostRouted": s.mediaHostRouted(r.Context(), set.Host),
 	})
+}
+
+// mediaHostRouted reports whether a domain for this host points at the panel,
+// which is what puts it in front of the daemon.
+func (s *Server) mediaHostRouted(ctx context.Context, host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || s.proxy == nil {
+		return false
+	}
+	list, err := s.proxy.Domains(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range list {
+		if strings.EqualFold(d.Host, host) && d.Enabled && d.TargetType == "panel" {
+			return true
+		}
+	}
+	return false
 }
 
 // handleMediaWorker installs or removes the converters. Streamed, because

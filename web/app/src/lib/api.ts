@@ -237,7 +237,12 @@ export interface Upload {
 export interface MediaSettings { enabled: boolean; host: string; transforms: number; maxBytes: number }
 export interface MediaTools { running: boolean; image: string; vips?: string; ffmpeg?: string; poppler?: string }
 export interface MediaUsage { namespace: string; objects: number; bytes: number }
-export interface MediaOverview { settings: MediaSettings; tools: MediaTools; buckets: number; usage: MediaUsage[]; maxBytes: number }
+export interface MediaOverview {
+  settings: MediaSettings; tools: MediaTools; buckets: number; usage: MediaUsage[]; maxBytes: number;
+  /** Whether a domain for `settings.host` points at this panel. Naming a host
+      tells Islet to answer on it; it does not tell the proxy the host exists. */
+  hostRouted: boolean;
+}
 export interface MediaBucket {
   id: string; name: string; driver: "local" | "s3";
   config: Record<string, string> | null;
