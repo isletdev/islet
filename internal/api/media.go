@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -78,22 +79,31 @@ func (s *Server) handleMediaWorker(w http.ResponseWriter, r *http.Request) {
 		s.failed(w, "media", errors.New("this connection cannot stream"))
 		return
 	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	// no-transform because a compressor in front of this would buffer it, and
-	// the whole point of streaming a build is that it arrives while it happens.
-	w.Header().Set("Cache-Control", "no-store, no-transform")
+	// Server-sent events, like every other streamed install in this panel.
+	//
+	// It was newline-delimited JSON, which the panel's postStream does not
+	// read: it looks for SSE events, found none, and threw "the connection
+	// closed before the command finished" — after a build that had in fact
+	// worked. An install that succeeds and reports failure is worse than one
+	// that fails, because the next thing somebody does is run it again.
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache, no-transform")
+	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	line := func(text string) {
-		writeLine(w, map[string]string{"line": text})
+		b, err := json.Marshal(text)
+		if err != nil {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "event: line\ndata: %s\n\n", b)
 		fl.Flush()
 	}
-	if err := s.media.InstallWorker(r.Context(), actor, line); err != nil {
-		writeLine(w, map[string]any{"error": err.Error()})
-		fl.Flush()
-		return
+	err := s.media.InstallWorker(r.Context(), actor, line)
+	if r.Context().Err() != nil {
+		err = nil // the client left; the build was not what failed
 	}
-	writeLine(w, map[string]any{"ok": true})
-	fl.Flush()
+	endEvent(w, fl, err)
 }
 
 func (s *Server) handleMediaBuckets(w http.ResponseWriter, r *http.Request) {
@@ -282,16 +292,6 @@ func nextFilePart(mr *multipart.Reader) (*multipart.Part, error) {
 		}
 		part.Close()
 	}
-}
-
-// writeLine is one NDJSON line. The install stream is a few lines over several
-// minutes, so nothing is buffered on the way out.
-func writeLine(w http.ResponseWriter, v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return
-	}
-	_, _ = w.Write(append(b, '\n'))
 }
 
 func atoiDefault(s string, d int) int {

@@ -1,6 +1,7 @@
 package media
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -90,7 +91,20 @@ func (s *Service) InstallWorker(ctx context.Context, actor string, line func(str
 		return err
 	}
 	line("building " + WorkerImage + " — this takes a few minutes the first time")
-	if _, err := s.cmds.Run(ctx, actor, "docker", "build", "-t", WorkerImage, dir); err != nil {
+	// Streamed rather than run and reported: a build on a small server is
+	// several minutes of apt, and a progress box that says nothing for that
+	// long is indistinguishable from one that has hung.
+	rc, wait, err := s.cmds.Stream(ctx, actor, "docker", "build", "-t", WorkerImage, dir)
+	if err != nil {
+		return fmt.Errorf("building the converter image failed: %w", err)
+	}
+	sc := bufio.NewScanner(rc)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		line(sc.Text())
+	}
+	rc.Close()
+	if err := wait(); err != nil {
 		return fmt.Errorf("building the converter image failed: %w", err)
 	}
 	line("image built")
