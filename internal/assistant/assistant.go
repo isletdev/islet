@@ -251,6 +251,16 @@ func RunStream(ctx context.Context, p Provider, system string, msgs []Message, t
 	for step := 0; step < maxSteps; step++ {
 		reply, err := complete(ctx, p, system, msgs, tools, obs)
 		if err != nil {
+			// A provider that failed partway can still hand back what it had
+			// already said, and when it does that belongs in the conversation.
+			// Otherwise stopping a long answer — or losing the process behind
+			// it — reads as though nothing was ever written, when somebody had
+			// been watching it appear for a minute.
+			if strings.TrimSpace(reply.Text) != "" || len(reply.Tools) > 0 {
+				reply.Role = RoleAssistant
+				msgs = append(msgs, reply)
+				emit(reply)
+			}
 			return msgs, err
 		}
 		msgs = append(msgs, reply)

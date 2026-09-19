@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -569,4 +570,51 @@ func TestEachProviderSaysWhetherItCanAnswer(t *testing.T) {
 			t.Errorf("%s: the refusal says too little: %q", c.name, err)
 		}
 	}
+}
+
+// Stopping a long answer keeps what had already been written.
+//
+// This is the failure that made Stop feel like undo: the provider returned the
+// error and nothing else, the loop dropped the turn, and a minute of text
+// somebody had been watching appear was simply gone from the conversation.
+func TestAStoppedRunKeepsWhatWasAlreadySaid(t *testing.T) {
+	// A provider that says something and then fails, which is every real way a
+	// turn ends early: stopped, killed, out of credit, network gone.
+	p := &partialThenFails{said: "Here is the first half of the answer."}
+	var kept []Message
+	msgs, err := RunStream(context.Background(), p, "", []Message{{Role: RoleUser, Text: "go"}}, nil, nil, 4,
+		&Observer{Turn: func(m Message) { kept = append(kept, m) }})
+	if err == nil {
+		t.Fatal("the failure was swallowed; a caller has to be able to say what went wrong")
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != RoleAssistant || !strings.Contains(last.Text, "first half") {
+		t.Fatalf("what was said was not kept: %+v", msgs)
+	}
+	// Emitted as well as returned, because that is what writes it to the stored
+	// conversation — a turn that only comes back from the function is a turn
+	// that is gone on the next page load.
+	if len(kept) != 1 || !strings.Contains(kept[0].Text, "first half") {
+		t.Errorf("the partial turn was not reported to the observer: %+v", kept)
+	}
+}
+
+// And a provider that failed with nothing to show does not invent a turn.
+func TestAFailureWithNothingSaidAddsNothing(t *testing.T) {
+	p := &partialThenFails{said: ""}
+	msgs, err := RunStream(context.Background(), p, "", []Message{{Role: RoleUser, Text: "go"}}, nil, nil, 4, nil)
+	if err == nil {
+		t.Fatal("expected the failure")
+	}
+	if len(msgs) != 1 {
+		t.Errorf("an empty turn was added: %+v", msgs)
+	}
+}
+
+type partialThenFails struct{ said string }
+
+func (p *partialThenFails) Name() string { return "partial" }
+func (p *partialThenFails) Ready() error { return nil }
+func (p *partialThenFails) Complete(ctx context.Context, _ string, _ []Message, _ []Tool) (Message, error) {
+	return Message{Role: RoleAssistant, Text: p.said}, errors.New("the connection went away")
 }

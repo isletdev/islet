@@ -465,7 +465,10 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		out, err := assistant.RunStream(runCtx, p, s.systemPrompt(), msgs, tools, exec, req.MaxSteps, obs)
 		switch {
 		case err != nil && runCtx.Err() != nil && rn.cancelled():
-			rn.add("error", map[string]any{"message": "stopped", "messages": out})
+			// Marked as asked-for rather than gone-wrong. What it had already
+			// written is in `out` and stays on the screen; only the red banner
+			// is out of place, because stopping is a thing somebody did.
+			rn.add("error", map[string]any{"message": "stopped", "stopped": true, "messages": out})
 			rn.finish("cancelled")
 		case err != nil:
 			rn.add("error", map[string]any{"message": err.Error(), "messages": out})

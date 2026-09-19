@@ -77,7 +77,14 @@ func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs [
 	defer cancel()
 
 	// --verbose is not optional here: stream-json refuses without it.
-	args := []string{"--print", "--output-format", "stream-json", "--verbose"}
+	//
+	// --include-partial-messages is what makes this feel like a conversation
+	// rather than a form submission. Without it Claude Code emits one event per
+	// completed message, so a paragraph arrives whole after however long it
+	// took to write — measured here at 7.7 seconds of nothing and then all of
+	// it. With it, the first words are on screen in three, and the rest follow
+	// as they are written.
+	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
 	// Nothing may answer a permission prompt, so anything that would ask is
 	// refused rather than waiting for a terminal that does not exist.
 	args = append(args, "--permission-prompts", "none", "--settings", claudeSettings())
@@ -104,42 +111,108 @@ func (s *Subscription) CompleteStream(ctx context.Context, system string, msgs [
 	if s.Model != "" {
 		args = append(args, "--model", s.Model)
 	}
-	cmd := exec.CommandContext(cctx, bin, args...)
+	// Not CommandContext: cancellation here has to kill the process group and
+	// then unblock a read that a surviving child can otherwise hold open
+	// forever, which is more than a context kill does. See below.
+	cmd := exec.Command(bin, args...)
+	setProcAttrs(cmd)
 	if s.Dir != "" {
 		cmd.Dir = s.Dir
 	}
 	// The conversation goes in on stdin rather than as an argument: a prompt
 	// can be long, and an argument list has a limit that a transcript reaches.
 	cmd.Stdin = strings.NewReader(transcript(system, msgs))
-	stdout, err := cmd.StdoutPipe()
+	// A pipe this code owns both ends of, rather than StdoutPipe, so the read
+	// can be unblocked from here. That is the whole point: when the process is
+	// gone, anything still holding the write end is a child that outlived it,
+	// and waiting on it is waiting forever.
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		return Message{}, err
 	}
+	cmd.Stdout = pw
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	if err := cmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
 		return Message{}, fmt.Errorf("claude: %w", err)
 	}
-	answer, done, perr := readClaudeStream(stdout, obs)
-	werr := cmd.Wait()
+	// The parent's copy of the write end, dropped now so the only holders are
+	// the process and its children.
+	pw.Close()
+
+	type readResult struct {
+		answer string
+		done   []ToolRun
+		err    error
+	}
+	read := make(chan readResult, 1)
+	go func() {
+		a, d, e := readClaudeStream(pr, obs)
+		read <- readResult{a, d, e}
+	}()
+
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+
+	// Stopping is killing the group. Without this a stopped run leaves the
+	// binary and its MCP server running, and the next question waits behind
+	// them.
+	stopped := make(chan struct{})
+	defer close(stopped)
+	go func() {
+		select {
+		case <-cctx.Done():
+			killTree(cmd)
+		case <-stopped:
+		}
+	}()
+
+	werr := <-waited
+	// The process has gone. Give the reader a moment to drain what is still in
+	// the pipe, then close it — after which a child holding the other end is
+	// somebody else's problem rather than this run's.
+	drained := time.AfterFunc(drainGrace, func() { pr.Close() })
+	res := <-read
+	drained.Stop()
+	pr.Close()
+	answer, done, perr := res.answer, res.done, res.err
+	// A process that exited cleanly said what it had to say; an error from the
+	// reader after that is the pipe being closed on a child, not a failure of
+	// the run.
+	if errors.Is(perr, errStreamCut) && werr == nil && ctx.Err() == nil {
+		perr = nil
+	}
 	if perr != nil && werr == nil {
 		werr = perr
 	}
+	// Whatever was said before it ended, whichever way it ended. Returned with
+	// the error rather than instead of it: a turn that was interrupted halfway
+	// is still most of an answer, and throwing it away is what made pressing
+	// Stop feel like undo.
+	sofar := Message{Role: RoleAssistant, Text: strings.TrimSpace(answer), Tools: done}
 	if werr != nil {
 		msg := strings.TrimSpace(errb.String())
 		if msg == "" {
 			msg = werr.Error()
 		}
+		// Being stopped is not a failure to report as one. The process is
+		// killed by the context going away, and what it had written is the
+		// answer somebody chose to stop reading.
+		if ctx.Err() != nil {
+			return sofar, ctx.Err()
+		}
 		// The most common cause by far, and the one whose fix is not obvious.
 		if strings.Contains(strings.ToLower(msg), "login") || strings.Contains(msg, "authenticate") {
-			return Message{}, fmt.Errorf("claude is not signed in on this server: open a workspace and run claude to sign in (%s)", msg)
+			return sofar, fmt.Errorf("claude is not signed in on this server: open a workspace and run claude to sign in (%s)", msg)
 		}
-		return Message{}, fmt.Errorf("claude: %s", msg)
+		return sofar, fmt.Errorf("claude: %s", msg)
 	}
-	if strings.TrimSpace(answer) == "" {
-		return Message{}, errors.New("claude answered nothing; check that it is signed in on this server")
+	if sofar.Text == "" {
+		return sofar, errors.New("claude answered nothing; check that it is signed in on this server")
 	}
-	return Message{Role: RoleAssistant, Text: strings.TrimSpace(answer), Tools: done}, nil
+	return sofar, nil
 }
 
 // claudeEvent is the part of one stream-json line this cares about. The format
@@ -162,6 +235,15 @@ type claudeEvent struct {
 	Result  string `json:"result"`
 	IsError bool   `json:"is_error"`
 	Subtype string `json:"subtype"`
+	// Event carries the partial-message stream: one of these per few tokens,
+	// which is what live text is made of.
+	Event struct {
+		Type  string `json:"type"`
+		Delta struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"delta"`
+	} `json:"event"`
 }
 
 // readClaudeStream turns the binary's event stream into observer calls and
@@ -177,6 +259,12 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, []ToolRun, error) {
 	var done []ToolRun
 	var answer string
 	var failure string
+	// What has been said so far, from two angles. `said` is the completed
+	// assistant messages; `partial` is the live deltas, which is all there is
+	// when a run is stopped or the process dies mid-sentence. One of them is
+	// what somebody was reading when it ended, and losing it is the thing this
+	// whole arrangement exists to prevent.
+	var said, partial strings.Builder
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 || line[0] != '{' {
@@ -187,11 +275,28 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, []ToolRun, error) {
 			continue // a line this does not understand is not a reason to stop
 		}
 		switch e.Type {
+		case "stream_event":
+			// Live text, a few tokens at a time. Reported and not accumulated:
+			// the completed assistant event below carries the same words and is
+			// the authority for what gets stored, so counting both would say
+			// everything twice.
+			if e.Event.Type == "content_block_delta" && e.Event.Delta.Text != "" {
+				partial.WriteString(e.Event.Delta.Text)
+				obs.text(e.Event.Delta.Text)
+			}
 		case "assistant":
 			for _, b := range e.Message.Content {
 				switch b.Type {
 				case "text":
-					obs.text(b.Text)
+					// Reported only when nothing streamed it already. A build
+					// of Claude Code that does not know --include-partial-
+					// messages sends no deltas at all, and on that one this is
+					// the only chance to show the text; where deltas did
+					// arrive, saying it again would say everything twice.
+					if partial.Len() == 0 {
+						obs.text(b.Text)
+					}
+					said.WriteString(b.Text)
 				case "tool_use":
 					if internalTool(b.Name) {
 						// Looking up which tool to use is the model talking to
@@ -244,12 +349,34 @@ func readClaudeStream(r io.Reader, obs *Observer) (string, []ToolRun, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return answer, done, err
+		// Marked as what it is: the stream stopped, which is not the same as
+		// the run reporting a failure. One of them is worth showing somebody
+		// and the other is a pipe being closed on a process that has already
+		// exited normally.
+		return sofar(answer, said, partial), done, fmt.Errorf("%w: %v", errStreamCut, err)
 	}
 	if failure != "" {
-		return "", done, errors.New(failure)
+		return sofar(answer, said, partial), done, errors.New(failure)
+	}
+	if strings.TrimSpace(answer) == "" {
+		// A result event with nothing in it, which happens when the run was cut
+		// short. Whatever was already said is the answer.
+		answer = sofar(answer, said, partial)
 	}
 	return answer, done, nil
+}
+
+// sofar is the best account of what was said, in the order of how complete each
+// version is: the final result, then the messages that completed, then the
+// half-written sentence that was on screen when it stopped.
+func sofar(answer string, said, partial strings.Builder) string {
+	if strings.TrimSpace(answer) != "" {
+		return answer
+	}
+	if strings.TrimSpace(said.String()) != "" {
+		return said.String()
+	}
+	return partial.String()
 }
 
 // internalTool is a Claude Code tool that does nothing to the server.
@@ -399,3 +526,14 @@ func transcript(system string, msgs []Message) string {
 	}
 	return b.String()
 }
+
+// drainGrace is how long the reader gets to finish what is already in the pipe
+// after the process has exited. Short: everything worth reading was written
+// before the exit, and the only reason to wait at all is that the last event
+// and the exit race each other.
+const drainGrace = 2 * time.Second
+
+// errStreamCut is the stream ending rather than the run failing: the pipe was
+// closed, usually by this code once the process had already exited and a child
+// was still holding it open.
+var errStreamCut = errors.New("the stream ended")

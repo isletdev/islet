@@ -287,7 +287,10 @@ export type AssistantEvent =
   | { seq: number; type: "tool"; id: string; name: string; input?: Record<string, unknown> }
   | { seq: number; type: "tool_done"; id: string; name: string; ms: number; ok: boolean; preview: string }
   | { seq: number; type: "turn"; message: AssistantMessage }
-  | { seq: number; type: "error"; message: string; messages?: AssistantMessage[] }
+  // `stopped` marks the ending somebody asked for. The run still ends through
+  // this event — it did not finish what it was doing — but it is not a failure
+  // and is not shown as one.
+  | { seq: number; type: "error"; message: string; messages?: AssistantMessage[]; stopped?: boolean }
   | { seq: number; type: "done"; messages: AssistantMessage[]; reply: string };
 
 /**

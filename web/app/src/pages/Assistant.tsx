@@ -141,6 +141,7 @@ export default function Assistant() {
   const [listOpen, setListOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const foot = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const runId = useRef<string | null>(null);
   const openChat = useRef<string | null>(null);
@@ -171,8 +172,32 @@ export default function Assistant() {
       setProvider((p) => p || list.find((m) => m.default)?.id || list[0]?.id || "");
     }).catch(() => setModels([]));
   }, []);
-  // A new turn belongs on screen without being scrolled to.
-  useEffect(() => { foot.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, activity, running]);
+  // Following the answer down, unless you have gone up to read something.
+  //
+  // A new turn belongs on screen without being scrolled to. But the text now
+  // arrives a few tokens at a time, so this fires many times a second while an
+  // answer is being written — and scrolling somebody back down every time they
+  // scroll up to re-read a paragraph is the behaviour of a page fighting its
+  // reader. So it sticks to the bottom only while the reader is already there,
+  // and lets go the moment they are not. The threshold is generous because
+  // "near the bottom" is what a person means by "at the bottom", and smooth
+  // scrolling leaves a gap of its own while it animates.
+  const stick = useRef(true);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onScroll = () => {
+      stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    if (!stick.current) return;
+    // Instant while streaming: a smooth scroll restarted sixty times a second
+    // never arrives, and the text appears to crawl up the screen.
+    foot.current?.scrollIntoView({ behavior: running ? "auto" : "smooth", block: "end" });
+  }, [msgs, activity, running]);
 
   const handle = useCallback((ev: AssistantEvent) => {
     switch (ev.type) {
@@ -191,7 +216,18 @@ export default function Assistant() {
         setActivity([]);
         break;
       case "text":
-        setActivity((a) => [...a, { kind: "text", text: ev.text }]);
+        // Joined onto the block being written rather than added beside it.
+        // The daemon now streams a few tokens at a time, so a paragraph is
+        // seventy of these: kept apart they would render as seventy separate
+        // paragraphs, break every sentence that spans two events, and re-run
+        // the Markdown parser once per token.
+        setActivity((a) => {
+          const last = a[a.length - 1];
+          if (last?.kind === "text") {
+            return [...a.slice(0, -1), { kind: "text", text: last.text + ev.text }];
+          }
+          return [...a, { kind: "text", text: ev.text }];
+        });
         break;
       case "tool":
         setActivity((a) => [...a, { kind: "tool", id: ev.id, name: ev.name, input: ev.input }]);
@@ -213,10 +249,13 @@ export default function Assistant() {
         break;
       case "error":
         // The run itself failed, which is the only kind of failure worth
-        // putting on the screen. A connection that drops is not one.
+        // putting on the screen. A connection that drops is not one, and
+        // neither is somebody pressing Stop: that is a thing they did, and
+        // answering it with a red banner reads as though it went wrong.
         settled.current = true;
         if (ev.messages?.length) setMsgs(ev.messages);
-        setError(ev.message);
+        if (!ev.stopped) setError(ev.message);
+        setActivity([]);
         setRunning(false);
         void refreshChats();
         break;
@@ -618,7 +657,7 @@ export default function Assistant() {
               Drop to attach
             </div>
           )}
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-border bg-surface p-3">
+          <div ref={scroller} className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-border bg-surface p-3">
             {msgs.length === 0 && !running && (
               <div className="py-8 text-center text-sm text-ink-muted">
                 <p className="font-medium text-ink">Try asking for something.</p>
