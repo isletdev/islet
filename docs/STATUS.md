@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `a793f64`, tagged `v0.29.1`, 2026-09-19. 222 commits, 90 tags, CI green on `main`.
+**Head:** `744baa9`, tagged `v0.29.2`, 2026-09-19. 224 commits, 91 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.29.1
+## Shipped since the plan ran out — v0.6.0 to v0.29.2
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -104,6 +104,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.28.1 | `ad8a3a2` | **The assistant stopped losing what it had already said.** Pressing Stop deleted the answer, because the provider returned its error and nothing else; it hands back what it had written now and the transcript keeps it. A crashed Claude Code wedged the conversation for thirty minutes — its MCP child inherits the pipe the answer is read from, so killing the parent left the read waiting for an end-of-file that never came, with every new question refused as "still working"; it runs in a process group now, and once the process is gone the read is unblocked from this side. And the answer used to arrive all at once: `--include-partial-messages` streams it a few tokens at a time, first words in three seconds rather than eight |
 | v0.29.0 | `9c5250f` | **The assistant had no tools on any server, and now has them.** The subscription provider is Claude Code, which calls tools over HTTP for itself, so the only way to give it Islet's tools is an MCP configuration — and that was a field for an operator to fill in by hand, with no screen for it and no reason to know it existed. Worse than empty: without `--mcp-config` there is no `--strict-mcp-config`, so it fell back to whatever MCP servers the root account had. The daemon writes the file itself now, per run, with a token it mints and revokes, scoped to everything except shell, security, vault and cron. Asked what is running, it calls `list_containers` and answers with real names in eleven seconds. Also: a chat window that behaves like one — a box that grows, Enter to send, Stop that waits for the closing turn instead of hanging up on it, Continue and Ask again where an answer ended early, and copy on an answer |
 | v0.29.1 | `a793f64` | **A backup repository ran off the side of a phone.** Sixty-six characters with nowhere to break, in a flex child that will not shrink below its longest word — so the row was a hundred pixels wider than its card, the card clipped it, and the line beneath lost its end mid-sentence. The address breaks anywhere now and takes the whole row below `sm`, with the buttons underneath. The layout audit gains the check that would have found it: it only ever looked for content passing the edge of the *window*, and a card narrower than the window clips instead — so nothing scrolls, nothing spills, and the text is just not there. Deliberate clipping is still allowed to be deliberate: an ellipsis, or a box that scrolls |
+| v0.29.2 | `744baa9` | **iOS stopped zooming in every time a field was tapped** — Safari does that to any control whose text is under 16px and the panel's are 14, so tapping the assistant's box zoomed the page and left it zoomed. `maximum-scale=1`, with the cost accepted deliberately: it also suppresses pinch-zoom where Safari honours it. And **a bucket held on this server stopped accepting a public base URL**, which is an address for a bucket that is already public somewhere else — set on a local bucket it made every public object redirect to a host answering nothing, since Islet is the origin there and objects live at `/v1/objects/<id>` rather than at the key path |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
