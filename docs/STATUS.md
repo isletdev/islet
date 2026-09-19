@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `3e01cdc`, tagged `v0.27.1`, 2026-09-19. 209 commits, 85 tags, CI green on `main`.
+**Head:** `3e01cdc`, x, 85 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.27.1
+## Shipped since the plan ran out — v0.6.0 to v0.27.2
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -99,6 +99,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.26.1 | `f3fedaa` | **A selection over Claude's output lasted until Claude wrote again.** Selecting in the shell worked and selecting in an agent did not, which is one behaviour, not two: an idle terminal and a busy one. A selection in xterm is a pair of buffer positions and tmux puts every session on the alternate screen, which has no scrollback — so when the program scrolls, the lines move and the positions do not. A selection reading `PICKME 15` read `PICKME 19` three scrolled lines later, and was gone a few lines after that, which means the Copy button would hand over text nobody chose. Output now waits while there is a selection on screen and goes in the moment the selection does; nothing is dropped, the toolbar says it is held, and past 2 MB the output wins and says so |
 | v0.27.0 | `a2a27a7` | **The first Islet service an application calls rather than an operator.** Media: an app POSTs a file and gets a URL, with images resized, compressed and converted at named sizes, a PDF's first page and a video's frame thumbnailed, and the bytes stored on this disk or on R2, S3, MinIO, Backblaze, Wasabi or Hetzner — one hand-written SigV4 for all of them, because the AWS SDK alone is larger than this daemon. The two audiences never meet: a media key is refused by the panel API and a panel session by the service, in separate tables, middleware and muxes, with the service also answering at a hostname of its own. Converters live in a container Islet builds and owns, driven by `docker exec` so every conversion lands in the command drawer. Limits ship with it rather than after the first incident — named presets, one conversion at a time, per-key rates and quotas, a type allowlist, CORS per key, and the assistant's malware scanner moved to `internal/scan` so uploads from the open internet get it too. Plus: **a model added under Settings → AI no longer reports itself as no model at all** — the page asked the pre-row settings, and the daemon now decides by building the provider a question would use |
 | v0.27.1 | `3e01cdc` | **Installing the converters worked and reported that it had failed.** The panel reads two stream shapes and nothing checked that a handler writes the one its caller reads: `postStream` parses server-sent events, this endpoint wrote newline-delimited JSON, so the parser saw a stream end without its end event and threw — with the converters visibly installed underneath the error. It emits SSE now, streams the build while it happens rather than summarising it afterwards, and a test reads the panel for which paths expect SSE and the daemon for which handlers write NDJSON and fails when one is the other |
+| v0.27.2 | `594ffed` | **A media hostname that nothing routes now says so.** Naming one tells Islet to answer on it; it does not tell the proxy the host exists, so every request got Traefik's own 404 while the daemon answered perfectly well on the panel's host — found on a real server with the service enabled and a hostname set. The page now reports whether a domain for that host points at the panel, beside the link to where it is added |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
