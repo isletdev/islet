@@ -3087,3 +3087,72 @@ hashing it first would mean holding a video in memory to sign it.
 destinations.** The cost is that an R2 key is entered twice and can drift. What
 it buys is not migrating a table people's restores depend on. If a third
 consumer of object storage appears, that is the moment to reconsider.
+
+## The assistant, made to work
+
+**It had no tools at all.** The subscription provider is Claude Code, which
+runs as a process and calls tools over HTTP for itself, so the only way to give
+it Islet's tools is an MCP configuration: a URL and a bearer token. That
+configuration was a field on the provider row for an operator to fill in by
+hand, and nobody ever did — there was no screen for it and no reason to know it
+existed. The panel said "70 tools" and the assistant answered "I don't have the
+tools for that", which is the exact complaint that started this.
+
+Worse than nothing: without `--mcp-config` there is no `--strict-mcp-config`
+either, so Claude Code fell back to whatever MCP servers the root account
+happened to have. On the development server that meant the assistant listed
+three servers nobody had granted it.
+
+The daemon writes the file itself now, per run, with a token it mints and
+revokes when the run ends. One question, one credential, one file at 0600 under
+the data directory, both removed together.
+
+**The assistant's tools do not wait on the MCP switch.** That switch decides
+whether *other people's* agents may reach this daemon over the network. The
+assistant is the daemon calling itself with a token it made a second ago, and
+making that wait on a toggle in another screen is how a fresh install ends up
+with an assistant that can do nothing. The exemption is per token and held in
+memory beside the runs: true for a few minutes, false forever after. A stranger
+still has no token.
+
+**The token is scoped, and not to everything.** It belongs to whoever asked, so
+every check it passes was already passable by them — the list is not a wall
+against the person, it is a limit on what the model does on their behalf without
+being asked twice. Held back: `shell`, because that is the whole server;
+`security`, because that is how the server stays reachable; `vault`, because the
+assistant has no reason to read the secrets out; and `cron`, because a job is a
+root command on a timer, which is a shell by post. That last one is the same
+reasoning that removed cron from a workspace token. Checked by asking it to run
+`id`: no shell tool exists for it, and Islet's set has no arbitrary-command tool.
+
+**A service hostname is not the panel's hostname.** `PanelHost` returned the
+first enabled domain pointing at the panel, and a media service domain points at
+the panel too — so after media got a hostname, agents were handed the media name
+as the place to find the API and their tools stopped resolving. Found while
+testing this, on a server where both existed. The caller now says which name
+belongs to a service, because the proxy has no way to know.
+
+**Claude Code streams tokens only when asked.** `--output-format stream-json`
+emits one event per completed message, so a long answer is however many seconds
+of nothing and then all of it at once — measured at 7.7 seconds here.
+`--include-partial-messages` brings the first words in three and the rest as
+they are written. A build without the flag still shows its text, because a
+completed message is reported when nothing streamed it.
+
+**Nothing said is lost.** The provider returned its error and discarded the
+answer, so pressing Stop deleted a minute of text somebody had watched appear,
+and a Claude Code that died took the answer with it. It hands back what it had
+already said alongside the error now, and the loop writes that turn to the
+conversation. The panel had the matching half of the bug: Stop hung up the
+moment it had asked the daemon to stop, and the closing line — the one carrying
+the turn — never arrived. It waits for the close now, with a four-second
+fallback that reads the conversation back instead.
+
+**A crashed Claude Code wedged the conversation for thirty minutes.** It starts
+an MCP server as a child, and the child inherits the pipe the answer is read
+from; killing the parent leaves the child holding the write end, so the read
+never sees end-of-file. The run stayed "running", nothing was stored, and every
+new question was refused as "still working". It runs in a process group, a stop
+kills the group, and once the process has gone the read is unblocked from this
+side after a two-second drain. Measured: error within two seconds, 5,495
+characters kept, the chat free.

@@ -113,13 +113,23 @@ func (m *Manager) PanelRouted(ctx context.Context) bool {
 // happened to type into their browser — a local alias, a name from their own
 // hosts file — gives it an address that does not resolve. A domain routed to
 // the panel resolves from both sides, which is the property that matters.
-func (m *Manager) PanelHost(ctx context.Context) string {
+func (m *Manager) PanelHost(ctx context.Context) string { return m.PanelHostExcept(ctx, "") }
+
+// PanelHostExcept is PanelHost with a name that is not the panel's.
+//
+// A service reaches the daemon the same way the panel does — a domain with the
+// panel target — so "a domain pointing at the panel" stopped being a good
+// enough description of the panel's own address the moment media got a
+// hostname. Whichever came first in the list won, and an agent handed
+// media.example.com as the place to find the API is an agent whose tools do
+// not resolve. The caller knows which names belong to a service; this does not.
+func (m *Manager) PanelHostExcept(ctx context.Context, not string) string {
 	doms, err := m.Domains(ctx)
 	if err != nil {
 		return ""
 	}
 	for _, d := range doms {
-		if d.TargetType == "panel" && d.Enabled {
+		if d.TargetType == "panel" && d.Enabled && !strings.EqualFold(d.Host, not) {
 			return d.Host
 		}
 	}

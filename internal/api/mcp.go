@@ -56,11 +56,17 @@ func (s *Server) handleMCPSetting(w http.ResponseWriter, r *http.Request) {
 // handleMCP is the Streamable HTTP endpoint. Tokens only; sessions are
 // refused so a browser cannot be tricked into driving it.
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpEnabled(r.Context()) {
+	tok := tokenFrom(r.Context())
+	// The switch in Settings decides whether *other people's* agents may reach
+	// this daemon over the network. The assistant is this daemon calling itself
+	// with a token it minted a second ago for one run, and making that wait on
+	// a toggle somewhere else is how a server ends up with an assistant that
+	// announces seventy tools and cannot use one of them. Nothing is opened by
+	// this: a stranger still has no token, and these last minutes.
+	if !s.mcpEnabled(r.Context()) && !s.isAssistantToken(tok) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "disabled", Message: "the MCP server is off; enable it in Settings"})
 		return
 	}
-	tok := tokenFrom(r.Context())
 	u := userFrom(r.Context())
 	if tok == nil || u == nil {
 		writeJSON(w, http.StatusUnauthorized, api.Error{Error: "token_required", Message: "send an API token as Authorization: Bearer"})

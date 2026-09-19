@@ -175,7 +175,14 @@ func (s *Server) wireMCP(r *http.Request, id, name string) error {
 // domain it is the only address there is.
 func (s *Server) publicURL(r *http.Request) string {
 	if s.proxy != nil {
-		if h := s.proxy.PanelHost(r.Context()); h != "" {
+		// Not the media service's hostname, which is also a domain pointing at
+		// this daemon and is not the panel. Handing an agent that name gives it
+		// an address where the API is not.
+		skip := ""
+		if s.media != nil {
+			skip = s.media.Settings(r.Context()).Host
+		}
+		if h := s.proxy.PanelHostExcept(r.Context(), skip); h != "" {
 			return "https://" + h
 		}
 	}

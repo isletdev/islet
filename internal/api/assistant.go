@@ -445,6 +445,18 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		"ask": rn.Ask, "base": len(msgs),
 	})
 
+	// The tools, and the credential they are reached with. Both are taken away
+	// when the run ends, whichever way it ends.
+	release, err := s.toolsFor(r, p, rn.ID)
+	if err != nil {
+		rn.add("error", map[string]any{"message": err.Error()})
+		rn.finish("error")
+		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
+		cancelTimeout()
+		cancel()
+		return
+	}
+
 	obs := rn.observer()
 	if chatID != "" && s.chats != nil {
 		// Each turn is written as it completes rather than the transcript being
@@ -462,6 +474,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer cancelTimeout()
 		defer cancel()
+		defer release()
 		out, err := assistant.RunStream(runCtx, p, s.systemPrompt(), msgs, tools, exec, req.MaxSteps, obs)
 		switch {
 		case err != nil && runCtx.Err() != nil && rn.cancelled():

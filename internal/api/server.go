@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isletdev/islet/internal/ai"
@@ -69,10 +70,13 @@ type Deps struct {
 	Fleet      *fleet.Service
 	Backup     *backup.Service
 	Uploads    *uploads.Service
-	Media      *media.Service
-	GitHub     *github.Client
-	UI         http.Handler
-	Log        *slog.Logger
+	// DataDir is where this daemon keeps its state, for the few things the API
+	// layer writes directly — the assistant's own MCP configuration among them.
+	DataDir string
+	Media   *media.Service
+	GitHub  *github.Client
+	UI      http.Handler
+	Log     *slog.Logger
 }
 
 // Server holds the dependencies handlers need.
@@ -106,9 +110,15 @@ type Server struct {
 	sqlInstances func(context.Context, string) ([]sqlInstance, error)
 	backup       *backup.Service
 	uploads      *uploads.Service
-	media        *media.Service
-	github       *github.Client
-	mcp          *mcp.Server
+	dataDir      string
+	// assistantTokens are the tokens minted for runs happening right now. See
+	// isAssistantToken: it is what lets the assistant use its own tools without
+	// the MCP endpoint being opened to the network.
+	assistantMu     sync.Mutex
+	assistantTokens map[string]bool
+	media           *media.Service
+	github          *github.Client
+	mcp             *mcp.Server
 	// routes is the bare router, kept so the generic MCP tool can reach any
 	// endpoint through the same per-route middleware a request does — the
 	// auth, role and audit that each handler is already wrapped in — rather
@@ -135,9 +145,14 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, dataDir: d.DataDir, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
+	}
+	// Anything a previous daemon left behind. The tokens inside expire on their
+	// own, so this is tidiness rather than the security of it.
+	if s.dataDir != "" {
+		s.sweepAssistantMCP()
 	}
 	// The workspace service asks this when it starts an agent. It is wired
 	// here rather than in main because unsealing a key is the API layer's
