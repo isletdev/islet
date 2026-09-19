@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -58,5 +59,49 @@ func TestAConversationOfFilesIsNamedAfterThem(t *testing.T) {
 	}
 	if got := chatTitle("", nil); got != "" {
 		t.Errorf("nothing at all: %q", got)
+	}
+}
+
+// Naming a media hostname adds the domain for it — that is the boring half of
+// the task and doing the boring half is the point of the panel. But a hostname
+// already serving an application is not a field to take over because it was
+// typed on another page, and a refusal must leave the settings as they were
+// rather than saving half of what was asked for.
+//
+// The route is exercised through the daemon in hack/e2e; this pins the shape of
+// the decision, which is the part that would be wrong silently.
+func TestAMediaHostnameNeverTakesAnApplicationsDomain(t *testing.T) {
+	src, err := os.ReadFile("media.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(src)
+	route := body[strings.Index(body, "func (s *Server) mediaRoute"):]
+	route = route[:strings.Index(route, "\nfunc ")]
+
+	if !strings.Contains(route, `d.TargetType != "panel"`) {
+		t.Error("mediaRoute no longer checks what an existing domain points at")
+	}
+	if !strings.Contains(route, "already points at") {
+		t.Error("the refusal no longer says what the host is being used for")
+	}
+	// Creating one that is already right has to be a no-op, or saving the same
+	// settings twice writes a second domain the second time.
+	if !strings.Contains(route, "if d.Enabled {\n\t\t\treturn nil\n\t\t}") {
+		t.Error("mediaRoute no longer short-circuits on a domain that is already right")
+	}
+
+	// And the order: the refusable half runs first, so a refusal changes
+	// nothing. Saving the hostname and then failing to route it would leave a
+	// server configured for an address that answers somebody else's app.
+	handler := body[strings.Index(body, "func (s *Server) handleMedia("):]
+	handler = handler[:strings.Index(handler, "\nfunc ")]
+	iRoute := strings.Index(handler, "s.mediaRoute(")
+	iSave := strings.Index(handler, "s.media.SaveSettings(")
+	if iRoute < 0 || iSave < 0 {
+		t.Fatal("handleMedia no longer routes the host or no longer saves the settings")
+	}
+	if iRoute > iSave {
+		t.Error("the settings are saved before the domain is claimed, so a refused save keeps half of itself")
 	}
 }

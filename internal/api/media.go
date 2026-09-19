@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/isletdev/islet/internal/media"
+	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -43,11 +44,24 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 			s.badJSON(w, err)
 			return
 		}
+		actor := userFrom(r.Context()).Username
+		// The domain first, because it is the half that can be refused.
+		//
+		// Naming a hostname is asking for it to work, and adding the domain by
+		// hand afterwards is the boring half of that — which is what this panel
+		// is for. But a hostname already serving an application is not a field
+		// to take over because it was typed on another page, so that is a
+		// refusal, and a refusal must leave the settings as they were rather
+		// than saving half of what was asked for.
+		if err := s.mediaRoute(r.Context(), actor, req.Host); err != nil {
+			writeJSON(w, http.StatusConflict, api.Error{Error: "domain", Message: err.Error()})
+			return
+		}
 		if err := s.media.SaveSettings(r.Context(), req); err != nil {
 			s.failed(w, "media", err)
 			return
 		}
-		_ = s.store.Audit(r.Context(), userFrom(r.Context()).Username, "media.settings", "media", boolWord(req.Enabled))
+		_ = s.store.Audit(r.Context(), actor, "media.settings", "media", boolWord(req.Enabled))
 	}
 	buckets, _ := s.media.Buckets(r.Context())
 	usage, _ := s.media.Usage(r.Context())
@@ -65,6 +79,45 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		// and is really a domain nobody added.
 		"hostRouted": s.mediaHostRouted(r.Context(), set.Host),
 	})
+}
+
+// mediaRoute makes sure a domain exists for the service's hostname.
+//
+// It refuses rather than repoints when the host already belongs to something
+// else: a hostname somebody's application is served on is not a field to take
+// over because it was typed into another page. Creating one that is already
+// right is a no-op, so saving the same settings twice does nothing twice.
+func (s *Server) mediaRoute(ctx context.Context, actor, host string) error {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || s.proxy == nil {
+		return nil
+	}
+	list, err := s.proxy.Domains(ctx)
+	if err != nil {
+		return nil // the page will show it as unrouted, which is the honest state
+	}
+	for _, d := range list {
+		if !strings.EqualFold(d.Host, host) {
+			continue
+		}
+		if d.TargetType != "panel" {
+			return fmt.Errorf("%s already points at %s here; pick another hostname for media, or change that domain first", host, d.Target)
+		}
+		if d.Enabled {
+			return nil
+		}
+		d.Enabled = true
+		_, err := s.proxy.Save(ctx, actor, &d)
+		return err
+	}
+	// letsencrypt, because a service a browser calls over CORS needs a
+	// certificate browsers accept, and the panel already knows how to get one.
+	d := proxy.Domain{Host: host, TargetType: "panel", TLS: "letsencrypt", Enabled: true}
+	if _, err := s.proxy.Save(ctx, actor, &d); err != nil {
+		return fmt.Errorf("could not add the domain %s: %w", host, err)
+	}
+	_ = s.store.Audit(ctx, actor, "media.domain", host, "created for the media service")
+	return nil
 }
 
 // mediaHostRouted reports whether a domain for this host points at the panel,

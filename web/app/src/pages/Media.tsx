@@ -107,15 +107,19 @@ export default function Media() {
             {!s.host && " — set a hostname above and point a domain at this panel to give browsers an origin of their own."}
           </p>
         )}
-        {/* Naming a host here tells Islet to answer on it. It does not tell the
-            proxy the host exists, and a request for one it has never heard of
-            gets the proxy's own 404 — which reads exactly like a broken service
-            and is really a domain nobody added. */}
+        {/* Saving a hostname adds the domain for it. What Islet cannot do from
+            here is the DNS record, so that is the one thing left to say. */}
+        {s.enabled && s.host && over.hostRouted && (
+          <p className="mt-1.5 text-xs text-ink-muted">
+            <Link to="/domains" className="-my-1 inline-block py-1 underline">A domain for it</Link> is set up and pointed at this panel.
+            Give <code className="font-mono">{s.host}</code> an A record for this server and the certificate follows on its own.
+          </p>
+        )}
         {s.enabled && s.host && !over.hostRouted && (
           <Alert tone="warning">
-            Nothing routes <code className="font-mono">{s.host}</code> here yet, so requests to it get the proxy's 404.
-            Add it under <Link to="/domains" className="-my-1 inline-block py-1 underline">Domains</Link>, pointed at the panel, and give its DNS
-            an A record for this server.
+            Nothing routes <code className="font-mono">{s.host}</code> here, so requests to it get the proxy's 404.
+            Saving the hostname again adds the domain; if that keeps failing, the name is probably taken by another
+            domain under <Link to="/domains" className="-my-1 inline-block py-1 underline">Domains</Link>.
           </Alert>
         )}
       </Card>
