@@ -60,7 +60,7 @@ func (k *Key) Can(scope string) bool {
 // origins is a server-side key, and a server-side key leaking into a web page
 // should stop working rather than keep going.
 func (k *Key) AllowsOrigin(origin string) bool {
-	origin = strings.TrimSpace(origin)
+	origin = normalOrigin(origin)
 	if origin == "" {
 		return true // not a browser request
 	}
@@ -69,7 +69,44 @@ func (k *Key) AllowsOrigin(origin string) bool {
 		if o == "" {
 			continue
 		}
-		if o == "*" || strings.EqualFold(o, origin) {
+		if o == "*" || strings.EqualFold(normalOrigin(o), origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalOrigin makes a typed address comparable to a header.
+//
+// An Origin header has no path, so it never ends in a slash — but somebody
+// filling in a form copies the address bar, and the address bar has one. Stored
+// as "https://shop.example/" it matched nothing a browser ever sent, and the
+// upload was refused with no hint as to why. The slash is not a difference
+// worth having, so it is not one.
+func normalOrigin(o string) string {
+	return strings.TrimRight(strings.TrimSpace(o), "/")
+}
+
+// OriginAllowedByAnyKey answers a preflight, which cannot be answered any other
+// way.
+//
+// A CORS preflight is sent by the browser before the real request and carries
+// no Authorization header — that is the whole point of it, and it is why asking
+// "which key is this?" at preflight time returns nothing. Answering from the
+// keys as a whole is the only thing that can work, and it gives nothing away:
+// the preflight only tells a browser it may attempt the request. The request
+// itself still carries the key and is still checked against that key's own
+// origins, which is where the decision belongs.
+func (s *Service) OriginAllowedByAnyKey(ctx context.Context, origin string) bool {
+	if normalOrigin(origin) == "" {
+		return false
+	}
+	keys, err := s.Keys(ctx)
+	if err != nil {
+		return false
+	}
+	for i := range keys {
+		if keys[i].Origins != "" && keys[i].AllowsOrigin(origin) {
 			return true
 		}
 	}

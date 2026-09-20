@@ -72,8 +72,20 @@ func (s *Server) svcHost(r *http.Request) bool {
 func (s *Server) svcCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
-			if k := s.svcKeyFor(r); k != nil && k.AllowsOrigin(origin) {
+		if origin != "" && s.media != nil {
+			// A preflight carries no Authorization header, so there is no key
+			// to ask — it is answered from the keys as a whole. The request it
+			// precedes does carry one, and that is checked against its own
+			// origins in svcKey. Asking "which key is this?" at preflight time
+			// was the bug: it always answered "none", so no browser upload
+			// could ever get past the preflight.
+			allowed := false
+			if r.Method == http.MethodOptions {
+				allowed = s.media.OriginAllowedByAnyKey(r.Context(), origin)
+			} else if k := s.svcKeyFor(r); k != nil {
+				allowed = k.AllowsOrigin(origin)
+			}
+			if allowed {
 				h := w.Header()
 				h.Set("Access-Control-Allow-Origin", origin)
 				h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")

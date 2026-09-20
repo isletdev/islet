@@ -276,3 +276,50 @@ func testService(t *testing.T) *Service {
 	}
 	return New(st, keys, nil, dir, nil)
 }
+
+// A browser upload has to survive the preflight, and a preflight carries no
+// key.
+//
+// This is the bug that made "browsers are first-class callers" untrue in
+// practice: the preflight was answered by looking up the key on the request,
+// a preflight has no Authorization header by design, so the lookup always came
+// back empty and no Access-Control-Allow-Origin was ever sent. Every browser
+// upload failed before it was made, on every server, whatever was configured.
+func TestAPreflightIsAnsweredWithoutAKey(t *testing.T) {
+	s := testService(t)
+	ctx := context.Background()
+	if _, err := s.Mint(ctx, "test", &Key{Name: "shop", Namespace: "shop", Scopes: "upload,read", Origins: "https://shop.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if !s.OriginAllowedByAnyKey(ctx, "https://shop.example") {
+		t.Error("a preflight from an origin a key allows was refused")
+	}
+	if s.OriginAllowedByAnyKey(ctx, "https://evil.example") {
+		t.Error("a preflight from an origin no key allows was accepted")
+	}
+	if s.OriginAllowedByAnyKey(ctx, "") {
+		t.Error("an empty origin was treated as allowed")
+	}
+	// A key with no origins is a server-side key and lends its permission to
+	// nobody.
+	if _, err := s.Mint(ctx, "test", &Key{Name: "backend", Namespace: "backend", Scopes: "upload"}); err != nil {
+		t.Fatal(err)
+	}
+	if s.OriginAllowedByAnyKey(ctx, "https://anything.example") {
+		t.Error("a server-side key opened the preflight to everybody")
+	}
+}
+
+// The address bar has a trailing slash and an Origin header never does. Storing
+// one should not silently refuse every request from that site.
+func TestATrailingSlashIsNotADifferentOrigin(t *testing.T) {
+	k := &Key{Origins: "https://shop.example/, https://www.shop.example"}
+	for _, sent := range []string{"https://shop.example", "https://www.shop.example"} {
+		if !k.AllowsOrigin(sent) {
+			t.Errorf("%s was refused", sent)
+		}
+	}
+	if k.AllowsOrigin("https://shop.example.evil") {
+		t.Error("trimming the slash let a different host in")
+	}
+}
