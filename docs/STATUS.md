@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `96d0e89`, tagged `v0.29.3`, 2026-09-20. 226 commits, 92 tags, CI green on `main`.
+**Head:** `8291b3a`, tagged `v0.30.0`, 2026-09-21. 228 commits, 93 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.29.3
+## Shipped since the plan ran out — v0.6.0 to v0.30.0
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -106,6 +106,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.29.1 | `a793f64` | **A backup repository ran off the side of a phone.** Sixty-six characters with nowhere to break, in a flex child that will not shrink below its longest word — so the row was a hundred pixels wider than its card, the card clipped it, and the line beneath lost its end mid-sentence. The address breaks anywhere now and takes the whole row below `sm`, with the buttons underneath. The layout audit gains the check that would have found it: it only ever looked for content passing the edge of the *window*, and a card narrower than the window clips instead — so nothing scrolls, nothing spills, and the text is just not there. Deliberate clipping is still allowed to be deliberate: an ellipsis, or a box that scrolls |
 | v0.29.2 | `744baa9` | **iOS stopped zooming in every time a field was tapped** — Safari does that to any control whose text is under 16px and the panel's are 14, so tapping the assistant's box zoomed the page and left it zoomed. `maximum-scale=1`, with the cost accepted deliberately: it also suppresses pinch-zoom where Safari honours it. And **a bucket held on this server stopped accepting a public base URL**, which is an address for a bucket that is already public somewhere else — set on a local bucket it made every public object redirect to a host answering nothing, since Islet is the origin there and objects live at `/v1/objects/<id>` rather than at the key path |
 | v0.29.3 | `96d0e89` | **No browser upload could get past its own preflight.** A CORS preflight deliberately carries no `Authorization` header, and the preflight was answered by looking up the key on the request — so it always came back empty, no `Access-Control-Allow-Origin` was sent, and the browser refused the upload it was asking permission for. On every server, whatever was configured; server-side callers never noticed because they send no Origin. It is answered from the keys as a whole now, with the real request still checked against its own key's origins. And a trailing slash on a stored origin — which the address bar has and an `Origin` header never does — stopped being a different origin |
+| v0.30.0 | `8291b3a` | **Terminal scrolling and copying, actually checked this time.** Scrolling never worked because there was nothing to scroll: a tmux pane is on the alternate screen, which has no scrollback, so xterm turns a wheel — and the wheel events a finger drag becomes — into cursor keys and sends them to the program. `mouse on` hands tmux the wheel and it scrolls its own history, now 20000 lines rather than 2000. A plain drag stops selecting as a result, but Shift+drag selects *and copies*, verified by reading the clipboard rather than counting highlight rectangles. A phone has no Shift and no drag that is not a scroll, so the toolbar gained **Text**: the pane's last 2000 lines as ordinary selectable text with a copy button. And the page comes back to the workspace and agent you were last in |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
