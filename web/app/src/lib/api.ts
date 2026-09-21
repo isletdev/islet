@@ -679,6 +679,9 @@ export const api = {
   workspaceStart: (id: string) => post<Workspace>(`/api/v1/workspaces/${id}/start`),
   workspaceStop: (id: string) => post<Workspace>(`/api/v1/workspaces/${id}/stop`),
   workspaceHistory: (id: string) => request<{ text: string }>(`/api/v1/workspaces/${id}/history`),
+  /** What an agent's window has on screen and above it, as plain text. */
+  agentHistory: (id: string, agentId: string, lines = 2000) =>
+    request<{ text: string }>(`/api/v1/workspaces/${encodeURIComponent(id)}/agents/${encodeURIComponent(agentId)}/history?lines=${lines}`),
   workspaceMcp: (id: string) => request<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
   workspaceMcpRenew: (id: string) => post<WorkspaceMCP>(`/api/v1/workspaces/${id}/mcp`),
   agents: (ws: string) => request<Agent[]>(`/api/v1/workspaces/${ws}/agents`),

@@ -6,7 +6,7 @@ import { useDialog, failure } from "@/lib/dialogs";
 import { postStream } from "@/lib/stream";
 import { pollInterval } from "@/lib/poll";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
-import { PlayIcon, PlusIcon, StopIcon } from "@/components/icons";
+import { FileIcon, PlayIcon, PlusIcon, StopIcon } from "@/components/icons";
 // Imported directly, as Terminal and Console do. Behind Suspense the pane
 // renders at nothing-height first, and anything that measures it then measures
 // a box that is not there yet.
@@ -63,6 +63,24 @@ const EMPTY_AGENT: Partial<Agent> = {
 /** The workspace's own shell window, which is not an agent and has no row. */
 const SHELL = "shell";
 
+// Which workspace and agent this device had open.
+//
+// The work lives on the server and outlives the tab, so coming back to the page
+// and being put in front of the first workspace alphabetically — rather than
+// the one you were in ten minutes ago — is the page forgetting something it
+// watched you do. Kept per device rather than per account: two people, or a
+// laptop and a phone, are each in the middle of their own thing.
+const LAST_KEY = "islet.workspace.last";
+const readLast = (): { ws?: string; agent?: string } => {
+  try { return JSON.parse(localStorage.getItem(LAST_KEY) || "{}") as { ws?: string; agent?: string }; } catch { return {}; }
+};
+const rememberLast = (ws: string | null, agent: string | null) => {
+  try {
+    if (!ws) localStorage.removeItem(LAST_KEY);
+    else localStorage.setItem(LAST_KEY, JSON.stringify({ ws, agent: agent ?? undefined }));
+  } catch { /* private mode */ }
+};
+
 
 /**
  * Three states, not two. Filled and animated is running; filled and still is a
@@ -84,10 +102,11 @@ const SHELL = "shell";
  * renaming and removing are not things to put a click away from a terminal
  * somebody is typing into.
  */
-function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onRestart, onEdit, onRemove }: {
+function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onRestart, onEdit, onRemove, onText }: {
   agents: Agent[]; agent: Agent; busy: boolean;
   onPick: (id: string) => void; onAdd: () => void;
   onStart: () => void; onStop: () => void; onRestart: () => void; onEdit: () => void; onRemove: () => void;
+  onText: () => void;
 }) {
   return (
     <>
@@ -125,6 +144,12 @@ function AgentBar({ agents, agent, busy, onPick, onAdd, onStart, onStop, onResta
         ))}
         <button type="button" onClick={onAdd} aria-label="Add an agent" className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
           <PlusIcon className="h-3.5 w-3.5" />Add
+        </button>
+        {/* Not in the menu: on a phone this is the only way to copy anything
+            out of the terminal, and a thing you need is not a thing to hide. */}
+        <button type="button" onClick={onText} title="See the output as text you can select"
+          className="-my-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink">
+          <FileIcon className="h-3.5 w-3.5" />Text
         </button>
         <MoreMenu label={`More for ${agent.name}`} items={[
           { label: "Restart", disabled: busy, onClick: onRestart },
@@ -238,7 +263,15 @@ export default function Workspaces() {
       setClaude(r.claude);
       setStranded(r.stranded ?? false);
       setErr(null);
-      setWsID((cur) => (cur && r.workspaces.some((w) => w.id === cur) ? cur : r.workspaces[0]?.id ?? null));
+      setWsID((cur) => {
+        if (cur && r.workspaces.some((w) => w.id === cur)) return cur;
+        // The one this device was last in, if it is still there. Only on the
+        // first load: after that `cur` is whatever was picked, and dragging the
+        // selection back every fifteen seconds would be its own bug.
+        const last = readLast().ws;
+        if (last && r.workspaces.some((w) => w.id === last)) return last;
+        return r.workspaces[0]?.id ?? null;
+      });
     } catch (e) {
       setErr(e instanceof RequestError ? e.message : String(e));
     }
@@ -260,12 +293,19 @@ export default function Workspaces() {
   }, [wsID, loadAgents]);
   // Switching workspace never keeps the previous one's agent selected.
   useEffect(() => { setTab(SHELL); }, [wsID]);
+  // And whatever is open is what this device comes back to.
+  useEffect(() => { rememberLast(wsID, tab === SHELL ? null : tab); }, [wsID, tab]);
   // And once its agents are known, land on one — but only when the selected tab
   // is not an agent that exists, or the ten-second poll would drag the
   // selection back to the first agent while somebody was reading the second.
   useEffect(() => {
-    setTab((cur) => (agents.some((a) => a.id === cur) ? cur : agents[0]?.id ?? SHELL));
-  }, [agents]);
+    setTab((cur) => {
+      if (agents.some((a) => a.id === cur)) return cur;
+      const last = readLast();
+      if (last.ws === wsID && last.agent && agents.some((a) => a.id === last.agent)) return last.agent;
+      return agents[0]?.id ?? SHELL;
+    });
+  }, [agents, wsID]);
   // Attaching is what creates the session, so the state fetched a moment ago
   // says "session down" beside a terminal that is plainly up. Ask again once
   // the attach has had time to land, rather than leaving the header wrong for
@@ -332,6 +372,40 @@ export default function Workspaces() {
       await api.agentStart(ws!.id, a.id);
     });
     setTermGen((n) => n + 1);
+  };
+
+  // The output as plain text, which is the only way to copy it on a phone.
+  //
+  // Selecting inside the terminal needs a drag with Shift held, because the
+  // program running in it has claimed the mouse — and a phone has neither a
+  // Shift key nor a way to drag without scrolling. tmux already knows how to
+  // hand over what a pane has on screen and above it, so the answer is to ask
+  // it: ordinary text in an ordinary box, where selecting works the way it does
+  // everywhere else, with a copy button for when it does not.
+  const showText = async (wsID: string, a: Agent) => {
+    try {
+      const { text } = await api.agentHistory(wsID, a.id, 2000);
+      await ask.alert({
+        title: `${a.name}: the last 2000 lines`,
+        body: (
+          <div className="space-y-2">
+            <p className="text-xs text-ink-muted">
+              Select any of it the way you would on a page. On a phone, press and hold.
+            </p>
+            <pre className="max-h-[60vh] select-text overflow-auto rounded-md bg-code-bg p-2 font-mono text-xs whitespace-pre-wrap">{text || "Nothing on screen yet."}</pre>
+            <Button
+              variant="secondary"
+              className="h-8 text-xs"
+              onClick={() => void navigator.clipboard.writeText(text).catch(() => {})}
+            >
+              Copy all of it
+            </Button>
+          </div>
+        ),
+      });
+    } catch (e) {
+      void ask.alert({ title: "Could not read the output", body: failure(e), tone: "danger" });
+    }
   };
 
   const removeAgent = async (a: Agent) => {
@@ -572,6 +646,7 @@ export default function Workspaces() {
                       onRestart={() => void restartAgent(agent)}
                       onEdit={() => setEditingAgent({ ...agent })}
                       onRemove={() => void removeAgent(agent)}
+                      onText={() => void showText(ws.id, agent)}
                     />}
                   />
                 ) : (

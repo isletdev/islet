@@ -359,12 +359,32 @@ func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error 
 	if err := os.MkdirAll(filepath.Dir(s.sock), 0o700); err != nil {
 		return err
 	}
+	// Scrollback, set before any pane exists because that is when a pane takes
+	// its limit. tmux's default of 2000 lines is a build log and not much else;
+	// 20000 is the difference between finding the error and asking the agent to
+	// run it again.
+	_, _ = s.tmux(ctx, actor, "set-option", "-g", "history-limit", "20000")
 	// -n names the first window, so every workspace has a plain shell of
 	// its own beside whatever agents it runs. Borrowing an agent's window to
 	// check `git status` means interrupting the agent to do it.
 	if _, err := s.tmux(ctx, actor, "new-session", "-d", "-s", SessionName(w.ID), "-n", ShellWindow, "-c", w.Directory); err != nil {
 		return err
 	}
+	// Mouse mode, which is what makes scrolling work at all in the panel.
+	//
+	// A tmux pane lives on the terminal's alternate screen, and the alternate
+	// screen has no scrollback: xterm has nothing to scroll to, so a wheel is
+	// turned into cursor keys and sent to the program. In a shell that walks
+	// through command history; on a phone, dragging a finger did the same. It
+	// was not scrolling being broken so much as there being nothing to scroll.
+	//
+	// With mouse on, the wheel — and the wheel events a finger drag is turned
+	// into — reach tmux, which scrolls its own history properly. The cost is
+	// that a plain drag no longer selects, because the mouse now belongs to the
+	// program: selecting needs Shift, which the toolbar says while a program is
+	// holding the mouse, and on a phone there is no Shift at all — which is
+	// what the toolbar's text view is for.
+	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(w.ID), "mouse", "on")
 	// tmux's status bar names the session and its windows along the bottom of
 	// every pane. Inside the panel that is a second, worse copy of the workspace
 	// and agent names already on screen, and it eats a row of the terminal. It
