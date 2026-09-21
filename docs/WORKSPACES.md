@@ -167,6 +167,35 @@ own menu, which offers Back and View Source and nothing a terminal can use.
 Reading and writing the clipboard needs a secure context, so on a panel served
 over plain HTTP the browser refuses and the terminal says so.
 
+### Selecting, and why a drag alone does not do it
+
+A tmux pane lives on the terminal's alternate screen, which has no scrollback of
+its own — so tmux is given the mouse, and scrolling works by tmux moving through
+its own history. That is the trade: with the mouse belonging to the program, a
+plain drag is the program's to interpret, and selecting needs **Shift held
+down** while dragging. The toolbar says so while a program is holding the mouse.
+
+On a phone there is no Shift, and no drag that is not a scroll. **Text** in the
+toolbar answers that: the pane's last two thousand lines as ordinary text, which
+selects the way anything on a page does, with a button that copies all of it.
+
+## Continuing a session from the Claude app
+
+A conversation started in the Claude app is a *cloud session*, and the sync only
+goes one way: `claude --teleport <session-id>` pulls one down and continues it
+here, on this server, against these files — while the app goes on showing it. A
+session started here cannot be pushed the other way.
+
+Make an agent with the preset "Something else" and that as its command. Three
+things it needs, all of them Claude Code's rules rather than Islet's: a
+Claude.ai account, a workspace directory that is a checkout of the repository
+the session is working on, and a clean git working tree.
+
+Islet leaves the command alone when it sees `--teleport`. Everywhere else an
+agent set to resume is given `--session-id` or `--resume` so it reopens its own
+conversation; a teleported session already carries one, and being handed a
+second makes Claude Code refuse to start.
+
 ## Limits in this version
 
 No split panes inside an agent's window. No session recording or playback, and no

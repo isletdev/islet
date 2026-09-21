@@ -31,9 +31,13 @@ const PRESETS: Record<Agent["preset"], { label: string; blurb: string; command: 
     blurb: "A prompt that stays where you left it. For a long build, a migration, anything you want to walk away from.",
     command: "",
   },
+  // Kept last deliberately: it is the escape hatch, and one of the things it
+  // is for is continuing a conversation started in the Claude app —
+  // `claude --teleport <session-id>` — which runs that session here, against
+  // these files, while the app keeps showing it.
   custom: {
     label: "Something else",
-    blurb: "Any command. It is typed into the window, so you can see it and run it again.",
+    blurb: "Any command. It is typed into the window, so you can see it and run it again. `claude --teleport <session-id>` continues a conversation started in the Claude app, here, against these files.",
     command: "",
   },
 };

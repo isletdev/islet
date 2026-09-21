@@ -1,6 +1,9 @@
 package workspace
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Resuming has to be exact, and the obvious way to do it is wrong.
 //
@@ -187,4 +190,26 @@ func contains(s, sub string) bool {
 		}
 		return false
 	})()
+}
+
+// A session continued from the Claude app brings its own identity.
+//
+// --teleport picks up a conversation started in the app and the branch it was
+// working on. Adding --session-id or --resume beside it asks one process for
+// two different conversations, and Claude Code refuses — so an agent set to
+// resume must leave a teleport command alone.
+func TestATeleportedSessionIsNotGivenASecondIdentity(t *testing.T) {
+	a := &Agent{Resume: true, SessionUUID: "11111111-2222-3333-4444-555555555555", LastStarted: "2026-09-21T00:00:00Z"}
+	got := resolveAgentCommand("claude --teleport abc123", "/usr/local/bin/claude", "", a)
+	if strings.Contains(got, "--resume") || strings.Contains(got, "--session-id") {
+		t.Errorf("a second conversation was added to a teleported one: %s", got)
+	}
+	if !strings.Contains(got, "--teleport abc123") {
+		t.Errorf("the teleport was lost: %s", got)
+	}
+	// An ordinary agent still gets its own conversation back.
+	plain := resolveAgentCommand("claude", "/usr/local/bin/claude", "", a)
+	if !strings.Contains(plain, "--resume "+a.SessionUUID) {
+		t.Errorf("an ordinary agent lost its conversation: %s", plain)
+	}
 }

@@ -242,7 +242,11 @@ func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent) string {
 		}
 	}
 	has := func(flag string) bool { return strings.Contains(cmd, flag) }
-	if a.Resume && a.SessionUUID != "" && !has("--resume") && !has("--session-id") && !has("--continue") {
+	// --teleport carries its own identity: it continues a session started in
+	// the Claude app, on the branch that session was working on. Adding
+	// --session-id or --resume beside it asks for two different conversations
+	// in one process, and Claude Code refuses.
+	if a.Resume && a.SessionUUID != "" && !has("--resume") && !has("--session-id") && !has("--continue") && !has("--teleport") {
 		// --session-id names the conversation on the first run; --resume
 		// reopens that exact one afterwards. --continue is deliberately not
 		// used: it means "the most recent conversation in this directory", and
