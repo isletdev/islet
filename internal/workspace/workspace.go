@@ -351,6 +351,12 @@ func (s *Service) running(ctx context.Context, id string) (bool, string) {
 // coming back after a reboot does not silently resume work nobody is watching.
 func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error {
 	if ok, _ := s.running(ctx, w.ID); ok {
+		// Applied to a session that already exists, not only to a new one.
+		// These settle what the mouse does, and a workspace somebody has had
+		// open for a week is exactly the one where scrolling not working is
+		// worth fixing — waiting for it to be recreated means waiting for its
+		// agents to be killed.
+		s.tune(ctx, actor, w.ID)
 		return nil
 	}
 	if !s.HasTmux(ctx) {
@@ -370,6 +376,19 @@ func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error 
 	if _, err := s.tmux(ctx, actor, "new-session", "-d", "-s", SessionName(w.ID), "-n", ShellWindow, "-c", w.Directory); err != nil {
 		return err
 	}
+	s.tune(ctx, actor, w.ID)
+	return nil
+}
+
+// tune sets what a session needs to behave in a browser. Idempotent, and cheap
+// enough to run on every attach.
+func (s *Service) tune(ctx context.Context, actor, id string) {
+	// tmux's status bar names the session and its windows along the bottom of
+	// every pane. Inside the panel that is a second, worse copy of the
+	// workspace and agent names already on screen, and it eats a row of the
+	// terminal. It stays off for Islet's sessions; attaching over SSH is
+	// unaffected, since a person there can turn it back on for their client.
+	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(id), "status", "off")
 	// Mouse mode, which is what makes scrolling work at all in the panel.
 	//
 	// A tmux pane lives on the terminal's alternate screen, and the alternate
@@ -384,14 +403,7 @@ func (s *Service) ensure(ctx context.Context, actor string, w *Workspace) error 
 	// program: selecting needs Shift, which the toolbar says while a program is
 	// holding the mouse, and on a phone there is no Shift at all — which is
 	// what the toolbar's text view is for.
-	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(w.ID), "mouse", "on")
-	// tmux's status bar names the session and its windows along the bottom of
-	// every pane. Inside the panel that is a second, worse copy of the workspace
-	// and agent names already on screen, and it eats a row of the terminal. It
-	// stays off for Islet's sessions; attaching over SSH is unaffected, since a
-	// person there can turn it back on for their own client.
-	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(w.ID), "status", "off")
-	return nil
+	_, _ = s.tmux(ctx, actor, "set-option", "-t", SessionName(id), "mouse", "on")
 }
 
 // AttachArgv is the command that joins a session from a PTY.
