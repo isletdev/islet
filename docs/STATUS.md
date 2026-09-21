@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `fab7cb7`, tagged `v0.30.1`, 2026-09-21. 230 commits, 94 tags, CI green on `main`.
+**Head:** `fa8bd30`, tagged `v0.30.2`, 2026-09-21. 232 commits, 95 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -36,7 +36,7 @@ server — a live fleet migrated off Nginx Proxy Manager, and then the need to r
 an agent next to the things it changes. That is the more interesting half of the
 recent history, because it is the half that was found rather than designed.
 
-## Shipped since the plan ran out — v0.6.0 to v0.30.1
+## Shipped since the plan ran out — v0.6.0 to v0.30.2
 
 | Tag | Commit | What it was |
 |---|---|---|
@@ -108,6 +108,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.29.3 | `96d0e89` | **No browser upload could get past its own preflight.** A CORS preflight deliberately carries no `Authorization` header, and the preflight was answered by looking up the key on the request — so it always came back empty, no `Access-Control-Allow-Origin` was sent, and the browser refused the upload it was asking permission for. On every server, whatever was configured; server-side callers never noticed because they send no Origin. It is answered from the keys as a whole now, with the real request still checked against its own key's origins. And a trailing slash on a stored origin — which the address bar has and an `Origin` header never does — stopped being a different origin |
 | v0.30.0 | `8291b3a` | **Terminal scrolling and copying, actually checked this time.** Scrolling never worked because there was nothing to scroll: a tmux pane is on the alternate screen, which has no scrollback, so xterm turns a wheel — and the wheel events a finger drag becomes — into cursor keys and sends them to the program. `mouse on` hands tmux the wheel and it scrolls its own history, now 20000 lines rather than 2000. A plain drag stops selecting as a result, but Shift+drag selects *and copies*, verified by reading the clipboard rather than counting highlight rectangles. A phone has no Shift and no drag that is not a scroll, so the toolbar gained **Text**: the pane's last 2000 lines as ordinary selectable text with a copy button. And the page comes back to the workspace and agent you were last in |
 | v0.30.1 | `fab7cb7` | **A conversation started in the Claude app can be continued in a workspace.** `claude --teleport <session-id>` pulls a cloud session down and runs it here, against the real files, while the app goes on showing it — the sync only goes that way, and a session started on the server cannot be pushed up. What stopped it working was Islet: an agent set to resume is handed `--session-id` or `--resume`, a teleported session already carries one, and Claude Code refuses two. The flag is left alone now |
+| v0.30.2 | `fa8bd30` | **The scroll fix reached only sessions nobody had yet.** It was applied where a session is created, and `ensure` returns early when one already exists — so three workspaces running since Friday had none of it. The settings are applied on every attach now, which repairs a session somebody has had open for a week by opening it rather than by killing its agents |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
