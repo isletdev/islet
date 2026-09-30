@@ -130,6 +130,19 @@ function heading(level: number, text: string, key: number): ReactNode {
 }
 
 /**
+ * What kind of list an item starts: numbered, a task box, or an ordinary
+ * bullet. Two lists of different kinds that touch are two lists — a bullet run
+ * followed by a task run followed by a numbered one used to come out as one
+ * `<ul>`, with the numbers gone and the boxes rendered as literal `[ ]`.
+ */
+function kindOf(line: string): "ordered" | "task" | "bullet" | "" {
+  const m = ITEM.exec(line);
+  if (!m) return "";
+  if (/^\d/.test(m[2])) return "ordered";
+  return TASK.test(m[3]) ? "task" : "bullet";
+}
+
+/**
  * One list, and everything nested under it.
  *
  * Indentation decides depth: an item indented past the one above it starts a
@@ -139,20 +152,29 @@ function heading(level: number, text: string, key: number): ReactNode {
  */
 function list(lines: string[], start: number, key: number): [ReactNode, number] {
   const base = (ITEM.exec(lines[start]) as RegExpExecArray)[1].length;
+  const kind = kindOf(lines[start]);
+  // A nested list is whatever it likes; only items at this list's own indent
+  // have to agree with it about what kind of list this is.
+  const belongs = (line: string) => {
+    const m = ITEM.exec(line);
+    if (!m) return false;
+    return m[1].length > base || kindOf(line) === kind;
+  };
   let end = start;
   while (end < lines.length) {
     const line = lines[end];
     if (/^\s*$/.test(line)) {
-      // A blank line keeps the list open only when another item follows it.
+      // A blank line keeps the list open only when another item of the same
+      // kind follows it.
       let k = end + 1;
       while (k < lines.length && /^\s*$/.test(lines[k])) k++;
       const m = k < lines.length ? ITEM.exec(lines[k]) : null;
-      if (m && m[1].length >= base) { end = k; continue; }
+      if (m && m[1].length >= base && belongs(lines[k])) { end = k; continue; }
       break;
     }
     const m = ITEM.exec(line);
     if (m) {
-      if (m[1].length < base) break;
+      if (m[1].length < base || !belongs(line)) break;
       end++;
       continue;
     }
@@ -169,8 +191,8 @@ function list(lines: string[], start: number, key: number): [ReactNode, number] 
     // A line before the first item cannot happen: the run starts on one.
   }
 
-  const ordered = /^\d/.test((ITEM.exec(lines[start]) as RegExpExecArray)[2]);
-  const tasks = items.length > 0 && items.every((it) => TASK.test(it[0]));
+  const ordered = kind === "ordered";
+  const tasks = kind === "task";
   const nodes = items.map((it, n) => item(dedent(it), n, tasks));
   if (tasks) return [<ul key={key} className="space-y-1">{nodes}</ul>, end];
   return [

@@ -321,6 +321,16 @@ func (s *Service) Delete(ctx context.Context, actor string, o *Object) error {
 	for _, p := range presets {
 		_ = st.Delete(ctx, derivativeKey(o.Key, p))
 	}
+	// Every kind of derivative, not only the resized images. A video's
+	// renditions are the largest things this service ever writes — three of them
+	// for a 200 MB upload is most of a gigabyte — and leaving them behind when
+	// the row goes leaves bytes that no API can reach, that `usage` cannot see,
+	// and that nothing will ever delete. Found by a release check that deleted
+	// its own test videos and then looked at the disk.
+	for _, f := range VideoFormats {
+		_ = st.Delete(ctx, f.key(o.Key))
+	}
+	_ = st.Delete(ctx, textKey(o.Key))
 	if _, err := s.st.DB.ExecContext(ctx, `DELETE FROM media_objects WHERE server_id = ? AND id = ?`, s.st.ServerID, o.ID); err != nil {
 		return err
 	}

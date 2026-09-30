@@ -479,6 +479,9 @@ func (p Preset) contentType() string {
 	}
 }
 
+// ErrNoPreset is a size nobody has defined.
+var ErrNoPreset = errors.New("no such preset")
+
 func (s *Service) Presets(ctx context.Context) ([]Preset, error) {
 	rows, err := s.st.DB.QueryContext(ctx,
 		`SELECT id, name, width, height, fit, format, quality FROM media_presets WHERE server_id = ? ORDER BY name`, s.st.ServerID)
@@ -503,7 +506,11 @@ func (s *Service) Preset(ctx context.Context, name string) (*Preset, error) {
 		`SELECT id, name, width, height, fit, format, quality FROM media_presets WHERE server_id = ? AND name = ?`,
 		s.st.ServerID, name).Scan(&p.ID, &p.Name, &p.Width, &p.Height, &p.Fit, &p.Format, &p.Quality)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		// Its own error, because "no such object" is what this used to become
+		// by the time it reached the caller — and an application author who has
+		// mistyped a preset name should be told that, not sent looking for an
+		// object that is plainly there.
+		return nil, fmt.Errorf("%w: %s", ErrNoPreset, name)
 	}
 	return &p, err
 }

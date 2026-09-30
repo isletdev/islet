@@ -129,6 +129,13 @@ func (q *Queue) Register(kind string, h Handler) {
 	q.handlers[kind] = h
 }
 
+// stamp is a timestamp that sorts as a string in the order it happened.
+//
+// RFC3339Nano trims trailing zeros, so ".5Z" sorts after ".50001Z" and a whole
+// second sorts after everything inside it — and the queue's order is `ORDER BY
+// created_at`. Nine digits, always.
+const stamp = "2006-01-02T15:04:05.000000000Z"
+
 const cols = `id, kind, payload, state, progress, detail, error, subject, label, actor, created_at, started_at, finished_at`
 
 func scanJob(row interface{ Scan(...any) error }) (Task, error) {
@@ -156,7 +163,7 @@ func (q *Queue) Add(ctx context.Context, actor, kind, subject, label string, pay
 		Subject:   subject,
 		Label:     label,
 		Actor:     actor,
-		CreatedAt: q.now().UTC().Format(time.RFC3339Nano),
+		CreatedAt: q.now().UTC().Format(stamp),
 	}
 	if _, err := q.st.DB.ExecContext(ctx,
 		`INSERT INTO work (id, server_id, kind, payload, state, subject, label, actor, created_at)
@@ -219,7 +226,7 @@ func (q *Queue) Get(ctx context.Context, id string) (*Task, error) {
 func (q *Queue) Cancel(ctx context.Context, actor, id string) error {
 	res, err := q.st.DB.ExecContext(ctx,
 		`UPDATE work SET state = ?, finished_at = ?, detail = '' WHERE id = ? AND server_id = ? AND state IN (?, ?)`,
-		Cancelled, q.now().UTC().Format(time.RFC3339Nano), id, q.st.ServerID, Queued, Running)
+		Cancelled, q.now().UTC().Format(stamp), id, q.st.ServerID, Queued, Running)
 	if err != nil {
 		return err
 	}
@@ -260,7 +267,7 @@ func (q *Queue) Start(ctx context.Context) error {
 func (q *Queue) recover(ctx context.Context) error {
 	res, err := q.st.DB.ExecContext(ctx,
 		`UPDATE work SET state = ?, error = ?, finished_at = ? WHERE server_id = ? AND state = ?`,
-		Failed, "the daemon restarted while this was running", q.now().UTC().Format(time.RFC3339Nano),
+		Failed, "the daemon restarted while this was running", q.now().UTC().Format(stamp),
 		q.st.ServerID, Running)
 	if err != nil {
 		return err
@@ -274,7 +281,7 @@ func (q *Queue) recover(ctx context.Context) error {
 // sweep keeps the table from being a log. A week is long enough to ask what
 // happened yesterday and short enough that nobody has to think about it.
 func (q *Queue) sweep(ctx context.Context) {
-	cutoff := q.now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+	cutoff := q.now().UTC().Add(-7 * 24 * time.Hour).Format(stamp)
 	if _, err := q.st.DB.ExecContext(ctx,
 		`DELETE FROM work WHERE server_id = ? AND state IN (?, ?, ?) AND created_at < ?`,
 		q.st.ServerID, Done, Failed, Cancelled, cutoff); err != nil {
@@ -340,6 +347,15 @@ func (q *Queue) step(ctx context.Context) (bool, error) {
 	q.mu.Lock()
 	q.stopping[j.ID] = cancel
 	q.mu.Unlock()
+	// Somebody can press Cancel between the claim above and the line above
+	// this: the row goes to cancelled, and there was no cancel function to call
+	// yet, so the work would run to the end under a row that says it did not.
+	// The window is microseconds and the outcome is a person watching a task
+	// they stopped carry on, so it is closed by asking once more now that the
+	// function is there to be found.
+	if cur, cerr := q.Get(ctx, j.ID); cerr == nil && cur.State == Cancelled {
+		cancel()
+	}
 	err = h(runCtx, *j, q.reporter(runCtx, j.ID))
 	cancel()
 	q.mu.Lock()
@@ -369,7 +385,7 @@ func (q *Queue) claim(ctx context.Context) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	now := q.now().UTC().Format(time.RFC3339Nano)
+	now := q.now().UTC().Format(stamp)
 	res, err := tx.ExecContext(ctx,
 		`UPDATE work SET state = ?, started_at = ?, progress = 0, detail = '', error = '' WHERE id = ? AND state = ?`,
 		Running, now, j.ID, Queued)
@@ -425,7 +441,7 @@ func (q *Queue) reporter(ctx context.Context, id string) Report {
 // that with "failed: context canceled".
 func (q *Queue) finish(ctx context.Context, j Task, err error) {
 	done := context.WithoutCancel(ctx)
-	now := q.now().UTC().Format(time.RFC3339Nano)
+	now := q.now().UTC().Format(stamp)
 	state, msg, progress := Done, "", 1.0
 	if err != nil {
 		state, msg, progress = Failed, err.Error(), 0

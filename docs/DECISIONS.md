@@ -3280,3 +3280,41 @@ disagrees with the plan, and this paragraph is why.
 **AVIF needed nothing.** It was already a preset format, the panel already
 offered it, and the worker's libvips already has the HEIF saver — checked by
 converting one rather than by reading the package list.
+
+## 2026-09-30 — what a release check found
+
+An independent pass over v0.32.0 on this server — driving the API, watching
+`docker top`, and reading the disk rather than the rows — found two faults worth
+recording, because both were invisible from inside the code.
+
+**Cancel did not stop the encoder, and made the load worse.** `docker exec` is a
+client: killing it on this side does not reach the process inside the container,
+which Docker leaves running. So Cancel marked the row `cancelled`, the handler
+returned about five seconds later on cmdrun's `WaitDelay`, the queue started the
+next task — and the first ffmpeg carried on to the end. Two encodes on a
+one-core box, which is the precise thing the queue exists to prevent, caused by
+the button that exists to prevent it. Worse, the staging files had already been
+unlinked by then, so the orphan spent a minute writing to a deleted inode.
+
+The encoder is an ordinary process on this machine, and `docker top` reports
+host pids, so it is now found by the output file's name — unique per task — and
+signalled. The handler then waits for the core to actually be free before it
+returns, which is what restores one-at-a-time.
+
+**Deleting a video left its renditions behind.** `Delete` removed the original
+and looped over the image presets, which was the whole of what derivatives meant
+when it was written. Three MP4s of a 200 MB upload is most of a gigabyte per
+deleted video, unreachable through any API and invisible to `usage`. Every kind
+of derivative is removed now, the extracted text included.
+
+Both of those are the same lesson in different clothes: a feature is not
+finished when its own path works, but when the paths *around* it do — stopping
+it, deleting it, and what is left on the disk afterwards.
+
+**And one in the panel.** Two lists that touch were rendered as one: the run
+stayed open across a blank line whenever the next line was any list item, so a
+bullet list followed by a task list followed by a numbered list came out as a
+single `<ul>` — numbers gone, task boxes rendered as literal `[ ]`. A list's
+kind is decided by its first item and an item of another kind now ends the run.
+That is the shape a model writes constantly, and it shipped in the release whose
+headline was that lists render properly.

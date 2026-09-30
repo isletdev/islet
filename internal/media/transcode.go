@@ -120,7 +120,7 @@ func (s *Service) VideoRenditions(ctx context.Context, o *Object) ([]VideoRendit
 func (s *Service) OpenVideo(ctx context.Context, o *Object, formatName string) (*Rendition, error) {
 	f, ok := VideoFormatByName(formatName)
 	if !ok {
-		return nil, fmt.Errorf("no video format called %q", formatName)
+		return nil, fmt.Errorf("%w: %s", ErrNoPreset, formatName)
 	}
 	b, err := s.Bucket(ctx, o.BucketID)
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *Service) Transcode(ctx context.Context, actor string, a TranscodeArgs, 
 	defer func() { _ = os.Remove(dstPath) }()
 
 	report(0, "encoding")
-	if err := s.encode(ctx, actor, srcRel, dstRel, f, seconds, report); err != nil {
+	if err := s.encode(ctx, actor, srcRel, dstRel, o.Filename, f, seconds, report); err != nil {
 		return err
 	}
 
@@ -243,21 +243,48 @@ func (s *Service) Transcode(ctx context.Context, actor string, a TranscodeArgs, 
 // a four-minute encode that reports nothing until it ends is indistinguishable
 // from a hung one. It still goes through cmdrun, so the command is in the
 // transparency drawer with everything else.
-func (s *Service) encode(ctx context.Context, actor, srcRel, dstRel string, f VideoFormat, seconds float64, report func(float64, string)) error {
+func (s *Service) encode(ctx context.Context, actor, srcRel, dstRel, name string, f VideoFormat, seconds float64, report func(float64, string)) error {
 	out, wait, err := s.cmds.Stream(ctx, actor, "docker", encodeArgs(srcRel, dstRel, f)...)
 	if err != nil {
 		return err
 	}
+
+	// Cancelling this context kills `docker exec` on this side, and that is the
+	// client: Docker does not pass its death on to the process inside the
+	// container. Without this, pressing Cancel marked the task cancelled, freed
+	// the queue to start the next encode, and left the first one running to the
+	// end — two ffmpegs on a one-core box, which is the exact thing the queue
+	// exists to prevent. Found by a release check that watched `docker top`
+	// rather than the row.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			s.stopEncode(context.WithoutCancel(ctx), dstRel)
+		case <-done:
+		}
+	}()
+
 	var tail []string
 	sc := bufio.NewScanner(out)
+	// ffmpeg can write a long line, and the default 64 KB cap ends the scan
+	// early — which reads exactly like the encode failing.
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		if done, ok := elapsed(line); ok {
-			if seconds > 0 {
+		if at, ok := elapsed(line); ok {
+			switch {
+			case seconds > 0:
 				// Capped below 1: storing it still has to happen, and a bar
 				// that sits at 100% while something is plainly still going is
 				// how people learn not to trust the bar.
-				report(min(0.95, done/seconds), "encoding")
+				report(min(0.95, at/seconds), "encoding")
+			default:
+				// A video whose duration nothing could read has no fraction to
+				// show. Saying how much of it has been encoded is still a thing
+				// that moves, which is most of what a progress bar is for.
+				report(0, "encoding "+clock(at))
 			}
 			continue
 		}
@@ -272,13 +299,90 @@ func (s *Service) encode(ctx context.Context, actor, srcRel, dstRel string, f Vi
 		}
 	}
 	_ = out.Close()
-	if err := wait(); err != nil {
+	werr := wait()
+
+	// Whether it ended or was stopped, this task is not over while a core is
+	// still busy with it.
+	s.awaitEncodeStopped(context.WithoutCancel(ctx), dstRel)
+
+	if werr != nil {
 		if msg := strings.TrimSpace(strings.Join(tail, "; ")); msg != "" {
-			return fmt.Errorf("%s", msg)
+			return fmt.Errorf("%s", readable(msg, srcRel, dstRel, name))
 		}
-		return err
+		return werr
 	}
 	return nil
+}
+
+// readable puts the object's name where ffmpeg put a staging file's, because
+// `src-2172116080: Invalid data found` names something the person reading it
+// cannot look at and did not choose.
+func readable(msg, srcRel, dstRel, name string) string {
+	msg = strings.ReplaceAll(msg, dstRel, name)
+	return strings.ReplaceAll(msg, srcRel, name)
+}
+
+// clock is seconds as minutes and seconds, for a line somebody is reading.
+func clock(seconds float64) string {
+	total := int(seconds)
+	return fmt.Sprintf("%d:%02d", total/60, total%60)
+}
+
+// stopEncode kills the encoder itself, inside the container.
+//
+// `docker top` reports host process ids, which is what makes this possible
+// without adding a process tool to the worker image: the encoder is an ordinary
+// process on this machine, started by this daemon, and the output file's name is
+// unique to this task.
+func (s *Service) stopEncode(ctx context.Context, marker string) {
+	for _, pid := range s.encodePIDs(ctx, marker) {
+		_, _ = s.cmds.Run(ctx, "system", "kill", "-TERM", pid)
+	}
+}
+
+// awaitEncodeStopped waits for the core to actually be free, escalating once.
+//
+// Bounded, because the alternative to giving up is a queue that never runs
+// anything again; a task that leaves something behind is better reported late
+// than never.
+func (s *Service) awaitEncodeStopped(ctx context.Context, marker string) {
+	deadline := time.Now().Add(20 * time.Second)
+	escalated := false
+	for time.Now().Before(deadline) {
+		pids := s.encodePIDs(ctx, marker)
+		if len(pids) == 0 {
+			return
+		}
+		if !escalated && time.Now().After(deadline.Add(-15*time.Second)) {
+			for _, pid := range pids {
+				_, _ = s.cmds.Run(ctx, "system", "kill", "-KILL", pid)
+			}
+			escalated = true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	s.log.Warn("media: an encode is still running after being told to stop", "output", marker)
+}
+
+// encodePIDs is the host pids of anything in the worker still working on this
+// task's output.
+func (s *Service) encodePIDs(ctx context.Context, marker string) []string {
+	res, err := s.cmds.Read(ctx, "docker", "top", WorkerName, "-eo", "pid,args")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if !strings.Contains(line, marker) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] == "PID" {
+			continue
+		}
+		out = append(out, fields[0])
+	}
+	return out
 }
 
 // encodeArgs is the whole command, in one place so it can be read and tested

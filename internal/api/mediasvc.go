@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/media"
+	"github.com/isletdev/islet/internal/work"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -46,6 +47,7 @@ func (s *Server) serviceHandler() http.Handler {
 	mux.HandleFunc("DELETE /svc/media/v1/objects/{id}", s.svcMediaDelete)
 	mux.HandleFunc("POST /svc/media/v1/objects/{id}/transcode", s.svcMediaTranscode)
 	mux.HandleFunc("GET /svc/media/v1/tasks/{id}", s.svcMediaTask)
+	mux.HandleFunc("POST /svc/media/v1/tasks/{id}/cancel", s.svcMediaTaskCancel)
 	mux.HandleFunc("/svc/", s.svcNotFound)
 	return s.recover(s.logRequests(s.svcCORS(mux)))
 }
@@ -309,6 +311,7 @@ func (s *Server) svcMediaGet(w http.ResponseWriter, r *http.Request) {
 	if _, isVideo := media.VideoFormatByName(preset); isVideo {
 		ren, err = s.media.OpenVideo(r.Context(), obj, preset)
 	} else {
+		//nolint:staticcheck // the shape reads better with the video case first
 		ren, err = s.media.Open(r.Context(), "svc", obj, preset)
 	}
 	if err != nil {
@@ -433,18 +436,8 @@ func (s *Server) svcMediaTask(w http.ResponseWriter, r *http.Request) {
 		svcErr(w, http.StatusServiceUnavailable, "unavailable", "the work queue is not running on this server")
 		return
 	}
-	t, err := s.work.Get(r.Context(), r.PathValue("id"))
-	if err != nil {
-		svcErr(w, http.StatusNotFound, "not_found", "no such task")
-		return
-	}
-	id, ok2 := strings.CutPrefix(t.Subject, "media:object:")
+	t, _, ok2 := s.svcTaskFor(r, k)
 	if !ok2 {
-		svcErr(w, http.StatusNotFound, "not_found", "no such task")
-		return
-	}
-	obj, err := s.media.Object(r.Context(), id)
-	if err != nil || !sameNamespace(k, obj) {
 		svcErr(w, http.StatusNotFound, "not_found", "no such task")
 		return
 	}
@@ -493,6 +486,49 @@ func (s *Server) svcMediaText(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	_, _ = io.Copy(w, body)
+}
+
+// svcMediaTaskCancel stops work an application asked for. Queueing something
+// that cannot be stopped is a thing to regret on a one-core box: a video queued
+// by mistake should not have to be waited out.
+func (s *Server) svcMediaTaskCancel(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.svcKey(w, r, "upload")
+	if !ok {
+		return
+	}
+	if s.work == nil {
+		svcErr(w, http.StatusServiceUnavailable, "unavailable", "the work queue is not running on this server")
+		return
+	}
+	t, obj, ok := s.svcTaskFor(r, k)
+	if !ok {
+		svcErr(w, http.StatusNotFound, "not_found", "no such task")
+		return
+	}
+	_ = obj
+	if err := s.work.Cancel(r.Context(), "key:"+k.Name, t.ID); err != nil {
+		s.failed(w, "work", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// svcTaskFor finds a task this key is allowed to know about: one whose object
+// is in its own namespace, which is the rule every other route here follows.
+func (s *Server) svcTaskFor(r *http.Request, k *media.Key) (*work.Task, *media.Object, bool) {
+	t, err := s.work.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return nil, nil, false
+	}
+	id, ok := strings.CutPrefix(t.Subject, "media:object:")
+	if !ok {
+		return nil, nil, false
+	}
+	obj, err := s.media.Object(r.Context(), id)
+	if err != nil || !sameNamespace(k, obj) {
+		return nil, nil, false
+	}
+	return t, obj, true
 }
 
 func (s *Server) svcNotFound(w http.ResponseWriter, r *http.Request) {
@@ -605,6 +641,12 @@ func svcObjectErr(w http.ResponseWriter, err error) {
 	// object is there, the answer is "ask for it and come back". 409 rather
 	// than 202 because nothing was accepted — this request did not queue
 	// anything, and a caller that treats it as "started" would wait forever.
+	// A name nobody has defined is a 404 about the name, not about the object.
+	// Both the image presets and the video formats land here.
+	if errors.Is(err, media.ErrNoPreset) {
+		svcErr(w, http.StatusNotFound, "no_preset", err.Error())
+		return
+	}
 	if errors.Is(err, media.ErrNotTranscoded) {
 		svcErr(w, http.StatusConflict, "not_transcoded", err.Error())
 		return
