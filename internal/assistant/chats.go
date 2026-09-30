@@ -193,6 +193,66 @@ func (c *Chats) Append(ctx context.Context, username, id string, msgs ...Message
 	return tx.Commit()
 }
 
+// MarkLastPartial records that the newest turn of a conversation ended before
+// it was finished.
+//
+// It is a second pass over a row that was written moments earlier, and has to
+// be: a turn is stored as it completes, which is before anything knows how the
+// run ended. Doing it the other way — holding every turn until the run is over
+// — is what the streaming writes were introduced to stop, since a daemon
+// restarted mid-answer would then keep nothing at all.
+//
+// A run that failed before the model said anything leaves the person's question
+// as the last turn, and a question is not a partial answer: that case is left
+// alone, and the panel offers to ask it again instead.
+func (c *Chats) MarkLastPartial(ctx context.Context, username, id string) error {
+	tx, err := c.st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var owner string
+	err = tx.QueryRowContext(ctx, `SELECT username FROM assistant_chats WHERE id = ? AND server_id = ?`, id, c.st.ServerID).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && owner != username) {
+		return ErrNoChat
+	}
+	if err != nil {
+		return err
+	}
+
+	var seq int
+	var body string
+	err = tx.QueryRowContext(ctx,
+		`SELECT seq, body FROM assistant_messages WHERE chat_id = ? AND server_id = ? ORDER BY seq DESC LIMIT 1`,
+		id, c.st.ServerID).Scan(&seq, &body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var m Message
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		return err
+	}
+	if m.Role != RoleAssistant || m.Partial {
+		return nil
+	}
+	m.Partial = true
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE assistant_messages SET body = ? WHERE chat_id = ? AND server_id = ? AND seq = ?`,
+		string(b), id, c.st.ServerID, seq); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // Rename sets a title by hand.
 func (c *Chats) Rename(ctx context.Context, username, id, title string) error {
 	res, err := c.st.DB.ExecContext(ctx,

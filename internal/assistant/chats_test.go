@@ -163,3 +163,101 @@ func TestTitlesAreReadableInAList(t *testing.T) {
 		t.Errorf("whitespace not collapsed: %q", got)
 	}
 }
+
+// A stopped answer and a finished one are the same rows with the same shape, so
+// the difference has to be written down at the moment it is known. Everything
+// the panel offers afterwards — Continue, or nothing at all — hangs off this
+// one flag.
+func TestAStoppedAnswerIsMarkedAndAFinishedOneIsNot(t *testing.T) {
+	c := testChats(t)
+	ctx := context.Background()
+	ch, err := c.Create(ctx, "alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Append(ctx, "alice", ch.ID,
+		Message{Role: RoleUser, Text: "walk the whole deploy log"},
+		Message{Role: RoleAssistant, Text: "The build starts at 10:02 and"},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing is marked until the run says how it ended.
+	_, msgs, err := c.Get(ctx, "alice", ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[1].Partial {
+		t.Error("a turn was born unfinished")
+	}
+
+	if err := c.MarkLastPartial(ctx, "alice", ch.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, msgs, err = c.Get(ctx, "alice", ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !msgs[1].Partial {
+		t.Error("the answer that was cut off is not marked, so the panel cannot offer to carry on")
+	}
+	if msgs[0].Partial {
+		t.Error("the question was marked too")
+	}
+	if msgs[1].Text != "The build starts at 10:02 and" {
+		t.Errorf("marking the turn rewrote it: %q", msgs[1].Text)
+	}
+
+	// The next answer in the same conversation is a fresh turn and carries
+	// nothing from the one before it.
+	if err := c.Append(ctx, "alice", ch.ID, Message{Role: RoleAssistant, Text: "…continues at 10:04."}); err != nil {
+		t.Fatal(err)
+	}
+	_, msgs, err = c.Get(ctx, "alice", ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[2].Partial {
+		t.Error("the turn after a stopped one inherited its mark")
+	}
+}
+
+// A run that died before the model wrote anything leaves the question as the
+// last turn. A question is not a half-finished answer: marking it would put a
+// Continue button under something there is nothing to continue.
+func TestAQuestionWithNoAnswerIsNotMarkedAsUnfinished(t *testing.T) {
+	c := testChats(t)
+	ctx := context.Background()
+	ch, err := c.Create(ctx, "alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Append(ctx, "alice", ch.ID, Message{Role: RoleUser, Text: "why is the shop down?"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MarkLastPartial(ctx, "alice", ch.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, msgs, err := c.Get(ctx, "alice", ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[0].Partial {
+		t.Error("a question was marked as an unfinished answer")
+	}
+}
+
+// The mark is a write, and a write on somebody else's conversation is refused
+// exactly as an append to it is.
+func TestMarkingAnotherPersonsConversationIsRefused(t *testing.T) {
+	c := testChats(t)
+	ctx := context.Background()
+	ch, err := c.Create(ctx, "alice", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Append(ctx, "alice", ch.ID, Message{Role: RoleAssistant, Text: "half an answer"})
+	if err := c.MarkLastPartial(ctx, "bob", ch.ID); !errors.Is(err, ErrNoChat) {
+		t.Errorf("bob could mark alice's conversation: %v", err)
+	}
+}

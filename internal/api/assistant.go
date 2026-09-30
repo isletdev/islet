@@ -481,9 +481,11 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			// Marked as asked-for rather than gone-wrong. What it had already
 			// written is in `out` and stays on the screen; only the red banner
 			// is out of place, because stopping is a thing somebody did.
+			s.endedPartway(persist, u.Username, chatID, out)
 			rn.add("error", map[string]any{"message": "stopped", "stopped": true, "messages": out})
 			rn.finish("cancelled")
 		case err != nil:
+			s.endedPartway(persist, u.Username, chatID, out)
 			rn.add("error", map[string]any{"message": err.Error(), "messages": out})
 			rn.finish("error")
 		default:
@@ -504,6 +506,25 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	streamRun(r.Context(), w, rn, 0)
+}
+
+// endedPartway marks the turn that was cut off, in both of the places that have
+// to agree about it: the payload the open tab is about to read, and the row that
+// a tab opening the conversation tomorrow will read instead.
+//
+// Only an answer is marked. A run that died before the model wrote anything
+// leaves the question as the last turn, which the panel already reads as a
+// question that never got an answer.
+func (s *Server) endedPartway(ctx context.Context, username, chatID string, out []assistant.Message) {
+	if n := len(out); n > 0 && out[n-1].Role == assistant.RoleAssistant {
+		out[n-1].Partial = true
+	}
+	if chatID == "" || s.chats == nil {
+		return
+	}
+	if err := s.chats.MarkLastPartial(ctx, username, chatID); err != nil {
+		s.log.Warn("assistant: could not mark a turn as unfinished", "chat", chatID, "err", err)
+	}
 }
 
 // handleAssistantChats lists conversations, or starts an empty one.

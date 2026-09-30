@@ -68,6 +68,12 @@ type Message struct {
 	// the device it is opened on tomorrow, as prose with no account of what it
 	// actually did to the server.
 	Tools []ToolRun `json:"tools,omitempty"`
+	// Partial marks a turn that ended before it was finished: somebody pressed
+	// Stop, or the stream was cut. Nothing else in a stored turn tells the two
+	// apart — a complete answer and one abandoned halfway look identical once
+	// they are rows — and the panel has to know which it is before it can offer
+	// to carry on. Absent on every turn that simply finished.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // ToolRun is one call that already happened.

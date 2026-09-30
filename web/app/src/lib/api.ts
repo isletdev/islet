@@ -218,6 +218,8 @@ export interface AssistantMessage {
   results?: AssistantToolResult[];
   /** What a provider running its own loop did while producing this turn. */
   tools?: AssistantToolRun[];
+  /** Set when the turn ended before it was finished: Stop, or a cut stream. */
+  partial?: boolean;
 }
 
 /** An uploaded file, before it has been attached to anything. */

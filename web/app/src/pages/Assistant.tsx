@@ -725,9 +725,10 @@ export default function Assistant() {
             )}
             <Transcript msgs={msgs} />
             {/* What to do about an answer that ended early, offered where it
-                ended rather than left to be retyped. Which one it is depends
-                on whether there is anything to carry on from: a stopped answer
-                is continued, a question that never got one is asked again. */}
+                ended rather than left to be retyped. Nothing is offered under
+                an answer that finished: which is which comes from the turn's
+                own `partial`, set by the daemon when the run was stopped or
+                cut, rather than being guessed from the shape of the message. */}
             {!running && msgs.length > 0 && !activity.length && (
               <Resume last={msgs[msgs.length - 1]} onPick={(q) => void ask1(q)} />
             )}
@@ -887,9 +888,15 @@ function PendingFile({ file, onRemove }: { file: Pending; onRemove: () => void }
  * A stopped or failed answer used to leave the person to work out what to type.
  * Both cases have one obvious next move, and it is different in each: an answer
  * that got halfway is continued, a question that never got one is asked again.
+ *
+ * Which is only useful if "got halfway" can be told from "finished", and for
+ * two releases it could not: the test was an assistant turn with text in it,
+ * which is exactly what a successful answer is, so Continue sat under every
+ * conversation on the server. The daemon knows how a run ended and now says so
+ * on the turn itself.
  */
 function Resume({ last, onPick }: { last: AssistantMessage; onPick: (q: string) => void }) {
-  const stopped = last.role === "assistant" && Boolean(last.text?.trim());
+  const stopped = last.role === "assistant" && Boolean(last.partial) && Boolean(last.text?.trim());
   const unanswered = last.role === "user";
   if (!stopped && !unanswered) return null;
   return (
