@@ -105,6 +105,9 @@ func (s *Service) makeVariant(ctx context.Context, actor string, st Storage, o *
 	}
 
 	if t := s.WorkerStatus(ctx); !t.Running {
+		if t.Foreign {
+			return errors.New("the converter container on this host belongs to another Islet daemon, so nothing here can reach it")
+		}
 		return errors.New("the converters are not installed on this server")
 	}
 

@@ -45,6 +45,12 @@ type Key struct {
 }
 
 // Can reports whether this key may do something.
+// Scopes is every scope a media key can carry. Exported because the service
+// routes name these in code, and a route asking for a scope that does not exist
+// is a route nobody can ever reach — which is what happened to transcoding, and
+// what TestEverySvcScopeIsARealOne now catches.
+var Scopes = []string{"upload", "read", "delete", "sign"}
+
 func (k *Key) Can(scope string) bool {
 	for _, s := range strings.Split(k.Scopes, ",") {
 		if strings.TrimSpace(s) == scope {
@@ -152,7 +158,7 @@ func (s *Service) Mint(ctx context.Context, actor string, k *Key) (*Key, error) 
 	}
 	for _, sc := range strings.Split(k.Scopes, ",") {
 		switch strings.TrimSpace(sc) {
-		case "upload", "read", "delete", "sign":
+		case Scopes[0], Scopes[1], Scopes[2], Scopes[3]:
 		default:
 			return nil, errors.New("scopes are any of upload, read, delete, sign")
 		}

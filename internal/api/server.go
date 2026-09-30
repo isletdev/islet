@@ -42,6 +42,7 @@ import (
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
+	"github.com/isletdev/islet/internal/work"
 	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
 )
@@ -74,6 +75,7 @@ type Deps struct {
 	// layer writes directly — the assistant's own MCP configuration among them.
 	DataDir string
 	Media   *media.Service
+	Work    *work.Queue
 	GitHub  *github.Client
 	UI      http.Handler
 	Log     *slog.Logger
@@ -117,6 +119,7 @@ type Server struct {
 	assistantMu     sync.Mutex
 	assistantTokens map[string]bool
 	media           *media.Service
+	work            *work.Queue
 	github          *github.Client
 	mcp             *mcp.Server
 	// routes is the bare router, kept so the generic MCP tool can reach any
@@ -145,7 +148,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, dataDir: d.DataDir, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, work: d.Work, dataDir: d.DataDir, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
 	}
@@ -284,7 +287,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/media/presets", s.requireAuth(s.handleMediaPresets))
 	mux.HandleFunc("POST /api/v1/media/presets", requireJSON(s.requireAuth(s.handleMediaPresets)))
 	mux.HandleFunc("DELETE /api/v1/media/presets/{id}", s.requireAuth(s.handleMediaPreset1))
+	// Work that outlives its request: the queue, and the one thing on it.
+	mux.HandleFunc("GET /api/v1/tasks", s.requireAuth(s.handleTasks))
+	mux.HandleFunc("GET /api/v1/tasks/{id}", s.requireAuth(s.handleTask1))
+	mux.HandleFunc("POST /api/v1/tasks/{id}/cancel", s.requireAuth(s.handleTaskCancel))
 	mux.HandleFunc("GET /api/v1/media/objects", s.requireAuth(s.handleMediaObjects))
+	mux.HandleFunc("GET /api/v1/media/objects/{id}/renditions", s.requireAuth(s.handleMediaRenditions))
+	mux.HandleFunc("POST /api/v1/media/objects/{id}/transcode", requireJSON(s.requireAuth(s.handleMediaTranscode)))
 	mux.HandleFunc("DELETE /api/v1/media/objects/{id}", s.requireAuth(s.handleMediaObject1))
 	mux.HandleFunc("GET /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))
 	mux.HandleFunc("POST /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))

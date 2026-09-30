@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,6 +54,11 @@ type Tools struct {
 	Vips    string `json:"vips,omitempty"`
 	FFmpeg  string `json:"ffmpeg,omitempty"`
 	Poppler string `json:"poppler,omitempty"`
+	// Foreign is a converter container on this host that is serving a different
+	// Islet daemon: the same name, somebody else's staging directory. It is
+	// running, and it is no use here — every conversion would be handed a path
+	// that does not exist inside it.
+	Foreign bool `json:"foreign,omitempty"`
 }
 
 // workDir is the directory shared with the worker. Everything a conversion
@@ -65,6 +71,18 @@ func (s *Service) WorkerStatus(ctx context.Context) Tools {
 	out, err := s.cmds.Read(ctx, "docker", "inspect", "-f", "{{.State.Running}}", WorkerName)
 	if err != nil || strings.TrimSpace(out.Stdout) != "true" {
 		return t
+	}
+	// One container per host, one staging directory per daemon: a second Islet
+	// on this machine finds a converter that is running and cannot use it,
+	// because /work inside it is the first one's directory. Left unsaid, that
+	// is every conversion failing with "no such file" about a path the panel
+	// can plainly see on disk — which is a morning gone.
+	if mount, err := s.cmds.Read(ctx, "docker", "inspect", "-f",
+		`{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}`, WorkerName); err == nil {
+		if got := strings.TrimSpace(mount.Stdout); got != "" && got != s.workDir() {
+			t.Foreign = true
+			return t
+		}
 	}
 	t.Running = true
 	t.Vips = firstLine(s.exec(ctx, "vips", "--version"))
@@ -89,6 +107,9 @@ func (s *Service) InstallWorker(ctx context.Context, actor string, line func(str
 	}
 	if err := os.MkdirAll(s.workDir(), 0o750); err != nil {
 		return err
+	}
+	if s.WorkerStatus(ctx).Foreign {
+		return errors.New("the converter container on this host belongs to another Islet daemon; stop that one, or run this daemon on a host of its own")
 	}
 	line("building " + WorkerImage + " — this takes a few minutes the first time")
 	// Streamed rather than run and reported: a build on a small server is

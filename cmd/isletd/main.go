@@ -47,6 +47,7 @@ import (
 	"github.com/isletdev/islet/internal/version"
 	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
+	"github.com/isletdev/islet/internal/work"
 	"github.com/isletdev/islet/internal/workspace"
 )
 
@@ -180,6 +181,24 @@ func run() error {
 	upl := uploads.New(cmds, *dataDir, log)
 	med := media.New(st, keys, cmds, *dataDir, log)
 	vlt := vault.New(st, keys)
+
+	// The queue, and the one kind of work there is to put on it. The handler is
+	// wired here rather than inside either package: media does not import the
+	// queue and the queue has never heard of media, which is what keeps "one
+	// worker, one job at a time" a property of the server rather than of a
+	// feature that happens to be careful.
+	wq := work.New(st, bus, log)
+	wq.Register("media.transcode", func(ctx context.Context, t work.Task, report work.Report) error {
+		var a media.TranscodeArgs
+		if err := t.Args(&a); err != nil {
+			return err
+		}
+		return med.Transcode(ctx, t.Actor, a, report)
+	})
+	if err := wq.Start(ctx); err != nil {
+		log.Error("could not start the work queue", "err", err)
+		os.Exit(1)
+	}
 	go watch.Docker(ctx, cmds, bus, log)
 	go watch.Resources(ctx, sampler, bus)
 	go watch.Daily(ctx, px, bus, log)
@@ -212,7 +231,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, Uploads: upl, Media: med, DataDir: *dataDir, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, Uploads: upl, Media: med, Work: wq, DataDir: *dataDir, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines

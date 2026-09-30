@@ -1,6 +1,7 @@
 # Islet Services — the plan
 
-> Status: Phase A and Phase B are built and shipped. Phase C is not. Where the
+> Status: Phase A and Phase B are built and shipped. Phase C is under way — the
+> video half of it shipped in v0.32.0 with the work queue underneath it. Where the
 > work stands is [STATUS.md](STATUS.md); why non-obvious calls were made is in
 > [DECISIONS.md](DECISIONS.md).
 >
@@ -185,11 +186,11 @@ bucket is what exists.
 - **GCS and Azure drivers.**
 - **PDF**: text extraction for search. Page count and a thumbnail of page one
   shipped with Phase B.
-- **Video**: transcoding to web formats. Probing and a thumbnail shipped with
-  Phase B; transcoding is not a request but a job with progress, failure and a
-  notification, and it needs a queue that does not exist yet. On a small server
-  it is one at a time and the panel should say plainly what it will do to the
-  box before it is switched on.
+- **Video**: transcoding to web formats. **Shipped in v0.32.0**, with the queue
+  it needed: `internal/work` is one table, one worker and one task at a time, and
+  the Media page says plainly that each encode is minutes of this server's CPU
+  before anybody presses the button. Three heights of H.264/AAC; VP9 and AV1 are
+  left out while these servers have one core and no hardware encoder.
 - **Image extras** as they earn their place: focal-point cropping, AVIF, EXIF
   stripping by default with an opt-out.
 

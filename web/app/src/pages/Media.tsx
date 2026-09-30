@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import {
   api, RequestError,
   type MediaBucket, type MediaKey, type MediaObject, type MediaOverview, type MediaPreset,
+  type MediaRendition,
 } from "@/lib/api";
+import { pollInterval } from "@/lib/poll";
 import { postStream } from "@/lib/stream";
 import { useDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/auth";
@@ -163,6 +165,7 @@ export default function Media() {
       <Keys list={keys} buckets={buckets} busy={busy} minted={minted} onMinted={setMinted} onRun={run} ask={ask} />
       <Presets list={presets} busy={busy} onRun={run} />
       <Objects list={objects} base={base} busy={busy} onRun={run} ask={ask} />
+      <Videos list={objects} base={base} busy={busy} onRun={run} />
 
       {over.usage.length > 0 && (
         <Card title="What is stored" description="By namespace, which is how one application's files are kept apart from another's.">
@@ -468,6 +471,93 @@ function Objects({ list, base, busy, onRun, ask }: { list: MediaObject[]; base: 
         ))}
       </ul>
     </Card>
+  );
+}
+
+/**
+ * Video, which is the one thing here that cannot happen inside a request.
+ *
+ * Everything else on this page is made the first time somebody asks for it and
+ * is a read from then on. An encode is minutes of the only core this server
+ * has, so it is queued instead — and the card says so, because a button that
+ * quietly starts four minutes of full load should say what it is about to do.
+ */
+function Videos({ list, base, busy, onRun }: { list: MediaObject[]; base: string; busy: string | null; onRun: Runner }) {
+  const videos = list.filter((o) => o.contentType.startsWith("video/"));
+  if (videos.length === 0) return null;
+  return (
+    <Card
+      title="Video"
+      description="A browser plays what has been transcoded. Each of these is minutes of this server's CPU, so they are queued and run one at a time."
+    >
+      <ul className="divide-y divide-border">
+        {videos.slice(0, 8).map((o) => <VideoRow key={o.id} o={o} base={base} busy={busy} onRun={onRun} />)}
+      </ul>
+    </Card>
+  );
+}
+
+function VideoRow({ o, base, busy, onRun }: { o: MediaObject; base: string; busy: string | null; onRun: Runner }) {
+  const [rend, setRend] = useState<MediaRendition[] | null>(null);
+  const load = useCallback(async () => {
+    try { setRend((await api.mediaRenditions(o.id)).renditions); } catch { /* the row stays quiet rather than reporting something that is not wrong */ }
+  }, [o.id]);
+  useEffect(() => { void load(); }, [load]);
+
+  // A progress bar that only moves when the page is reloaded is not a progress
+  // bar. Asked for only while something is actually happening.
+  const live = (rend ?? []).some((r) => r.task?.state === "queued" || r.task?.state === "running");
+  useEffect(() => {
+    if (!live) return;
+    return pollInterval(() => void load(), 2000);
+  }, [live, load]);
+
+  return (
+    <li className="py-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="truncate text-sm font-medium" title={o.filename}>{o.filename}</span>
+        <span className="text-xs text-ink-muted">{size(o.size)}{o.width ? ` · ${o.width}×${o.height}` : ""}</span>
+      </div>
+      <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {(rend ?? []).map((r) => (
+          <li key={r.format.name} className="rounded-md border border-border p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium">{r.format.label}</span>
+              {r.ready && <span className="text-[11px] text-ink-muted">{size(r.size ?? 0)}</span>}
+            </div>
+            {r.task && (r.task.state === "queued" || r.task.state === "running") ? (
+              <div className="mt-1.5">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-surface-2">
+                  <div className="h-full bg-accent transition-all" style={{ width: `${Math.round((r.task.state === "queued" ? 0 : r.task.progress) * 100)}%` }} />
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px] text-ink-muted">
+                    {r.task.state === "queued" ? "waiting its turn" : (r.task.detail || "encoding")}
+                    {r.task.state === "running" ? ` · ${Math.round(r.task.progress * 100)}%` : ""}
+                  </span>
+                  <button type="button" className="-my-1 py-1 text-[11px] text-ink-muted hover:text-ink"
+                    onClick={() => void onRun("cancel" + r.task!.id, async () => { await api.taskCancel(r.task!.id); await load(); })}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : r.ready ? (
+              <a href={`${base}/objects/${o.id}/${r.format.name}`} target="_blank" rel="noreferrer noopener"
+                className="mt-1.5 inline-block text-[11px] text-accent underline underline-offset-2">Open</a>
+            ) : (
+              <div className="mt-1.5 space-y-1">
+                <Button variant="secondary" disabled={busy !== null}
+                  onClick={() => void onRun("tc" + o.id + r.format.name, async () => { await api.mediaTranscode(o.id, r.format.name); await load(); })}>
+                  Transcode
+                </Button>
+                {r.task?.state === "failed" && <p className="text-[11px] text-danger">{r.task.error}</p>}
+                {r.task?.state === "cancelled" && <p className="text-[11px] text-ink-muted">cancelled</p>}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </li>
   );
 }
 

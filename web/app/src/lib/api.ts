@@ -266,6 +266,32 @@ export interface MediaObject {
   visibility: "public" | "private"; scanner?: string; keyId?: string; createdAt: string;
 }
 
+/** A piece of work that outlives the request that asked for it. */
+export interface Task {
+  id: string;
+  kind: string;
+  state: "queued" | "running" | "done" | "failed" | "cancelled";
+  progress: number;
+  detail?: string;
+  error?: string;
+  subject?: string;
+  label: string;
+  actor?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface VideoFormat { name: string; label: string; height: number }
+
+/** One format of one video, whether it exists, and whatever is making it. */
+export interface MediaRendition {
+  format: VideoFormat;
+  ready: boolean;
+  size?: number;
+  task?: Task;
+}
+
 export interface Uploads {
   files: Upload[];
   /** The malware scanner this server has, empty when it has none. */
@@ -507,6 +533,10 @@ export const api = {
   mediaPresetRemove: (id: string) => request<void>(`/api/v1/media/presets/${encodeURIComponent(id)}`, { method: "DELETE" }),
   mediaObjects: (limit = 60) => request<MediaObject[]>(`/api/v1/media/objects?limit=${limit}`),
   mediaObjectRemove: (id: string) => request<void>(`/api/v1/media/objects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  mediaRenditions: (id: string) => request<{ renditions: MediaRendition[] }>(`/api/v1/media/objects/${encodeURIComponent(id)}/renditions`),
+  mediaTranscode: (id: string, format: string) => post<Task>(`/api/v1/media/objects/${encodeURIComponent(id)}/transcode`, { format }),
+  tasks: (subject?: string) => request<Task[]>(`/api/v1/tasks${subject ? `?subject=${encodeURIComponent(subject)}` : ""}`),
+  taskCancel: (id: string) => post<{ ok: boolean }>(`/api/v1/tasks/${encodeURIComponent(id)}/cancel`, {}),
   assistantUploads: () => request<Uploads>("/api/v1/assistant/uploads"),
   assistantUploadDelete: (id: string) => request<void>(`/api/v1/assistant/uploads/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** Where the bytes are, for a thumbnail of what is about to be sent. */

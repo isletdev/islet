@@ -12,6 +12,7 @@ import (
 
 	"github.com/isletdev/islet/internal/media"
 	"github.com/isletdev/islet/internal/proxy"
+	"github.com/isletdev/islet/internal/work"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -379,4 +380,113 @@ func atoiDefault(s string, d int) int {
 		return n
 	}
 	return d
+}
+
+// ---- transcoding ----------------------------------------------------------
+
+// Video is the one thing here that cannot be done inside a request, so it is the
+// one thing that is queued. These two routes are the operator's half: the panel
+// asks what exists, and asks for what does not.
+
+func (s *Server) handleMediaRenditions(w http.ResponseWriter, r *http.Request) {
+	if !s.mediaOK(w) || !s.adminOnly(w, r) {
+		return
+	}
+	obj, err := s.media.Object(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such object"})
+		return
+	}
+	rend, err := s.media.VideoRenditions(r.Context(), obj)
+	if err != nil {
+		s.failed(w, "media", err)
+		return
+	}
+	// The task belongs beside the format it is making, not in a list the panel
+	// has to match up by reading labels. The payload is what says which format a
+	// task is for, and the payload is not something the API hands out — so the
+	// pairing is done here, where it can be read.
+	type entry struct {
+		media.VideoRendition
+		Task *work.Task `json:"task,omitempty"`
+	}
+	latest := map[string]*work.Task{}
+	if s.work != nil {
+		tasks, _ := s.work.List(r.Context(), mediaSubject(obj.ID), 30)
+		for i := range tasks {
+			var a media.TranscodeArgs
+			if tasks[i].Args(&a) != nil {
+				continue
+			}
+			// Listed newest first, so the first of each format is the one that
+			// matters — except that a live one always wins over a finished one.
+			if cur, ok := latest[a.Format]; !ok || (!cur.Live() && tasks[i].Live()) {
+				latest[a.Format] = &tasks[i]
+			}
+		}
+	}
+	out := make([]entry, 0, len(rend))
+	for _, r0 := range rend {
+		out = append(out, entry{VideoRendition: r0, Task: latest[r0.Format.Name]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"renditions": out})
+}
+
+func (s *Server) handleMediaTranscode(w http.ResponseWriter, r *http.Request) {
+	if !s.mediaOK(w) || !s.workOK(w) || !s.adminOnly(w, r) {
+		return
+	}
+	var req struct {
+		Format string `json:"format"`
+	}
+	if err := decode(r, &req); err != nil {
+		s.badJSON(w, err)
+		return
+	}
+	obj, err := s.media.Object(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such object"})
+		return
+	}
+	t, err := s.queueTranscode(r.Context(), userFrom(r.Context()).Username, obj, req.Format)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, t)
+}
+
+func mediaSubject(objectID string) string { return "media:object:" + objectID }
+
+// queueTranscode puts one format of one object on the queue, or hands back the
+// task that is already doing exactly that.
+//
+// Asking twice is the ordinary case, not an error: a page with a Transcode
+// button on it is a page somebody will press twice, and two ffmpeg processes
+// producing the same file is the one outcome nobody wants.
+func (s *Server) queueTranscode(ctx context.Context, actor string, o *media.Object, format string) (work.Task, error) {
+	f, ok := media.VideoFormatByName(format)
+	if !ok {
+		return work.Task{}, fmt.Errorf("no video format called %q", format)
+	}
+	if !strings.HasPrefix(o.ContentType, "video/") {
+		return work.Task{}, fmt.Errorf("%s is not a video", o.Filename)
+	}
+	subject := mediaSubject(o.ID)
+	existing, err := s.work.List(ctx, subject, 20)
+	if err != nil {
+		return work.Task{}, err
+	}
+	for _, t := range existing {
+		if !t.Live() {
+			continue
+		}
+		var a media.TranscodeArgs
+		if t.Args(&a) == nil && a.Format == f.Name {
+			return t, nil
+		}
+	}
+	return s.work.Add(ctx, actor, "media.transcode", subject,
+		fmt.Sprintf("%s to %s", o.Filename, f.Label),
+		media.TranscodeArgs{ObjectID: o.ID, Format: f.Name})
 }

@@ -3156,3 +3156,48 @@ new question was refused as "still working". It runs in a process group, a stop
 kills the group, and once the process has gone the read is unblocked from this
 side after a two-second drain. Measured: error within two seconds, 5,495
 characters kept, the chat free.
+
+## 2026-09-30 — a queue, and video on it
+
+**Work that outlives its request lives in one table with one worker.** Making a
+thumbnail is a second of vips and the second request is a read; making an MP4 is
+minutes of the only core these servers have. There was nowhere for the second
+kind to live, so there was no video transcoding, and everything else long-running
+would have invented its own half of one. `internal/work` is that place: a row per
+task, a handler per kind, and a single worker taking the oldest queued task.
+
+Deliberately not a job runner. No priorities, no dependencies, no retries, no
+fan-out, no schedule — cron is next door and already does the last one. Each is a
+thing to add when something needs it; the thing that needed a queue needed a
+line. One at a time is not a limitation either: two ffmpeg processes on a 1 vCPU
+box is an unreachable panel, which is a worse outcome than a slower queue.
+
+**Durable, because a transcode outlives an `islet update`** — but the work itself
+does not, so a task found `running` at startup is failed with *the daemon
+restarted while this was running* rather than resumed or silently re-queued.
+ffmpeg does not continue where it left off, "running" after a restart describes
+nothing that is happening, and starting minutes of full load on a box that has
+just come back up is not a thing to do on somebody's behalf.
+
+**The table is `work`, not `jobs`, and the routes are `/api/v1/tasks`.** `jobs`
+has been cron's table since migration 0007 and a scheduled command is not a
+queued transcode. The route is not `/api/v1/work` for a duller reason worth
+writing down: scope areas are matched by string prefix, and `/api/v1/work` is the
+beginning of `/api/v1/workspaces` — the first version of this handed every
+workspace route to the media scope, and the only thing that caught it was an
+existing test asserting that a scope covers its own area and nobody else's.
+
+**Video formats are a list in the source, not a command line in a form.** The
+most flexible thing to build here is a field where an operator writes their own
+ffmpeg arguments, and that field is a root shell: the worker runs as root with a
+staging directory mounted. Three heights of H.264 in MP4 with AAC cover what a
+site needs, and a fourth is a line in `transcode.go`. VP9 and AV1 are smaller at
+the same quality and are absent on purpose — on one core, a few minutes of VP9 is
+an hour of full load. That is a decision to revisit when there is hardware
+encoding, not an oversight.
+
+**A rendition that does not exist is a 409, not a four-minute request.** Every
+other derivative here is made on demand; a video is the one thing that cannot be,
+so `GET /objects/{id}/mp4-720` answers `not_transcoded` when nothing has made it.
+Holding the connection open instead would be the same wait with less information,
+and 202 would be a lie: that request queued nothing.

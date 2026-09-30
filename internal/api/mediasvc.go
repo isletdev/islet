@@ -41,6 +41,8 @@ func (s *Server) serviceHandler() http.Handler {
 	mux.HandleFunc("GET /svc/media/v1/objects/{id}/{preset}", s.svcMediaGet)
 	mux.HandleFunc("POST /svc/media/v1/objects/{id}/sign", s.svcMediaSign)
 	mux.HandleFunc("DELETE /svc/media/v1/objects/{id}", s.svcMediaDelete)
+	mux.HandleFunc("POST /svc/media/v1/objects/{id}/transcode", s.svcMediaTranscode)
+	mux.HandleFunc("GET /svc/media/v1/tasks/{id}", s.svcMediaTask)
 	mux.HandleFunc("/svc/", s.svcNotFound)
 	return s.recover(s.logRequests(s.svcCORS(mux)))
 }
@@ -296,7 +298,16 @@ func (s *Server) svcMediaGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ren, err := s.media.Open(r.Context(), "svc", obj, preset)
+	// A video rendition shares this path with the image presets: to a caller
+	// it is the same question — give me this object in this shape — and the
+	// difference, that one is made on demand and the other was made minutes ago
+	// by the queue, is ours rather than theirs.
+	var ren *media.Rendition
+	if _, isVideo := media.VideoFormatByName(preset); isVideo {
+		ren, err = s.media.OpenVideo(r.Context(), obj, preset)
+	} else {
+		ren, err = s.media.Open(r.Context(), "svc", obj, preset)
+	}
 	if err != nil {
 		svcObjectErr(w, err)
 		return
@@ -369,6 +380,72 @@ func (s *Server) svcMediaDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// svcMediaTranscode is how an application asks for a video it can actually
+// serve. It answers immediately with a task rather than holding the request
+// open: the work is minutes long, and a caller that has to keep a connection
+// alive for it will lose it to something in between.
+func (s *Server) svcMediaTranscode(w http.ResponseWriter, r *http.Request) {
+	// "upload", because what this produces is new bytes in the bucket. It was
+	// "write" first, which is not a scope any key can carry — the route existed
+	// and could never be reached by anybody.
+	k, ok := s.svcKey(w, r, "upload")
+	if !ok {
+		return
+	}
+	if s.work == nil {
+		svcErr(w, http.StatusServiceUnavailable, "unavailable", "the work queue is not running on this server")
+		return
+	}
+	obj, err := s.media.Object(r.Context(), r.PathValue("id"))
+	if err != nil || !sameNamespace(k, obj) {
+		svcErr(w, http.StatusNotFound, "not_found", "no such object")
+		return
+	}
+	var req struct {
+		Format string `json:"format"`
+	}
+	_ = decode(r, &req)
+	t, err := s.queueTranscode(r.Context(), "key:"+k.Name, obj, req.Format)
+	if err != nil {
+		svcErr(w, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"task":     t,
+		"formats":  media.VideoFormats,
+		"objectId": obj.ID,
+	})
+}
+
+// svcMediaTask is the polling half of the above. A key may only see tasks about
+// its own objects, which is the same rule every other route here follows.
+func (s *Server) svcMediaTask(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.svcKey(w, r, "read")
+	if !ok {
+		return
+	}
+	if s.work == nil {
+		svcErr(w, http.StatusServiceUnavailable, "unavailable", "the work queue is not running on this server")
+		return
+	}
+	t, err := s.work.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		svcErr(w, http.StatusNotFound, "not_found", "no such task")
+		return
+	}
+	id, ok2 := strings.CutPrefix(t.Subject, "media:object:")
+	if !ok2 {
+		svcErr(w, http.StatusNotFound, "not_found", "no such task")
+		return
+	}
+	obj, err := s.media.Object(r.Context(), id)
+	if err != nil || !sameNamespace(k, obj) {
+		svcErr(w, http.StatusNotFound, "not_found", "no such task")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) svcNotFound(w http.ResponseWriter, r *http.Request) {
@@ -475,6 +552,14 @@ func svcUploadErr(w http.ResponseWriter, err error) {
 func svcObjectErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, media.ErrNotFound) || errors.Is(err, media.ErrNoObject) {
 		svcErr(w, http.StatusNotFound, "not_found", "no such object")
+		return
+	}
+	// A rendition that has not been made is not a failure and not a 404: the
+	// object is there, the answer is "ask for it and come back". 409 rather
+	// than 202 because nothing was accepted — this request did not queue
+	// anything, and a caller that treats it as "started" would wait forever.
+	if errors.Is(err, media.ErrNotTranscoded) {
+		svcErr(w, http.StatusConflict, "not_transcoded", err.Error())
 		return
 	}
 	svcErr(w, http.StatusBadGateway, "failed", err.Error())

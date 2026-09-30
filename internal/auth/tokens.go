@@ -228,6 +228,13 @@ var areas = []struct{ prefix, scope string }{
 	// credentials that applications on the open internet hold, and a token that
 	// may change a setting should not thereby be able to issue those.
 	{"/api/v1/media", "media"},
+	// The queue carries work for whichever feature put it there, and today that
+	// is media and only media: a token that may see and cancel a transcode is a
+	// token that may already see and delete the video. The path is /tasks and
+	// not /work because these prefixes are matched as strings and /work is the
+	// start of /workspaces — which would have quietly handed every workspace
+	// route to the media scope.
+	{"/api/v1/tasks", "media"},
 	{"/api/v1/security", "security"},
 	{"/api/v1/uptime", "uptime"},
 	{"/api/v1/runners", "runners"},
