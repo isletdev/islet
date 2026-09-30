@@ -79,9 +79,14 @@ const readLast = (): { ws?: string; agent?: string } => {
   try { return JSON.parse(localStorage.getItem(LAST_KEY) || "{}") as { ws?: string; agent?: string }; } catch { return {}; }
 };
 const rememberLast = (ws: string | null, agent: string | null) => {
+  // Nothing selected is never a thing to remember. The page mounts with no
+  // workspace and the list arrives a moment later, so forgetting here erased the
+  // memory that the load was about to read — which is why this came back to the
+  // first workspace every time rather than the one you were in. An id that has
+  // since been deleted is harmless: both readers check it is still in the list.
+  if (!ws) return;
   try {
-    if (!ws) localStorage.removeItem(LAST_KEY);
-    else localStorage.setItem(LAST_KEY, JSON.stringify({ ws, agent: agent ?? undefined }));
+    localStorage.setItem(LAST_KEY, JSON.stringify({ ws, agent: agent ?? undefined }));
   } catch { /* private mode */ }
 };
 
