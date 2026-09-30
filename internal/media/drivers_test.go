@@ -20,11 +20,17 @@ import (
 func TestEveryDriverThatSavesCanBeBuilt(t *testing.T) {
 	s := testService(t)
 	ctx := context.Background()
+	secrets := map[string]string{
+		"local": "",
+		"s3":    "a-secret",
+		"gcs":   testServiceAccountKey(t),
+		"azure": base64.StdEncoding.EncodeToString([]byte("an account key")),
+	}
 	for _, driver := range []string{"local", "s3", "gcs", "azure"} {
 		b := &Bucket{Name: "b-" + driver, Driver: driver, AccessKey: "who", Config: map[string]string{
 			"endpoint": "https://example.invalid", "bucket": "b", "container": "c",
 		}}
-		saved, err := s.SaveBucket(ctx, "tester", b, "a-secret")
+		saved, err := s.SaveBucket(ctx, "tester", b, secrets[driver])
 		if err != nil {
 			t.Errorf("the form refuses %q: %v", driver, err)
 			continue
@@ -36,6 +42,46 @@ func TestEveryDriverThatSavesCanBeBuilt(t *testing.T) {
 	// And one that is not a driver is refused rather than saved and broken.
 	if _, err := s.SaveBucket(ctx, "tester", &Bucket{Name: "nope", Driver: "dropbox"}, ""); err == nil {
 		t.Error("a driver nobody wrote was accepted")
+	}
+}
+
+// A credential the driver could never use is refused when it is typed, not at
+// the first upload — which is what SaveBucket's own comment promises and what
+// it was not doing: an empty Azure key was accepted and then used to sign with
+// a zero-length HMAC, which fails somewhere else entirely and says nothing.
+func TestACredentialOfTheWrongShapeIsRefusedAtSave(t *testing.T) {
+	s := testService(t)
+	ctx := context.Background()
+	cfg := map[string]string{"bucket": "b", "container": "c"}
+	for _, c := range []struct {
+		driver, secret, says string
+	}{
+		{"azure", "not base64 !!!", "base64"},
+		{"gcs", "totally-not-a-pem", "PEM"},
+	} {
+		_, err := s.SaveBucket(ctx, "tester", &Bucket{Name: "bad-" + c.driver, Driver: c.driver, AccessKey: "who", Config: cfg}, c.secret)
+		if err == nil {
+			t.Errorf("%s accepted a secret it can never use", c.driver)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%s: the refusal does not say why: %v", c.driver, err)
+		}
+	}
+	// No secret at all, for a bucket that has none yet.
+	if _, err := s.SaveBucket(ctx, "tester", &Bucket{Name: "empty", Driver: "azure", AccessKey: "acct", Config: cfg}, ""); err == nil {
+		t.Error("an azure bucket saved with no account key")
+	}
+	// But editing one that already has a secret must not require typing it in
+	// again, or every unrelated change asks for the credential.
+	saved, err := s.SaveBucket(ctx, "tester", &Bucket{Name: "good", Driver: "azure", AccessKey: "acct", Config: cfg},
+		base64.StdEncoding.EncodeToString([]byte("k")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Name = "renamed"
+	if _, err := s.SaveBucket(ctx, "tester", saved, ""); err != nil {
+		t.Errorf("renaming a bucket demanded its secret again: %v", err)
 	}
 }
 
@@ -76,16 +122,55 @@ func TestAzuresStringToSignHasItsFieldsInOrder(t *testing.T) {
 	}
 }
 
-// The URL escapes each segment; the signature does not. A key with a space in
-// it works only if those two disagree in exactly this way.
-func TestAzureEscapesThePathButNotTheSignedResource(t *testing.T) {
+// Shared Key is signed over the encoded path, and the request sends the encoded
+// path, and those are the same string. This test was written the other way
+// round on the strength of a wrong comment, which is how the bug survived
+// review: an assertion can be as confidently wrong as the code it guards.
+func TestAzureSignsExactlyThePathItSends(t *testing.T) {
 	a := &Azure{Account: "acct", Container: "media"}
 	path, canonical := a.resource("holiday photos/a b.jpg")
 	if !strings.Contains(path, "holiday%20photos") || !strings.Contains(path, "a%20b.jpg") {
 		t.Errorf("the request path is not escaped: %s", path)
 	}
-	if canonical != "/acct/media/holiday photos/a b.jpg" {
-		t.Errorf("the signed resource must be unescaped, got %s", canonical)
+	if canonical != "/acct"+path {
+		t.Errorf("the signature is over %q but the request asks for %q", canonical, path)
+	}
+	// A plus in a name is a plus, not a space: whichever escaper writes `+` for
+	// a space turns one object into two.
+	p2, c2 := a.resource("a+b.jpg")
+	if strings.Contains(p2, "a+b") || !strings.Contains(p2, "%2B") {
+		t.Errorf("a literal plus was not escaped: %s", p2)
+	}
+	if c2 != "/acct"+p2 {
+		t.Errorf("signature and request disagree: %q vs %q", c2, p2)
+	}
+}
+
+// Neither of Go's escapers is right for an object key, and both were used here.
+func TestAKeyIsEscapedForAPathAndNotForAQuery(t *testing.T) {
+	// A space is %20: as `+` it is a literal plus in a path, so the object is
+	// written under one name and read back under another.
+	if got := escapeSegment("My Holiday.mp4"); got != "My%20Holiday.mp4" {
+		t.Errorf("space: %s", got)
+	}
+	// A slash inside one segment is escaped; escapeKeyPath keeps the ones
+	// between segments.
+	if got := escapeSegment("a/b"); got != "a%2Fb" {
+		t.Errorf("slash: %s", got)
+	}
+	if got := escapeKeyPath("shop/a b/c.jpg"); got != "shop/a%20b/c.jpg" {
+		t.Errorf("key path: %s", got)
+	}
+	// Everything a signed canonical request insists on, which PathEscape leaves
+	// bare and a 403 never explains.
+	for _, c := range []string{"&", "=", "+", ":", "@", "$", "?", "#", "[", "]", "!", "'", "(", ")", "*", ",", ";", `"`} {
+		if got := escapeSegment(c); got == c {
+			t.Errorf("%q is left bare", c)
+		}
+	}
+	// And the unreserved set is left alone, or every URL grows by a third.
+	if got := escapeSegment("aZ0-._~"); got != "aZ0-._~" {
+		t.Errorf("unreserved characters were escaped: %s", got)
 	}
 }
 

@@ -414,6 +414,10 @@ func (s *Server) svcMediaTranscode(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = decode(r, &req)
 	t, err := s.queueTranscode(r.Context(), "key:"+k.Name, obj, req.Format)
+	if errors.Is(err, media.ErrNoPreset) {
+		svcErr(w, http.StatusNotFound, "no_preset", err.Error())
+		return
+	}
 	if err != nil {
 		svcErr(w, http.StatusBadRequest, "invalid", err.Error())
 		return

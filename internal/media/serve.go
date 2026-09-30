@@ -88,9 +88,10 @@ func (s *Service) Open(ctx context.Context, actor string, o *Object, presetName 
 // an anonymous request can make expensive: a page with twelve images is twelve
 // of these, and a server that runs them all at once is a server that stops.
 func (s *Service) makeVariant(ctx context.Context, actor string, st Storage, o *Object, p Preset, dstKey string) error {
+	gate := s.gateNow()
 	select {
-	case s.gate <- struct{}{}:
-		defer func() { <-s.gate }()
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(20 * time.Second):

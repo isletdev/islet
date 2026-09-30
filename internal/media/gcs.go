@@ -74,7 +74,7 @@ func (g *GCS) full(key string) string {
 // slashes included. Escaping it as a path instead is the mistake that makes
 // everything work until the first object in a folder.
 func (g *GCS) object(key string) string {
-	return gcsAPI + "/b/" + url.PathEscape(g.Bucket) + "/o/" + url.QueryEscape(g.full(key))
+	return gcsAPI + "/b/" + escapeSegment(g.Bucket) + "/o/" + escapeSegment(g.full(key))
 }
 
 // signer parses the PEM once. A service-account key is PKCS#8 as Google writes
@@ -190,7 +190,7 @@ func (g *GCS) do(ctx context.Context, req *http.Request) (*http.Response, error)
 }
 
 func (g *GCS) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-	u := gcsUpload + "/b/" + url.PathEscape(g.Bucket) + "/o?uploadType=media&name=" + url.QueryEscape(g.full(key))
+	u := gcsUpload + "/b/" + escapeSegment(g.Bucket) + "/o?uploadType=media&name=" + url.QueryEscape(g.full(key))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, r)
 	if err != nil {
 		return err
@@ -300,13 +300,11 @@ func (g *GCS) presign(method, key string, ttl time.Duration) (string, error) {
 	date := now.Format("20060102")
 	scope := date + "/auto/storage/goog4_request"
 
-	// Path style, and every segment of the key escaped: the signature is over
-	// the escaped path, and a mismatch here is a 403 that says nothing useful.
-	parts := strings.Split(g.full(key), "/")
-	for i, p := range parts {
-		parts[i] = url.PathEscape(p)
-	}
-	path := "/" + url.PathEscape(g.Bucket) + "/" + strings.Join(parts, "/")
+	// Path style, and every segment of the key escaped to V4's rule rather than
+	// Go's: `PathEscape` leaves `&`, `=`, `+`, `:`, `@` and `$` bare, and a
+	// canonical request that disagrees with the URL by one character is a 403
+	// with nothing in it.
+	path := "/" + escapeSegment(g.Bucket) + "/" + escapeKeyPath(g.full(key))
 
 	q := url.Values{}
 	q.Set("X-Goog-Algorithm", "GOOG4-RSA-SHA256")

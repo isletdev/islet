@@ -120,6 +120,7 @@ type Server struct {
 	assistantTokens map[string]bool
 	media           *media.Service
 	work            *work.Queue
+	status          statusCache
 	github          *github.Client
 	mcp             *mcp.Server
 	// routes is the bare router, kept so the generic MCP tool can reach any

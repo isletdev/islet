@@ -187,6 +187,10 @@ func run() error {
 	// queue and the queue has never heard of media, which is what keeps "one
 	// worker, one job at a time" a property of the server rather than of a
 	// feature that happens to be careful.
+	// Anything a previous daemon was in the middle of converting when it
+	// stopped, which nothing else will ever look at again.
+	med.SweepWork()
+
 	wq := work.New(st, bus, log)
 	wq.Register("media.transcode", func(ctx context.Context, t work.Task, report work.Report) error {
 		var a media.TranscodeArgs

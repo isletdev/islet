@@ -31,12 +31,15 @@ func TestOnlyADocumentHasTextToRead(t *testing.T) {
 // Stripping re-saves the file, so it is offered only where vips reads and
 // writes the format — and two of the three lose nothing by it.
 func TestOnlyImagesVipsCanRewriteAreStripped(t *testing.T) {
-	for _, yes := range []string{"image/jpeg", "image/png", "image/webp", "IMAGE/JPEG"} {
+	for _, yes := range []string{"image/jpeg", "image/png", "IMAGE/JPEG"} {
 		if !strippable(yes) {
 			t.Errorf("%q should be strippable", yes)
 		}
 	}
-	for _, no := range []string{"image/svg+xml", "image/gif", "application/pdf", "video/mp4", "image/avif", ""} {
+	// WebP is absent on purpose: libvips 8.14 takes `strip` on webpsave and
+	// ignores it, so re-saving would report success and leave the EXIF exactly
+	// where it was.
+	for _, no := range []string{"image/webp", "image/svg+xml", "image/gif", "application/pdf", "video/mp4", "image/avif", ""} {
 		if strippable(no) {
 			t.Errorf("%q would be re-encoded by a path that cannot read it", no)
 		}

@@ -450,6 +450,10 @@ func (s *Server) handleMediaTranscode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := s.queueTranscode(r.Context(), userFrom(r.Context()).Username, obj, req.Format)
+	if errors.Is(err, media.ErrNoPreset) {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "no_preset", Message: err.Error()})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
 		return
@@ -468,7 +472,7 @@ func mediaSubject(objectID string) string { return "media:object:" + objectID }
 func (s *Server) queueTranscode(ctx context.Context, actor string, o *media.Object, format string) (work.Task, error) {
 	f, ok := media.VideoFormatByName(format)
 	if !ok {
-		return work.Task{}, fmt.Errorf("no video format called %q", format)
+		return work.Task{}, fmt.Errorf("%w: %s", media.ErrNoPreset, format)
 	}
 	if !strings.HasPrefix(o.ContentType, "video/") {
 		return work.Task{}, fmt.Errorf("%s is not a video", o.Filename)

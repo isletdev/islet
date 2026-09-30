@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -96,7 +97,13 @@ func (s *Service) Upload(ctx context.Context, actor string, k *Key, b *Bucket, f
 	// for the original, which an application may well link to directly and
 	// which arrives from a phone with the coordinates it was taken at.
 	if b.Config["stripMetadata"] == "1" && strippable(contentType) {
-		if newRel, newSize, newSum, err := s.stripped(ctx, actor, rel, contentType); err != nil {
+		// An animation is one frame to `vips copy`, so stripping it would store
+		// a still and throw the rest away — irreversibly, on the original the
+		// operator chose to keep. Found by a release check that uploaded a
+		// ten-frame APNG and got back 893 bytes of the first frame.
+		if pages := s.pages(ctx, rel); pages > 1 {
+			s.log.Info("media: keeping the metadata on an animation, which stripping would flatten", "file", filename, "pages", pages)
+		} else if newRel, newSize, newSum, err := s.stripped(ctx, actor, rel, contentType); err != nil {
 			s.log.Warn("media: could not strip metadata; storing the file as it arrived", "file", filename, "err", err)
 		} else {
 			defer func() { _ = os.Remove(filepath.Join(s.workDir(), newRel)) }()
@@ -391,32 +398,47 @@ func hmacOf(seed []byte, payload string) string {
 // one without importing the scanner.
 type Infected = scan.Infected
 
-// strippable is the formats where re-saving is worth doing: vips reads and
-// writes all three, and two of the three lose nothing by it.
+// strippable is the formats where re-saving actually removes the metadata.
+//
+// WebP is not one of them, which is the whole reason this list is not simply
+// "images vips can write": libvips 8.14 — what the worker image has — accepts
+// `strip` on webpsave and ignores it, so the EXIF survives and nothing says so.
+// A privacy switch that reports success and does nothing is worse than one that
+// is absent, so WebP is refused here rather than pretended at, and the panel
+// says which formats are covered.
 func strippable(contentType string) bool {
 	switch strings.ToLower(strings.TrimSpace(contentType)) {
-	case "image/jpeg", "image/png", "image/webp":
+	case "image/jpeg", "image/png":
 		return true
 	}
 	return false
 }
 
+// pages is how many frames an image has, for telling an animation from a
+// picture. Anything it cannot read counts as one, because the question this
+// answers is "is it safe to re-save" and an unreadable header is not a reason
+// to refuse the ordinary case.
+func (s *Service) pages(ctx context.Context, rel string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s.exec(ctx, "vipsheader", "-f", "n-pages", rel)))
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
 // stripped re-saves an image without its metadata and returns the new staging
 // file, its size and its checksum.
 //
-// PNG and WebP come back byte-for-byte equivalent in their pixels. A JPEG is
-// re-encoded, which is why this is a switch somebody turns on rather than the
-// default: taking a photograph somebody uploaded and quietly re-compressing it
-// is not a thing to do to every server on the strength of a privacy argument
-// about a field most of them do not serve.
+// A PNG comes back with the same pixels, byte for byte, verified by subtracting
+// one from the other. A JPEG is re-encoded, which is why this is a switch
+// somebody turns on rather than the default: taking a photograph somebody
+// uploaded and quietly re-compressing it is not a thing to do to every server on
+// the strength of a privacy argument about a field most of them do not serve.
 func (s *Service) stripped(ctx context.Context, actor, srcRel, contentType string) (string, int64, hash.Hash, error) {
 	ext := ".jpg"
 	opts := "[strip,Q=92,optimize_coding]"
-	switch strings.ToLower(contentType) {
-	case "image/png":
+	if strings.EqualFold(contentType, "image/png") {
 		ext, opts = ".png", "[strip,compression=6]"
-	case "image/webp":
-		ext, opts = ".webp", "[strip,lossless=true]"
 	}
 	dstRel := srcRel + "-clean" + ext
 	if err := s.run(ctx, actor, "vips", "copy", srcRel, dstRel+opts); err != nil {

@@ -56,9 +56,10 @@ func (s *Service) Text(ctx context.Context, actor string, o *Object) (io.ReadClo
 	// The same ceiling as the image variants, for the same reason: this is a
 	// path an anonymous request can make expensive, and a hundred of them at
 	// once is a server that stops.
+	gate := s.gateNow()
 	select {
-	case s.gate <- struct{}{}:
-		defer func() { <-s.gate }()
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
 	case <-ctx.Done():
 		return nil, 0, ctx.Err()
 	case <-time.After(20 * time.Second):

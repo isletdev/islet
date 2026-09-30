@@ -3346,3 +3346,58 @@ percentage is added up from the same days the bars are drawn from, so the two
 cannot disagree — and a check with no history gets no percentage at all rather
 than `0.00%`, which is what a month of total failure looks like and the worst
 possible way for a page whose whole job is to be believed to be wrong.
+
+## 2026-09-30 — what the second release check found
+
+A second independent pass, over v0.33.0 to v0.36.0. Five of its findings were
+faults in code that had been read twice and shipped anyway, and they have a
+shape worth naming: **each one was a thing the code said about itself that was
+not true.**
+
+**Two storage drivers escaped keys with the wrong escaper.** Go has two, and
+neither is right for a storage key. `url.QueryEscape` writes a space as `+`,
+which is a space in a query and a literal plus in a path — so GCS stored `My
+Holiday.mp4` and read back `My+Holiday.mp4`, and the bytes became unreachable by
+any route including the one that deletes them. `url.PathEscape` leaves `&`, `=`,
+`+`, `:`, `@` and `$` bare, which a V4 canonical request must have encoded. Both
+were in this package; both are now one escaper that percent-encodes everything
+outside RFC 3986's unreserved set.
+
+**Azure signed the decoded path and sent the encoded one.** Shared Key is signed
+over the resource's *encoded* URI path, which is what every Azure SDK does. The
+comment above the function stated the opposite rule with confidence, and the
+test asserted the comment. Every object with a space, a `#` or a non-ASCII byte
+in its name would have been a 403 with an empty body. The service SAS forty
+lines below signs the *decoded* resource and was right all along, which is
+presumably where the wrong idea came from.
+
+**A privacy switch that did nothing for WebP.** libvips 8.14 — what the worker
+image has — accepts `strip` on `webpsave` and ignores it. So a bucket with
+"strip metadata" on stored WebP files with their EXIF, including the coordinates
+the doc comment named as the reason for the feature, and said nothing. WebP is
+refused for stripping now rather than pretended at. The same code flattened
+animations: `vips copy` reads one frame, so a ten-frame APNG came back as 893
+bytes of its first. An animation is left alone and a line is logged.
+
+**The status page was an unauthenticated aggregate over the largest table.** One
+query per check, no cache, no limit: 4.7 seconds for 52 checks, and twenty
+concurrent requests took the panel with it — on a page whose whole purpose is to
+be reachable during an incident, whose URL an operator hands to strangers. It is
+one query for all checks now, and the rendered page is held for thirty seconds,
+so a flood costs one render.
+
+**The migration safety net was loud exactly once.** `applyLoose` committed the
+migration and its `schema_migrations` row and *then* ran `foreign_key_check`, so
+a broken database failed to start once and came up clean forever after — with
+`Restart=always`, a two-second blip in the journal. The check runs inside the
+transaction now, against a baseline taken before the migration, so a violation
+rolls the whole thing back and stays reported, and damage that predates the
+migration is not blamed on it.
+
+The rest — a fixed 55/45 split drawing a 1.7% bad day as nearly half red, both
+state colours failing contrast in dark mode, thirty bars of nine pixels being
+the only way to read a month, a never-run check painted as down under a banner
+saying all systems are operational, a GCS token cache that could never hit
+because the driver was rebuilt per call, credentials accepted in shapes their
+own signer cannot use — are the same lesson in smaller print. A page that is
+believed is the only kind of status page worth having.

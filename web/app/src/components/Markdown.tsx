@@ -33,6 +33,8 @@ function blocks(src: string): ReactNode[] {
   const out: ReactNode[] = [];
   let i = 0;
   let key = 0;
+  // Where a numbered list would resume, if the next one is numbered.
+  let ordinal = 1;
   while (i < lines.length) {
     const line = lines[i];
 
@@ -97,7 +99,10 @@ function blocks(src: string): ReactNode[] {
     }
 
     if (ITEM.test(line)) {
-      const [node, next] = list(lines, i, key++);
+      // A numbered run interrupted by another kind of list carries on counting
+      // rather than starting again at one, which is what the author wrote.
+      const [node, next, counted] = list(lines, i, key++, kindOf(line) === "ordered" ? ordinal : 1);
+      ordinal = kindOf(line) === "ordered" ? ordinal + counted : 1;
       out.push(node);
       i = next;
       continue;
@@ -150,7 +155,7 @@ function kindOf(line: string): "ordered" | "task" | "bullet" | "" {
  * item continuing. Both are ordinary in what a model writes, and flattening
  * them — which is what this did before — turns a structure into a wall.
  */
-function list(lines: string[], start: number, key: number): [ReactNode, number] {
+function list(lines: string[], start: number, key: number, from = 1): [ReactNode, number, number] {
   const base = (ITEM.exec(lines[start]) as RegExpExecArray)[1].length;
   const kind = kindOf(lines[start]);
   // A nested list is whatever it likes; only items at this list's own indent
@@ -194,12 +199,13 @@ function list(lines: string[], start: number, key: number): [ReactNode, number] 
   const ordered = kind === "ordered";
   const tasks = kind === "task";
   const nodes = items.map((it, n) => item(dedent(it), n, tasks));
-  if (tasks) return [<ul key={key} className="space-y-1">{nodes}</ul>, end];
+  if (tasks) return [<ul key={key} className="space-y-1">{nodes}</ul>, end, items.length];
   return [
     ordered
-      ? <ol key={key} className="ml-5 list-outside list-decimal space-y-1">{nodes}</ol>
+      ? <ol key={key} start={from} className="ml-5 list-outside list-decimal space-y-1">{nodes}</ol>
       : <ul key={key} className="ml-5 list-outside list-disc space-y-1">{nodes}</ul>,
     end,
+    items.length,
   ];
 }
 

@@ -109,6 +109,42 @@ func TestALooseMigrationThatOrphansRowsSaysSo(t *testing.T) {
 	if !strings.Contains(err.Error(), "pointing at nothing") || !strings.Contains(err.Error(), "pets") {
 		t.Errorf("the failure does not say what is dangling: %v", err)
 	}
+	// And it is refused rather than recorded, so the next start tries again and
+	// fails again. Recorded, it would fail once and then come up clean forever
+	// on a database it had just broken.
+	var version sql.NullInt64
+	if err := db.QueryRowContext(context.Background(), `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version.Valid {
+		t.Errorf("a migration that broke the database was recorded as applied (version %d)", version.Int64)
+	}
+	// The table it tried to drop is still there, because the whole transaction
+	// went back.
+	var n int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM people`).Scan(&n); err != nil {
+		t.Fatalf("the rollback did not restore the table: %v", err)
+	}
+}
+
+// A violation that was already there is not this migration's doing, and saying
+// it is sends the reader looking in the wrong place.
+func TestAPreExistingViolationDoesNotBlockAnUnrelatedMigration(t *testing.T) {
+	db := peopleAndPets(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO pets (id, owner) VALUES ('orphan', 'nobody')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+	ok := migration{version: 4, name: "unrelated", sql: "-- islet:no-transaction\nCREATE TABLE notes (id TEXT PRIMARY KEY);"}
+	if err := applyLoose(ctx, db, ok); err != nil {
+		t.Errorf("a migration was blamed for damage that predated it: %v", err)
+	}
 }
 
 // Foreign keys go back on for the connection that had them off, because that

@@ -333,7 +333,7 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
               <span>
                 Strip metadata from uploaded images
                 <span className="block text-xs text-ink-muted">
-                  The original keeps no EXIF — which is where a phone puts the coordinates a photograph was taken at. PNG and WebP lose nothing; a JPEG is re-encoded. Every resized version has always been stripped either way.
+                  The original keeps no EXIF — which is where a phone puts the coordinates a photograph was taken at. JPEG and PNG only: a PNG keeps its exact pixels, a JPEG is re-encoded, and an animation is left alone rather than flattened. Every resized version has always been stripped either way.
                 </span>
               </span>
             </label>

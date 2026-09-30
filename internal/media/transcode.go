@@ -214,8 +214,14 @@ func (s *Service) Transcode(ctx context.Context, actor string, a TranscodeArgs, 
 	dstPath := filepath.Join(s.workDir(), dstRel)
 	defer func() { _ = os.Remove(dstPath) }()
 
+	// A ceiling on one encode, because the queue has one slot and a wedged
+	// ffmpeg would otherwise hold it until somebody noticed. Two hours is far
+	// past any video this service will be given and far short of forever.
+	encCtx, cancelEnc := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancelEnc()
+
 	report(0, "encoding")
-	if err := s.encode(ctx, actor, srcRel, dstRel, o.Filename, f, seconds, report); err != nil {
+	if err := s.encode(encCtx, actor, srcRel, dstRel, o.Filename, f, seconds, report); err != nil {
 		return err
 	}
 
@@ -335,7 +341,12 @@ func clock(seconds float64) string {
 // process on this machine, started by this daemon, and the output file's name is
 // unique to this task.
 func (s *Service) stopEncode(ctx context.Context, marker string) {
-	for _, pid := range s.encodePIDs(ctx, marker) {
+	pids, ok := s.encodePIDs(ctx, marker)
+	if !ok {
+		s.log.Warn("media: could not ask docker what is running, so an encode may still be going", "output", marker)
+		return
+	}
+	for _, pid := range pids {
 		_, _ = s.cmds.Run(ctx, "system", "kill", "-TERM", pid)
 	}
 }
@@ -349,9 +360,15 @@ func (s *Service) awaitEncodeStopped(ctx context.Context, marker string) {
 	deadline := time.Now().Add(20 * time.Second)
 	escalated := false
 	for time.Now().Before(deadline) {
-		pids := s.encodePIDs(ctx, marker)
-		if len(pids) == 0 {
+		pids, ok := s.encodePIDs(ctx, marker)
+		if ok && len(pids) == 0 {
 			return
+		}
+		if !ok {
+			// Unanswerable is not the same as finished. Wait and ask again
+			// rather than declaring the core free on a failed question.
+			time.Sleep(time.Second)
+			continue
 		}
 		if !escalated && time.Now().After(deadline.Add(-15*time.Second)) {
 			for _, pid := range pids {
@@ -365,11 +382,16 @@ func (s *Service) awaitEncodeStopped(ctx context.Context, marker string) {
 }
 
 // encodePIDs is the host pids of anything in the worker still working on this
-// task's output.
-func (s *Service) encodePIDs(ctx context.Context, marker string) []string {
+// task's output, and whether the question could be answered at all.
+//
+// The second return matters: `docker top` failing is not the same as nothing
+// running, and treating them alike is how a cancel during a moment of an
+// unresponsive dockerd reports the task stopped while ffmpeg carries on — the
+// exact fault this whole path exists to fix, on its error branch.
+func (s *Service) encodePIDs(ctx context.Context, marker string) ([]string, bool) {
 	res, err := s.cmds.Read(ctx, "docker", "top", WorkerName, "-eo", "pid,args")
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var out []string
 	for _, line := range strings.Split(res.Stdout, "\n") {
@@ -382,7 +404,7 @@ func (s *Service) encodePIDs(ctx context.Context, marker string) []string {
 		}
 		out = append(out, fields[0])
 	}
-	return out
+	return out, true
 }
 
 // encodeArgs is the whole command, in one place so it can be read and tested

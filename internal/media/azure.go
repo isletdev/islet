@@ -66,16 +66,20 @@ func (a *Azure) full(key string) string {
 	return p + "/" + strings.TrimPrefix(key, "/")
 }
 
-// resource is the path both the URL and the signature are built from. Each
-// segment is escaped for the URL; the signature uses the unescaped form, which
-// is the detail that makes a key with a space in it work or not.
+// resource is the path both the URL and the signature are built from.
+//
+// Both use the *escaped* path. Shared Key is signed over "the resource's encoded
+// URI path", which is also what the Azure SDKs sign, so anything else is a 403
+// with an empty body for every key containing a space, a `#`, a `?` or a
+// non-ASCII byte — which is to say for most real filenames. This file had it the
+// other way round, with a comment confidently explaining the wrong rule, until a
+// release check read it against the specification.
+//
+// A service SAS is the exception and signs the *decoded* resource; that is forty
+// lines below, and is not a mistake.
 func (a *Azure) resource(key string) (urlPath, canonical string) {
-	full := a.full(key)
-	parts := strings.Split(full, "/")
-	for i, p := range parts {
-		parts[i] = url.PathEscape(p)
-	}
-	return "/" + a.Container + "/" + strings.Join(parts, "/"), "/" + a.Account + "/" + a.Container + "/" + full
+	escaped := "/" + escapeSegment(a.Container) + "/" + escapeKeyPath(a.full(key))
+	return escaped, "/" + a.Account + escaped
 }
 
 func (a *Azure) request(ctx context.Context, method, key string, body io.Reader, size int64, contentType string, extra map[string]string) (*http.Request, string, error) {

@@ -41,6 +41,43 @@ type Presigner interface {
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 }
 
+// escapeSegment percent-encodes everything an object key may contain, leaving
+// only RFC 3986's unreserved set.
+//
+// Neither of Go's escapers is right for a storage key. `url.PathEscape` leaves
+// `&`, `=`, `+`, `:`, `@` and `$` bare, which a V4 canonical request must have
+// encoded. `url.QueryEscape` writes a space as `+`, which is a space in a query
+// and a literal plus in a path — so an object called "My Holiday.mp4" is stored
+// under one name and read back under another, and the bytes become unreachable.
+// Both were in this package until a release check measured them.
+func escapeSegment(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '-', c == '.', c == '_', c == '~':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+		}
+	}
+	return b.String()
+}
+
+// escapeKeyPath escapes each segment of a key and keeps the slashes between
+// them, for the drivers whose URLs put the key in the path.
+func escapeKeyPath(key string) string {
+	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		parts[i] = escapeSegment(p)
+	}
+	return strings.Join(parts, "/")
+}
+
 // ErrNoObject is a key that is not there.
 var ErrNoObject = errors.New("no such object")
 

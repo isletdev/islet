@@ -61,5 +61,13 @@ func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 		s.failed(w, "work", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	// What it is now, so a caller can tell a cancel that stopped something from
+	// one that arrived after it had already finished. Both are 200: the state
+	// asked for holds either way.
+	t, err := s.work.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": t.State})
 }

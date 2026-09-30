@@ -88,7 +88,9 @@ func TestADayWithNoDataIsNotDrawnAsDowntime(t *testing.T) {
 	for _, d := range v.Checks[0].Days {
 		got = append(got, d.Class)
 	}
-	want := []string{"none", "up", "partial", "down"}
+	// 10 failures of 100 is the middle band: a fixed 55/45 split for any day
+	// with one failure was the page overstating what it exists to report.
+	want := []string{"none", "up", "partial-mid", "down"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("day %d is %q, want %q", i, got[i], want[i])
@@ -96,6 +98,26 @@ func TestADayWithNoDataIsNotDrawnAsDowntime(t *testing.T) {
 	}
 	if !strings.Contains(v.Checks[0].Days[0].Title, "no data") {
 		t.Errorf("a day with nothing in it reads as %q", v.Checks[0].Days[0].Title)
+	}
+	// A day that was 1% down and a day that was 90% down must not be drawn the
+	// same.
+	light := statusView("Acme", "", uptime.PublicStatus{Checks: []uptime.Summary{{
+		Name: "API", Days: []uptime.Day{{Date: "2026-09-03", Up: 1417, Down: 24}},
+	}}})
+	if got := light.Checks[0].Days[0].Class; got != "partial-low" {
+		t.Errorf("a day that was 1.7%% down is drawn as %q", got)
+	}
+	// And the history is in words as well, because thirty bars nine pixels wide
+	// are not reachable on a phone and reach a screen reader as nothing.
+	if !strings.Contains(light.Checks[0].Summary, "failures") {
+		t.Errorf("the summary reads %q", light.Checks[0].Summary)
+	}
+	// And it counts in English rather than in "1 days".
+	many := statusView("Acme", "", uptime.PublicStatus{Checks: []uptime.Summary{{
+		Name: "API", Days: []uptime.Day{{Date: "2026-09-01", Up: 10}, {Date: "2026-09-02", Up: 10}, {Date: "2026-09-03", Up: 9, Down: 1}},
+	}}})
+	if got := many.Checks[0].Summary; got != "One day with failures, out of 3." {
+		t.Errorf("the summary reads %q", got)
 	}
 	// The figure comes from the same days as the bars, so the two cannot
 	// disagree: 190 of 250 probes answered.
@@ -117,6 +139,32 @@ func TestAMonthWithNoDataClaimsNoPercentage(t *testing.T) {
 	}
 	if got := rendered(t, v); strings.Contains(got, "0.00%") {
 		t.Error("the page shows 0.00% for a check that has never run")
+	}
+	if v.Checks[0].Summary != "No history yet." {
+		t.Errorf("the summary reads %q", v.Checks[0].Summary)
+	}
+}
+
+// Three states, not two. A check that has never run is not down, and painting
+// it red under a banner saying everything is operational is the page
+// contradicting itself in two places at once.
+func TestACheckThatHasNeverRunIsNotPaintedAsDown(t *testing.T) {
+	st := uptime.PublicStatus{Checks: []uptime.Summary{
+		{Name: "New thing", Status: "unknown"},
+		{Name: "Website", Status: "up"},
+	}}
+	v := statusView("Acme", "", st)
+	if v.Checks[0].Tone != "idle" {
+		t.Errorf("a never-probed check is toned %q", v.Checks[0].Tone)
+	}
+	if v.Checks[1].Tone != "up" {
+		t.Errorf("a working check is toned %q", v.Checks[1].Tone)
+	}
+	if v.Headline != "All systems operational" {
+		t.Errorf("headline is %q", v.Headline)
+	}
+	if got := rendered(t, v); !strings.Contains(got, `class="state idle"`) {
+		t.Error("the page has no third state to draw")
 	}
 }
 

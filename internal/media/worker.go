@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The converters.
@@ -320,4 +321,33 @@ func firstWord(s string, n int) string {
 		return f[n-1]
 	}
 	return s
+}
+
+// SweepWork removes staging files left behind by a daemon that stopped in the
+// middle of something.
+//
+// A conversion stages the source and the output under the work directory and
+// removes both when it returns. A daemon killed between those two leaves them,
+// and for a video that is up to two files of a quarter of a gigabyte each,
+// invisible to everything: no row points at them and nothing else looks there.
+// A day is well past any conversion this service will finish.
+func (s *Service) SweepWork() {
+	entries, err := os.ReadDir(s.workDir())
+	if err != nil {
+		return
+	}
+	cut := time.Now().Add(-24 * time.Hour)
+	removed := 0
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || info.IsDir() || info.ModTime().After(cut) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.workDir(), e.Name())); err == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		s.log.Info("media: cleared staging files left by an earlier run", "files", removed)
+	}
 }

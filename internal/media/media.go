@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
@@ -79,7 +81,18 @@ type Service struct {
 	// gate bounds concurrent conversions. A buffered channel rather than a
 	// worker pool: the only thing needed is a ceiling, and a ceiling of one is
 	// the right default on the servers this runs on.
-	gate chan struct{}
+	//
+	// Read through gateNow, never directly: changing the ceiling replaces the
+	// channel, and a request goroutine reading the field while a settings save
+	// writes it is a data race on a live server. A conversion already holding a
+	// slot releases into the channel it took, which is what makes replacing one
+	// safe at all.
+	gateMu sync.Mutex
+	gate   chan struct{}
+	// drivers keeps a built Storage per bucket, so the one with a token and a
+	// parsed key does not throw them away between requests.
+	driverMu sync.Mutex
+	drivers  map[string]Storage
 	// buckets keeps rate-limit state per key. Small, in memory, and lost on
 	// restart, which is the correct amount of effort for a limit whose job is
 	// to stop a loop rather than to be an accounting record.
@@ -138,7 +151,9 @@ func (s *Service) SaveSettings(ctx context.Context, in Settings) error {
 		return err
 	}
 	// Resize the ceiling to match, so changing it does not need a restart.
+	s.gateMu.Lock()
 	s.gate = make(chan struct{}, in.Transforms)
+	s.gateMu.Unlock()
 	return nil
 }
 
@@ -146,6 +161,32 @@ func (s *Service) SaveSettings(ctx context.Context, in Settings) error {
 // off answers nothing, which is cheaper and clearer than a service that is off
 // answering 404s from handlers that ran.
 func (s *Service) Enabled(ctx context.Context) bool { return s.Settings(ctx).Enabled }
+
+// gateNow is the ceiling as it stands. Take the channel once and release into
+// the same one.
+func (s *Service) gateNow() chan struct{} {
+	s.gateMu.Lock()
+	defer s.gateMu.Unlock()
+	return s.gate
+}
+
+// credentialShape refuses a secret the driver could never use. It says nothing
+// about whether the credential is accepted by the provider — that is what the
+// Check button is for — only that it is the kind of thing the signer needs.
+func credentialShape(driver, secret string) error {
+	switch driver {
+	case "azure":
+		if _, err := base64.StdEncoding.DecodeString(strings.TrimSpace(secret)); err != nil {
+			return errors.New("an azure account key is base64, as the portal shows it; this is not")
+		}
+	case "gcs":
+		body := strings.ReplaceAll(strings.TrimSpace(secret), "\\n", "\n")
+		if block, _ := pem.Decode([]byte(body)); block == nil {
+			return errors.New("a gcs secret is the service account's private_key, beginning with -----BEGIN PRIVATE KEY-----; this is not PEM")
+		}
+	}
+	return nil
+}
 
 // ---- buckets --------------------------------------------------------------
 
@@ -257,6 +298,20 @@ func (s *Service) SaveBucket(ctx context.Context, actor string, b *Bucket, secre
 	if b.Driver == "azure" && strings.TrimSpace(b.AccessKey) == "" {
 		return nil, errors.New("an azure bucket needs the storage account name as its access key, and an account key as the secret")
 	}
+	// And the credential has to be the shape its driver will need. Checked here
+	// because this function's own comment says a bucket that is wrong is wrong
+	// at the moment it is saved — and because an empty Azure key was being
+	// accepted and then used to sign with a zero-length HMAC, which fails much
+	// later and says nothing useful. A bucket being edited without a new secret
+	// keeps the one it has, so an empty string here is only checked on the way
+	// in for a bucket that has none.
+	if secret != "" {
+		if err := credentialShape(b.Driver, secret); err != nil {
+			return nil, err
+		}
+	} else if b.ID == "" && (b.Driver == "gcs" || b.Driver == "azure") {
+		return nil, fmt.Errorf("a %s bucket needs a secret", b.Driver)
+	}
 	// A public base is "the bucket is already reachable at this address, send
 	// people there instead of through Islet" — an R2 custom domain, a CDN in
 	// front of S3. A bucket on this server has no such second address: Islet is
@@ -331,7 +386,42 @@ func (s *Service) RemoveBucket(ctx context.Context, actor, id string) error {
 }
 
 // storage builds the driver for a bucket.
+// storage is the driver for a bucket, kept between calls.
+//
+// It is cached because one of them has state worth keeping: a GCS driver holds
+// a parsed RSA key and an access token good for an hour, and building a fresh
+// one per call meant a PKCS#8 parse, an RSA signature and a round trip to
+// Google's token endpoint for every single put, get, stat and delete — a dozen
+// of them for one object deletion, against a quota'd endpoint, on a one-core
+// box. The key is the bucket's id and the moment it was last saved, so editing
+// a bucket builds a new driver and the old one is dropped.
 func (s *Service) storage(ctx context.Context, b *Bucket) (Storage, error) {
+	key := b.ID + "@" + b.UpdatedAt
+	s.driverMu.Lock()
+	cached, ok := s.drivers[key]
+	s.driverMu.Unlock()
+	if ok {
+		return cached, nil
+	}
+	built, err := s.newStorage(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	s.driverMu.Lock()
+	if s.drivers == nil {
+		s.drivers = map[string]Storage{}
+	}
+	// Bounded, so a server with many buckets edited many times does not keep
+	// every version of every driver it has ever built.
+	if len(s.drivers) > 32 {
+		s.drivers = map[string]Storage{}
+	}
+	s.drivers[key] = built
+	s.driverMu.Unlock()
+	return built, nil
+}
+
+func (s *Service) newStorage(ctx context.Context, b *Bucket) (Storage, error) {
 	switch b.Driver {
 	case "local":
 		return &Local{Root: filepath.Join(s.dir, "objects", b.ID)}, nil

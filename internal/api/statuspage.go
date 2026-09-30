@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isletdev/islet/internal/uptime"
@@ -29,6 +31,23 @@ import (
 // stranger has to trust.
 
 const statusSettingKey = "status.page"
+
+// How long a rendered page is reused.
+//
+// The one route here that a stranger can ask for, on a server with one core,
+// during the incident that made them look — that is the shape of this page's
+// load, and an aggregate over the largest table in the database is the shape of
+// its cost. A browser cache does nothing about a thousand different browsers.
+// Thirty seconds is under the minute a check runs at, so nothing visible is
+// stale by more than a probe.
+const statusCacheFor = 30 * time.Second
+
+// statusCache is the last render, kept whole.
+type statusCache struct {
+	mu   sync.Mutex
+	at   time.Time
+	body []byte
+}
 
 // StatusSettings is what the operator chose.
 type StatusSettings struct {
@@ -91,6 +110,7 @@ func (s *Server) handleStatusSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = s.store.Audit(r.Context(), actor, "status.settings", "status page", boolWord(req.Enabled))
+		s.forgetStatusPage()
 	}
 	set := s.statusSettings(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -113,15 +133,35 @@ func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	st, err := s.uptime.Public(r.Context())
-	if err != nil {
-		s.log.Warn("status page: could not read the checks", "err", err)
-		http.Error(w, "the status page is not available", http.StatusInternalServerError)
-		return
-	}
 	title := set.Title
 	if title == "" {
 		title = "Status"
+	}
+
+	// Rendered at most once every thirty seconds however many people ask. The
+	// render is held whole rather than the data, because everything between the
+	// rows and the bytes is work too.
+	s.status.mu.Lock()
+	body := s.status.body
+	fresh := body != nil && time.Since(s.status.at) < statusCacheFor
+	s.status.mu.Unlock()
+	if !fresh {
+		st, err := s.uptime.Public(r.Context())
+		if err != nil {
+			s.log.Warn("status page: could not read the checks", "err", err)
+			http.Error(w, "the status page is not available", http.StatusInternalServerError)
+			return
+		}
+		var buf bytes.Buffer
+		if err := statusTemplate.Execute(&buf, statusView(title, set.Message, st)); err != nil {
+			s.log.Warn("status page: could not render", "err", err)
+			http.Error(w, "the status page is not available", http.StatusInternalServerError)
+			return
+		}
+		body = buf.Bytes()
+		s.status.mu.Lock()
+		s.status.body, s.status.at = body, time.Now()
+		s.status.mu.Unlock()
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -134,9 +174,15 @@ func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	// No scripts, no styles from anywhere, no frames: the whole page is below.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'")
-	if err := statusTemplate.Execute(w, statusView(title, set.Message, st)); err != nil {
-		s.log.Warn("status page: could not render", "err", err)
-	}
+	_, _ = w.Write(body)
+}
+
+// forgetStatusPage drops the cached render, so a change the operator just made
+// is on the page when they press Open rather than half a minute later.
+func (s *Server) forgetStatusPage() {
+	s.status.mu.Lock()
+	s.status.body = nil
+	s.status.mu.Unlock()
 }
 
 type statusPageView struct {
@@ -149,12 +195,18 @@ type statusPageView struct {
 }
 
 type statusCheckView struct {
-	Name    string
-	State   string
-	Detail  string
-	Uptime  string
-	Days    []statusDayView
-	Healthy bool
+	Name   string
+	State  string
+	Detail string
+	Uptime string
+	Days   []statusDayView
+	// Tone is up, down or idle. Three, not two: a check that has never run is
+	// neither, and painting it red under a banner reading "All systems
+	// operational" is the page contradicting itself in two places at once.
+	Tone string
+	// Summary is the history in words, because thirty bars nine pixels wide are
+	// not reachable on a phone and are announced to a screen reader as nothing.
+	Summary string
 }
 
 type statusDayView struct {
@@ -181,15 +233,15 @@ func statusView(title, message string, st uptime.PublicStatus) statusPageView {
 		}
 	}
 	for _, c := range st.Checks {
-		cv := statusCheckView{Name: c.Name, Healthy: c.Status == "up"}
+		cv := statusCheckView{Name: c.Name, Tone: "idle"}
 		switch c.Status {
 		case "up":
-			cv.State = "Operational"
+			cv.State, cv.Tone = "Operational", "up"
 			if c.LastLatency > 0 {
 				cv.Detail = fmt.Sprintf("%d ms", c.LastLatency)
 			}
 		case "down":
-			cv.State = "Down"
+			cv.State, cv.Tone = "Down", "down"
 			if t, err := time.Parse(time.RFC3339, c.DownSince); err == nil {
 				cv.Detail = "since " + t.UTC().Format("15:04 UTC on 2 January")
 			}
@@ -211,19 +263,53 @@ func statusView(title, message string, st uptime.PublicStatus) statusPageView {
 		if total > 0 {
 			cv.Uptime = fmt.Sprintf("%.2f%% over 30 days", float64(up)/float64(total)*100)
 		}
+		bad, known := 0, 0
 		for _, d := range c.Days {
 			dv := statusDayView{Title: d.Date}
+			total := d.Up + d.Down
 			switch {
-			case d.Up == 0 && d.Down == 0:
+			case total == 0:
 				dv.Class, dv.Title = "none", d.Date+" — no data"
 			case d.Down == 0:
 				dv.Class, dv.Title = "up", d.Date+" — no failures"
+				known++
 			case d.Up == 0:
 				dv.Class, dv.Title = "down", fmt.Sprintf("%s — down all day", d.Date)
+				known++
+				bad++
 			default:
-				dv.Class, dv.Title = "partial", fmt.Sprintf("%s — %d of %d checks failed", d.Date, d.Down, d.Up+d.Down)
+				// Three bands rather than one fixed split, because a bar drawn
+				// 45% red for a day that was 1.7% down is the page overstating
+				// the thing it exists to report — and directly above a figure
+				// saying 98%.
+				share := float64(d.Down) / float64(total)
+				switch {
+				case share < 0.05:
+					dv.Class = "partial-low"
+				case share < 0.25:
+					dv.Class = "partial-mid"
+				default:
+					dv.Class = "partial-high"
+				}
+				dv.Title = fmt.Sprintf("%s — %d of %d checks failed", d.Date, d.Down, total)
+				known++
+				bad++
 			}
 			cv.Days = append(cv.Days, dv)
+		}
+		switch {
+		case known == 0:
+			cv.Summary = "No history yet."
+		case bad == 0 && known == 1:
+			cv.Summary = "No failures in one day of checks."
+		case bad == 0:
+			cv.Summary = fmt.Sprintf("No failures in %d days of checks.", known)
+		case bad == 1 && known == 1:
+			cv.Summary = "The one day of checks so far had failures."
+		case bad == 1:
+			cv.Summary = fmt.Sprintf("One day with failures, out of %d.", known)
+		default:
+			cv.Summary = fmt.Sprintf("%d days with failures, out of %d.", bad, known)
 		}
 		v.Checks = append(v.Checks, cv)
 	}
@@ -239,12 +325,12 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-  :root { color-scheme: light dark; --bg:#fbfbf9; --card:#fff; --ink:#111; --muted:#5a6570; --line:#e5e4de; --up:#2f7d62; --down:#b4442e; --none:#d8d7d1; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0f1316; --card:#161b1f; --ink:#f3f3f1; --muted:#9aa5ad; --line:#242a2f; --none:#2b3136; } }
+  :root { color-scheme: light dark; --bg:#fbfbf9; --card:#fff; --ink:#111; --muted:#5a6570; --line:#e5e4de; --up:#2f7d62; --down:#b4442e; --none:#8b8a83; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1316; --card:#161b1f; --ink:#f3f3f1; --muted:#9aa5ad; --line:#242a2f; --up:#4cae8c; --down:#e2735c; --none:#67737b; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
   main { max-width:44rem; margin:0 auto; padding:3rem 1rem 4rem; }
-  h1 { font-size:1.35rem; margin:0 0 .25rem; }
+  h1 { font-size:1.35rem; margin:0 0 .25rem; overflow-wrap:anywhere; }
   .banner { margin:1.5rem 0 2rem; padding:1rem 1.25rem; border-radius:12px; border:1px solid var(--line); background:var(--card); }
   .banner.good { border-left:4px solid var(--up); }
   .banner.bad { border-left:4px solid var(--down); }
@@ -253,14 +339,17 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
   ul { list-style:none; margin:0; padding:0; }
   li.check { padding:1rem 1.25rem; border:1px solid var(--line); border-radius:12px; background:var(--card); margin-bottom:.75rem; }
   .row { display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:baseline; justify-content:space-between; }
-  .name { font-weight:600; }
+  .name { font-weight:600; overflow-wrap:anywhere; min-width:0; }
   .state.up { color:var(--up); font-weight:600; }
   .state.down { color:var(--down); font-weight:600; }
+  .state.idle { color:var(--muted); font-weight:600; }
   .bars { display:flex; gap:2px; margin-top:.75rem; }
   .bars span { flex:1; height:26px; border-radius:2px; background:var(--none); }
   .bars span.up { background:var(--up); }
   .bars span.down { background:var(--down); }
-  .bars span.partial { background:linear-gradient(to bottom, var(--up) 55%, var(--down) 55%); }
+  .bars span.partial-low { background:linear-gradient(to bottom, var(--up) 88%, var(--down) 88%); }
+  .bars span.partial-mid { background:linear-gradient(to bottom, var(--up) 70%, var(--down) 70%); }
+  .bars span.partial-high { background:linear-gradient(to bottom, var(--up) 40%, var(--down) 40%); }
   footer { margin-top:2rem; text-align:center; }
 </style>
 </head>
@@ -277,12 +366,12 @@ var statusTemplate = template.Must(template.New("status").Parse(`<!doctype html>
     <li class="check">
       <div class="row">
         <span class="name">{{.Name}}</span>
-        <span class="state {{if .Healthy}}up{{else}}down{{end}}">{{.State}}{{if .Detail}} <span class="muted">· {{.Detail}}</span>{{end}}</span>
+        <span class="state {{.Tone}}">{{.State}}{{if .Detail}} <span class="muted">· {{.Detail}}</span>{{end}}</span>
       </div>
-      <div class="bars" role="img" aria-label="The last 30 days for {{.Name}}">
+      <div class="bars" aria-hidden="true">
         {{range .Days}}<span class="{{.Class}}" title="{{.Title}}"></span>{{end}}
       </div>
-      {{if .Uptime}}<p class="muted" style="margin:.5rem 0 0">{{.Uptime}}</p>{{end}}
+      <p class="muted" style="margin:.5rem 0 0">{{.Summary}}{{if .Uptime}} {{.Uptime}}.{{end}}</p>
     </li>
   {{end}}
   </ul>

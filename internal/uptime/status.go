@@ -2,6 +2,7 @@ package uptime
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -71,8 +72,21 @@ func (s *Service) Public(ctx context.Context) (PublicStatus, error) {
 		return PublicStatus{}, err
 	}
 
+	// One query for every check rather than one per check. The aggregate is
+	// over the largest table here — a check at sixty seconds keeps 44,640 rows
+	// — and doing it in a loop made a page a stranger can request cost seconds
+	// of the only core this server has. Measured at 4.7 s for 52 checks before
+	// this, which is also the panel being unusable for that long.
+	ids := make([]string, 0, len(found))
 	for _, r := range found {
-		days, pct := s.history(ctx, r.id, 30)
+		ids = append(ids, r.id)
+	}
+	buckets, err := s.historyFor(ctx, ids, 30)
+	if err != nil {
+		return PublicStatus{}, err
+	}
+	for _, r := range found {
+		days, pct := fill(buckets[r.id], 30)
 		r.sum.Days, r.sum.Uptime30d = days, pct
 		if r.sum.Status == "down" {
 			out.Down++
@@ -85,34 +99,53 @@ func (s *Service) Public(ctx context.Context) (PublicStatus, error) {
 	return out, nil
 }
 
-// history is one bucket per day, oldest first, with a gap where there is no
-// data rather than a hole in the middle of a bar chart.
-func (s *Service) history(ctx context.Context, id string, days int) ([]Day, float64) {
+// historyFor counts each day's probes for every check at once.
+func (s *Service) historyFor(ctx context.Context, ids []string, days int) (map[string]map[string]Day, error) {
+	out := map[string]map[string]Day{}
+	if len(ids) == 0 {
+		return out, nil
+	}
 	cut := time.Now().UTC().AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+	args := make([]any, 0, len(ids)+1)
+	holes := make([]string, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+		holes = append(holes, "?")
+	}
+	args = append(args, cut)
 	rows, err := s.st.DB.QueryContext(ctx,
-		`SELECT substr(at, 1, 10) AS day, count(*), coalesce(sum(ok), 0)
-		   FROM check_results WHERE check_id = ? AND at >= ? GROUP BY day`, id, cut)
+		`SELECT check_id, substr(at, 1, 10) AS day, count(*), coalesce(sum(ok), 0)
+		   FROM check_results WHERE check_id IN (`+strings.Join(holes, ",")+`) AND at >= ?
+		  GROUP BY check_id, day`, args...)
 	if err != nil {
-		return nil, -1
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	seen := map[string]Day{}
-	var total, ok int
 	for rows.Next() {
-		var d string
+		var id, day string
 		var n, up int
-		if err := rows.Scan(&d, &n, &up); err != nil {
-			return nil, -1
+		if err := rows.Scan(&id, &day, &n, &up); err != nil {
+			return nil, err
 		}
-		seen[d] = Day{Date: d, Up: up, Down: n - up}
-		total += n
-		ok += up
+		if out[id] == nil {
+			out[id] = map[string]Day{}
+		}
+		out[id][day] = Day{Date: day, Up: up, Down: n - up}
 	}
+	return out, rows.Err()
+}
+
+// fill turns what was counted into one bucket per day, oldest first, with a gap
+// where there is no data rather than a hole in the middle of a bar chart.
+func fill(seen map[string]Day, days int) ([]Day, float64) {
 	out := make([]Day, 0, days)
+	var total, ok int
 	for i := days - 1; i >= 0; i-- {
 		d := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		if got, hit := seen[d]; hit {
 			out = append(out, got)
+			total += got.Up + got.Down
+			ok += got.Up
 			continue
 		}
 		out = append(out, Day{Date: d})

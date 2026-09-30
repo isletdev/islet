@@ -410,7 +410,6 @@ func (q *Queue) claim(ctx context.Context) (*Task, error) {
 func (q *Queue) reporter(ctx context.Context, id string) Report {
 	var mu sync.Mutex
 	var last time.Time
-	var lastDetail string
 	return func(progress float64, detail string) {
 		if progress < 0 {
 			progress = 0
@@ -419,10 +418,15 @@ func (q *Queue) reporter(ctx context.Context, id string) Report {
 			progress = 1
 		}
 		mu.Lock()
-		soon := time.Since(last) < time.Second && detail == lastDetail
+		// One write a second, whatever changed. It used to let a write through
+		// whenever the words differed, and a handler reporting "encoding 0:41"
+		// — where the seconds are the video's, not the clock's — changed the
+		// words three to five times a second and wrote every time, which is
+		// precisely the cost this exists to avoid. The ending always writes, so
+		// nothing is lost by dropping one.
+		soon := time.Since(last) < time.Second
 		if !soon {
 			last = time.Now()
-			lastDetail = detail
 		}
 		mu.Unlock()
 		if soon {
