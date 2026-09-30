@@ -187,15 +187,20 @@ bucket is what exists.
   Google Cloud Storage and a Shared Key driver for Azure Blob, both hand-written
   beside the S3 one, both with signed URLs so a browser can upload straight to
   the bucket.
-- **PDF**: text extraction for search. Page count and a thumbnail of page one
-  shipped with Phase B.
+- **PDF**: text extraction for search. **Shipped in v0.34.0** —
+  `GET /objects/{id}/text`, extracted once and kept beside the original like
+  every other derivative. Page count and a thumbnail of page one shipped with
+  Phase B.
 - **Video**: transcoding to web formats. **Shipped in v0.32.0**, with the queue
   it needed: `internal/work` is one table, one worker and one task at a time, and
   the Media page says plainly that each encode is minutes of this server's CPU
   before anybody presses the button. Three heights of H.264/AAC; VP9 and AV1 are
   left out while these servers have one core and no hardware encoder.
-- **Image extras** as they earn their place: focal-point cropping, AVIF, EXIF
-  stripping by default with an opt-out.
+- **Image extras**: AVIF has been a preset format since Phase B and the worker's
+  libvips saves it. EXIF stripping **shipped in v0.34.0** as a switch on the
+  bucket rather than a default — every derivative has always been stripped, and
+  re-encoding somebody's original photograph by default is destroying data they
+  gave us (DECISIONS, 2026-09-30). Focal-point cropping is still open.
 
 ## Phase D — proving the framework
 

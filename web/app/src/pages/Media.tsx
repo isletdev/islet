@@ -327,6 +327,17 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
               </label>
             </div>
           )}
+          {form.driver !== undefined && (
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={cfg("stripMetadata") === "1"} onChange={(e) => setCfg("stripMetadata", e.target.checked ? "1" : "")} />
+              <span>
+                Strip metadata from uploaded images
+                <span className="block text-xs text-ink-muted">
+                  The original keeps no EXIF — which is where a phone puts the coordinates a photograph was taken at. PNG and WebP lose nothing; a JPEG is re-encoded. Every resized version has always been stripped either way.
+                </span>
+              </span>
+            </label>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Accepted types" hint="image/* — comma separated. Empty accepts anything.">
               <Input value={form.allowTypes ?? ""} onChange={(e) => setForm({ ...form, allowTypes: e.target.value })} placeholder="image/*, application/pdf" className="font-mono" />
@@ -493,6 +504,11 @@ function Objects({ list, base, busy, onRun, ask }: { list: MediaObject[]; base: 
                 {size(o.size)}{o.visibility === "private" ? " · private" : ""}{o.scanner ? "" : " · unscanned"}
               </div>
             </div>
+            {o.contentType === "application/pdf" && (
+              <a href={`/api/v1/media/objects/${encodeURIComponent(o.id)}/text`} target="_blank" rel="noreferrer noopener"
+                className="absolute left-1 top-1 rounded-md bg-surface/90 px-1.5 py-0.5 text-[10px] text-ink-muted opacity-0 transition-opacity hover:text-ink focus:opacity-100 group-hover:opacity-100"
+                title="What this document says, as text">Text</a>
+            )}
             <button type="button" aria-label={`Delete ${o.filename}`} disabled={busy !== null}
               className="absolute right-1 top-1 rounded-md bg-surface/90 p-1 text-ink-muted opacity-0 transition-opacity hover:text-danger focus:opacity-100 group-hover:opacity-100"
               onClick={() => void onRun("rmo" + o.id, async () => {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path"
@@ -89,6 +90,20 @@ func (s *Service) Upload(ctx context.Context, actor string, k *Key, b *Bucket, f
 	}
 
 	probe := s.probe(ctx, rel, contentType)
+
+	// Metadata on the way in, for a bucket that asked for it gone. What a site
+	// actually serves is a derivative and those have never carried any; this is
+	// for the original, which an application may well link to directly and
+	// which arrives from a phone with the coordinates it was taken at.
+	if b.Config["stripMetadata"] == "1" && strippable(contentType) {
+		if newRel, newSize, newSum, err := s.stripped(ctx, actor, rel, contentType); err != nil {
+			s.log.Warn("media: could not strip metadata; storing the file as it arrived", "file", filename, "err", err)
+		} else {
+			defer func() { _ = os.Remove(filepath.Join(s.workDir(), newRel)) }()
+			rel, staged, n = newRel, filepath.Join(s.workDir(), newRel), newSize
+			sum = newSum
+		}
+	}
 
 	id := newID()
 	objectKey := objectKeyFor(k.Namespace, id, filename)
@@ -365,3 +380,47 @@ func hmacOf(seed []byte, payload string) string {
 // Infected is re-exported so a caller can tell a rejected file from a broken
 // one without importing the scanner.
 type Infected = scan.Infected
+
+// strippable is the formats where re-saving is worth doing: vips reads and
+// writes all three, and two of the three lose nothing by it.
+func strippable(contentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	}
+	return false
+}
+
+// stripped re-saves an image without its metadata and returns the new staging
+// file, its size and its checksum.
+//
+// PNG and WebP come back byte-for-byte equivalent in their pixels. A JPEG is
+// re-encoded, which is why this is a switch somebody turns on rather than the
+// default: taking a photograph somebody uploaded and quietly re-compressing it
+// is not a thing to do to every server on the strength of a privacy argument
+// about a field most of them do not serve.
+func (s *Service) stripped(ctx context.Context, actor, srcRel, contentType string) (string, int64, hash.Hash, error) {
+	ext := ".jpg"
+	opts := "[strip,Q=92,optimize_coding]"
+	switch strings.ToLower(contentType) {
+	case "image/png":
+		ext, opts = ".png", "[strip,compression=6]"
+	case "image/webp":
+		ext, opts = ".webp", "[strip,lossless=true]"
+	}
+	dstRel := srcRel + "-clean" + ext
+	if err := s.run(ctx, actor, "vips", "copy", srcRel, dstRel+opts); err != nil {
+		return "", 0, nil, err
+	}
+	f, err := os.Open(filepath.Join(s.workDir(), dstRel))
+	if err != nil {
+		return "", 0, nil, err
+	}
+	defer func() { _ = f.Close() }()
+	sum := sha256.New()
+	n, err := io.Copy(sum, f)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	return dstRel, n, sum, nil
+}

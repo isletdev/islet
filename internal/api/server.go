@@ -293,6 +293,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/cancel", s.requireAuth(s.handleTaskCancel))
 	mux.HandleFunc("GET /api/v1/media/objects", s.requireAuth(s.handleMediaObjects))
 	mux.HandleFunc("GET /api/v1/media/objects/{id}/renditions", s.requireAuth(s.handleMediaRenditions))
+	mux.HandleFunc("GET /api/v1/media/objects/{id}/text", s.requireAuth(s.handleMediaText))
 	mux.HandleFunc("POST /api/v1/media/objects/{id}/transcode", requireJSON(s.requireAuth(s.handleMediaTranscode)))
 	mux.HandleFunc("DELETE /api/v1/media/objects/{id}", s.requireAuth(s.handleMediaObject1))
 	mux.HandleFunc("GET /api/v1/assistant/uploads", s.requireAuth(s.handleUploads))

@@ -3245,3 +3245,38 @@ feature — the ones with something to lose. The first rehearsal that *passed* h
 been copied without the write-ahead log and so had no rows in it either, which
 is worth remembering: a copy of a live SQLite database is the `.db`, the `-wal`
 and the `-shm`, or it is a copy of an older state.
+
+## 2026-09-30 — the words in a document, and whose metadata it is
+
+**A PDF's text, kept like every other derivative.** The service could already
+make a picture of a document's first page while having nothing to say about what
+it was about. `pdftotext` was already in the worker for exactly that thumbnail,
+so the other half is one command, stored beside the original and read back
+afterwards. Not a search index: an index is a query language, a schema and a
+rebuild, and what an application needs from here is the text, which it can put
+in whatever it already searches with. An empty result is stored too — a scanned
+PDF has no text layer, and an empty file is the honest answer to "what does it
+say" as well as the thing that stops every later request finding that out again.
+
+Unlike the bytes of a public object, this needs a key with `read` even when the
+object is public. Extracting costs the server real work, and the one
+unauthenticated route that can be made expensive is enough.
+
+**EXIF stripping is opt-in, which is not what the brief said.** The brief said by
+default with an opt-out. What a site actually serves is a derivative, and those
+have never carried metadata — every preset has saved with `strip` since the
+service shipped. What remains is the original, which an application may link to
+directly and which arrives from a phone with the coordinates the photograph was
+taken at. Stripping that means re-saving it: lossless for PNG and WebP, a
+re-encode for JPEG.
+
+Quietly re-compressing a photograph somebody uploaded, on every server, on the
+strength of a privacy argument about a field most of them never serve, is
+destroying data that was given to us. So it is a switch on the bucket, off
+unless somebody turns it on, and the panel says plainly which formats lose
+nothing and which are re-encoded. The default is the one place this file
+disagrees with the plan, and this paragraph is why.
+
+**AVIF needed nothing.** It was already a preset format, the panel already
+offered it, and the worker's libvips already has the HEIF saver — checked by
+converting one rather than by reading the package list.

@@ -83,6 +83,7 @@ var minRole = map[string]string{
 	"POST /api/v1/tasks/{id}/cancel":                                admin,
 	"GET /api/v1/media/objects":                                     admin,
 	"GET /api/v1/media/objects/{id}/renditions":                     admin,
+	"GET /api/v1/media/objects/{id}/text":                           admin,
 	"POST /api/v1/media/objects/{id}/transcode":                     admin,
 	"DELETE /api/v1/media/objects/{id}":                             admin,
 	"GET /api/v1/assistant/uploads":                                 viewer,

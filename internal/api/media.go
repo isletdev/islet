@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -489,4 +490,30 @@ func (s *Server) queueTranscode(ctx context.Context, actor string, o *media.Obje
 	return s.work.Add(ctx, actor, "media.transcode", subject,
 		fmt.Sprintf("%s to %s", o.Filename, f.Label),
 		media.TranscodeArgs{ObjectID: o.ID, Format: f.Name})
+}
+
+// handleMediaText is the panel's half: what a document says, for somebody
+// looking at it in the object list.
+func (s *Server) handleMediaText(w http.ResponseWriter, r *http.Request) {
+	if !s.mediaOK(w) || !s.adminOnly(w, r) {
+		return
+	}
+	obj, err := s.media.Object(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such object"})
+		return
+	}
+	body, _, err := s.media.Text(r.Context(), userFrom(r.Context()).Username, obj)
+	if errors.Is(err, media.ErrNoText) {
+		writeJSON(w, http.StatusUnsupportedMediaType, api.Error{Error: "no_text", Message: err.Error()})
+		return
+	}
+	if err != nil {
+		s.failed(w, "media", err)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = io.Copy(w, body)
 }

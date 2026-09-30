@@ -38,6 +38,9 @@ func (s *Server) serviceHandler() http.Handler {
 	mux.HandleFunc("POST /svc/media/v1/tickets", s.svcMediaTicket)
 	mux.HandleFunc("POST /svc/media/v1/tickets/complete", s.svcMediaComplete)
 	mux.HandleFunc("GET /svc/media/v1/objects/{id}", s.svcMediaGet)
+	// Before the preset wildcard, and a literal wins over one in this mux: a
+	// preset called "text" would otherwise shadow the words in a document.
+	mux.HandleFunc("GET /svc/media/v1/objects/{id}/text", s.svcMediaText)
 	mux.HandleFunc("GET /svc/media/v1/objects/{id}/{preset}", s.svcMediaGet)
 	mux.HandleFunc("POST /svc/media/v1/objects/{id}/sign", s.svcMediaSign)
 	mux.HandleFunc("DELETE /svc/media/v1/objects/{id}", s.svcMediaDelete)
@@ -446,6 +449,50 @@ func (s *Server) svcMediaTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// svcMediaText hands back the words in a document, for an application that
+// wants to search or summarise them.
+func (s *Server) svcMediaText(w http.ResponseWriter, r *http.Request) {
+	if s.media == nil || !s.media.Enabled(r.Context()) {
+		svcErr(w, http.StatusNotFound, "disabled", "the media service is not enabled on this server")
+		return
+	}
+	k := s.svcKeyFor(r)
+	if k != nil && !s.media.Allow(k) {
+		w.Header().Set("Retry-After", "10")
+		svcErr(w, http.StatusTooManyRequests, "rate_limited", "this key is going too fast")
+		return
+	}
+	obj, err := s.media.Object(r.Context(), r.PathValue("id"))
+	if err != nil {
+		svcErr(w, http.StatusNotFound, "not_found", "no such object")
+		return
+	}
+	// Extracting costs the server something, so unlike the bytes of a public
+	// object this is not open to the world: a key that may read the document
+	// may read what it says.
+	if k == nil || !k.Can("read") || !sameNamespace(k, obj) {
+		svcErr(w, http.StatusForbidden, "forbidden", "reading a document's text needs a key with read")
+		return
+	}
+	body, size, err := s.media.Text(r.Context(), "svc", obj)
+	if errors.Is(err, media.ErrNoText) {
+		svcErr(w, http.StatusUnsupportedMediaType, "no_text", err.Error())
+		return
+	}
+	if err != nil {
+		svcObjectErr(w, err)
+		return
+	}
+	defer body.Close()
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = io.Copy(w, body)
 }
 
 func (s *Server) svcNotFound(w http.ResponseWriter, r *http.Request) {
