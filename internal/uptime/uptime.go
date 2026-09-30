@@ -42,6 +42,10 @@ type Check struct {
 	CreatedAt    string  `json:"createdAt"`
 	Uptime24h    float64 `json:"uptime24h"`
 	Uptime30d    float64 `json:"uptime30d"`
+	// Public puts this check on the status page, which strangers read. Off
+	// unless somebody says otherwise: what a server watches is itself
+	// information, and half of these are internal.
+	Public bool `json:"public"`
 }
 
 // Result is one probe.
@@ -206,11 +210,11 @@ func (c *Check) Validate() error {
 	return nil
 }
 
-const cols = `id, name, type, target, keyword, interval_sec, timeout_sec, expect_status, enabled, status, failures, last_check_at, last_latency, last_error, down_since, created_at`
+const cols = `id, name, type, target, keyword, interval_sec, timeout_sec, expect_status, enabled, status, failures, last_check_at, last_latency, last_error, down_since, created_at, public`
 
 func scan(sc interface{ Scan(...any) error }) (Check, error) {
 	var c Check
-	err := sc.Scan(&c.ID, &c.Name, &c.Type, &c.Target, &c.Keyword, &c.IntervalSec, &c.TimeoutSec, &c.ExpectStatus, &c.Enabled, &c.Status, &c.Failures, &c.LastCheckAt, &c.LastLatency, &c.LastError, &c.DownSince, &c.CreatedAt)
+	err := sc.Scan(&c.ID, &c.Name, &c.Type, &c.Target, &c.Keyword, &c.IntervalSec, &c.TimeoutSec, &c.ExpectStatus, &c.Enabled, &c.Status, &c.Failures, &c.LastCheckAt, &c.LastLatency, &c.LastError, &c.DownSince, &c.CreatedAt, &c.Public)
 	return c, err
 }
 
@@ -282,8 +286,8 @@ func (s *Service) Save(ctx context.Context, c *Check) (*Check, error) {
 	}
 	if c.ID == "" {
 		c.ID = randID()
-		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO checks (id, server_id, name, type, target, keyword, interval_sec, timeout_sec, expect_status, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			c.ID, s.st.ServerID, c.Name, c.Type, c.Target, c.Keyword, c.IntervalSec, c.TimeoutSec, c.ExpectStatus, c.Enabled)
+		_, err := s.st.DB.ExecContext(ctx, `INSERT INTO checks (id, server_id, name, type, target, keyword, interval_sec, timeout_sec, expect_status, enabled, public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			c.ID, s.st.ServerID, c.Name, c.Type, c.Target, c.Keyword, c.IntervalSec, c.TimeoutSec, c.ExpectStatus, c.Enabled, boolInt(c.Public))
 		if err != nil {
 			return nil, err
 		}
@@ -291,8 +295,8 @@ func (s *Service) Save(ctx context.Context, c *Check) (*Check, error) {
 		if _, err := s.get(ctx, c.ID); err != nil {
 			return nil, err
 		}
-		_, err := s.st.DB.ExecContext(ctx, `UPDATE checks SET name = ?, type = ?, target = ?, keyword = ?, interval_sec = ?, timeout_sec = ?, expect_status = ?, enabled = ?, status = CASE WHEN ? THEN status ELSE 'paused' END WHERE id = ?`,
-			c.Name, c.Type, c.Target, c.Keyword, c.IntervalSec, c.TimeoutSec, c.ExpectStatus, c.Enabled, c.Enabled, c.ID)
+		_, err := s.st.DB.ExecContext(ctx, `UPDATE checks SET name = ?, type = ?, target = ?, keyword = ?, interval_sec = ?, timeout_sec = ?, expect_status = ?, enabled = ?, public = ?, status = CASE WHEN ? THEN status ELSE 'paused' END WHERE id = ?`,
+			c.Name, c.Type, c.Target, c.Keyword, c.IntervalSec, c.TimeoutSec, c.ExpectStatus, c.Enabled, boolInt(c.Public), c.Enabled, c.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -443,4 +447,11 @@ func randInt(n int) int {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return int(uint32(b[0])<<24|uint32(b[1])<<16|uint32(b[2])<<8|uint32(b[3])) % n
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

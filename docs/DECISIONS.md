@@ -3318,3 +3318,31 @@ single `<ul>` — numbers gone, task boxes rendered as literal `[ ]`. A list's
 kind is decided by its first item and an item of another kind now ends the run.
 That is the shape a model writes constantly, and it shipped in the release whose
 headline was that lists render properly.
+
+## 2026-09-30 — a status page, which is the only page for strangers
+
+Everything else this panel serves is behind a session and describes a server to
+the person who runs it. A status page answers a different question, asked by
+somebody else: is it me, or is it them. That makes it a different kind of thing,
+and three rules follow.
+
+**Nothing on it that the operator did not put there.** Public is a switch per
+check, off by default, because the list of what a server watches is itself
+information — half of any real set of checks is internal. A check's *target*
+never reaches the page at all: it says "Website" and whether it answered, never
+which URL was probed. And a page nobody has turned on answers 404 rather than
+saying this server has one.
+
+**Rendered on the server, with nothing to fetch.** The panel is the operator's
+tool: 400 KB of React behind a login. This is one template, no JavaScript, no
+external stylesheet, no font, no image — a stranger's browser is asked for
+nothing. It is also the page most likely to be loaded during an incident, when
+the server is already struggling, so it carries a minute of cache and adds up
+its figures from rows it was going to read anyway.
+
+**Thirty days, not ninety.** Results are kept for thirty-one, so a ninety-day
+bar would be sixty days of blank pretending to be sixty days of green. The
+percentage is added up from the same days the bars are drawn from, so the two
+cannot disagree — and a check with no history gets no percentage at all rather
+than `0.00%`, which is what a month of total failure looks like and the worst
+possible way for a page whose whole job is to be believed to be wrong.

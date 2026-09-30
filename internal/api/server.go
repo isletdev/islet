@@ -578,6 +578,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/update", s.requireAuth(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/v1/system/update", requireJSON(s.requireAuth(s.handleUpdateApply)))
 
+	// The status page: no session, no token, no panel. Registered here rather
+	// than under /api because it is a page for people who are not the operator.
+	mux.HandleFunc("GET /status", s.handleStatusPage)
+	mux.HandleFunc("GET /api/v1/status-page", s.requireAuth(s.handleStatusSettings))
+	mux.HandleFunc("POST /api/v1/status-page", requireJSON(s.requireAuth(s.handleStatusSettings)))
+
 	mux.HandleFunc("/api/", s.notFound)
 	mux.Handle("/", s.ui)
 	s.routes = mux

@@ -64,6 +64,8 @@ var minRole = map[string]string{
 	"GET /api/v1/assistant/chats/{id}":                              viewer,
 	"POST /api/v1/assistant/chats/{id}":                             viewer,
 	"DELETE /api/v1/assistant/chats/{id}":                           viewer,
+	"GET /api/v1/status-page":                                       viewer,
+	"POST /api/v1/status-page":                                      admin,
 	"GET /api/v1/media":                                             admin,
 	"POST /api/v1/media":                                            admin,
 	"POST /api/v1/media/worker":                                     admin,

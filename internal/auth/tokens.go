@@ -237,6 +237,8 @@ var areas = []struct{ prefix, scope string }{
 	{"/api/v1/tasks", "media"},
 	{"/api/v1/security", "security"},
 	{"/api/v1/uptime", "uptime"},
+	// The status page is what the uptime checks are for, seen from outside.
+	{"/api/v1/status-page", "uptime"},
 	{"/api/v1/runners", "runners"},
 	{"/api/v1/catalog", "catalog"},
 	{"/api/v1/recipes", "catalog"},

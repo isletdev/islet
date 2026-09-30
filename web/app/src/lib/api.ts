@@ -167,7 +167,10 @@ export interface DBExtension { name: string; installed: boolean; available: bool
 export interface DBDump { file: string; database: string; size: number; createdAt: string }
 export interface DBDetail extends DBInstance { databases: DBDatabase[]; stats?: DBStats; extensions: DBExtension[]; dumps: DBDump[]; error?: string; dumpJob?: Job }
 
-export interface Check { id: string; name: string; type: "http" | "tcp" | "keyword"; target: string; keyword: string; intervalSec: number; timeoutSec: number; expectStatus: number; enabled: boolean; status: string; failures: number; lastCheckAt: string; lastLatencyMs: number; lastError: string; downSince: string; createdAt: string; uptime24h: number; uptime30d: number }
+export interface Check { id: string; name: string; type: "http" | "tcp" | "keyword"; target: string; keyword: string; intervalSec: number; timeoutSec: number; expectStatus: number; enabled: boolean; status: string; failures: number; lastCheckAt: string; lastLatencyMs: number; lastError: string; downSince: string; createdAt: string; uptime24h: number; uptime30d: number
+  /** Whether this check appears on the public status page. */
+  public?: boolean;
+}
 export interface CheckResult { at: string; ok: boolean; latencyMs: number; error?: string }
 export interface LogSource { id: string; label: string; group: string }
 
@@ -245,6 +248,14 @@ export interface MediaOverview {
       tells Islet to answer on it; it does not tell the proxy the host exists. */
   hostRouted: boolean;
 }
+/** What the public status page says, and whether it says anything. */
+export interface StatusPageSettings {
+  enabled: boolean;
+  title: string;
+  host: string;
+  message: string;
+}
+
 export interface MediaBucket {
   id: string; name: string; driver: "local" | "s3" | "gcs" | "azure";
   config: Record<string, string> | null;
@@ -531,6 +542,8 @@ export const api = {
   mediaPresets: () => request<MediaPreset[]>("/api/v1/media/presets"),
   mediaPresetSave: (p: Partial<MediaPreset>) => post<MediaPreset>("/api/v1/media/presets", p),
   mediaPresetRemove: (id: string) => request<void>(`/api/v1/media/presets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  statusPage: () => request<{ settings: StatusPageSettings; hostRouted: boolean; path: string }>("/api/v1/status-page"),
+  statusPageSave: (s: StatusPageSettings) => post<{ settings: StatusPageSettings; hostRouted: boolean; path: string }>("/api/v1/status-page", s),
   mediaObjects: (limit = 60) => request<MediaObject[]>(`/api/v1/media/objects?limit=${limit}`),
   mediaObjectRemove: (id: string) => request<void>(`/api/v1/media/objects/${encodeURIComponent(id)}`, { method: "DELETE" }),
   mediaRenditions: (id: string) => request<{ renditions: MediaRendition[] }>(`/api/v1/media/objects/${encodeURIComponent(id)}/renditions`),

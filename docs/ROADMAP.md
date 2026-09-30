@@ -346,7 +346,7 @@ Ideas that stay free and can be picked up any time after launch, roughly in orde
 - Language runtime installer and PM2-style systemd process manager for non-Docker apps
 - PHP-FPM hosting with per-site PHP versions
 - rclone remotes and external volume mounts in the file explorer
-- Server-side uptime status page
+- ~~Server-side uptime status page~~ **shipped v0.36.0** (Logs & Uptime → Status page: opt-in per check, server-rendered, no JavaScript, thirty days)
 - GPU driver installer and Ollama, vLLM and Open WebUI templates
 - WAF toggle per route (Coraza with OWASP CRS)
 - SBOM per image and image signature verification
