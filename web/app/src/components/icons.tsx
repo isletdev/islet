@@ -257,6 +257,13 @@ export const CopyIcon = (p: IconProps) => (
   </Icon>
 );
 
+// A tick on its own, for a button that has just done the thing it says.
+export const CheckIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m4.8 12.8 4.7 4.7L19.3 7.1" />
+  </Icon>
+);
+
 // A clipboard, for pasting into a terminal. Distinct from CopyIcon, which is
 // two sheets: the pair have to be told apart at 14px and side by side.
 export const ClipboardIcon = (p: IconProps) => (
