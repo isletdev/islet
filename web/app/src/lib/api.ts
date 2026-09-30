@@ -246,7 +246,7 @@ export interface MediaOverview {
   hostRouted: boolean;
 }
 export interface MediaBucket {
-  id: string; name: string; driver: "local" | "s3";
+  id: string; name: string; driver: "local" | "s3" | "gcs" | "azure";
   config: Record<string, string> | null;
   accessKey?: string; secretSet: boolean; publicBase: string;
   maxBytes: number; allowTypes: string; scanUploads: boolean; default: boolean;

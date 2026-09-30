@@ -232,7 +232,10 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
               <span className="font-medium">{b.name}</span>
               {b.default && <span className="ml-2 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px]">default</span>}
               <div className="truncate text-xs text-ink-muted">
-                {b.driver === "local" ? "on this server" : `${b.config?.endpoint ?? ""}/${b.config?.bucket ?? ""}`}
+                {b.driver === "local" ? "on this server"
+                  : b.driver === "gcs" ? `Google Cloud Storage · ${b.config?.bucket ?? ""}`
+                  : b.driver === "azure" ? `Azure · ${b.accessKey ?? ""}/${b.config?.container ?? ""}`
+                  : `${b.config?.endpoint ?? ""}/${b.config?.bucket ?? ""}`}
                 {b.scanUploads ? " · scanned" : " · not scanned"}
                 {b.publicBase ? ` · public at ${b.publicBase}` : ""}
               </div>
@@ -260,16 +263,18 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Name"><Input value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="uploads" required /></Field>
             <Field label="Driver">
-              <Select value={form.driver} onChange={(e) => setForm({ ...form, driver: e.target.value as "local" | "s3" })}>
+              <Select value={form.driver} onChange={(e) => setForm({ ...form, driver: e.target.value as MediaBucket["driver"] })}>
                 <option value="local">This server's disk</option>
-                <option value="s3">S3-compatible</option>
+                <option value="s3">S3-compatible (AWS, R2, MinIO, B2, Wasabi, Hetzner)</option>
+                <option value="gcs">Google Cloud Storage</option>
+                <option value="azure">Azure Blob Storage</option>
               </Select>
             </Field>
             {/* Only for a bucket that is already reachable somewhere else. On
                 a bucket held here there is no second address to send anyone
                 to, so the field is not offered rather than offered and
                 refused. */}
-            {form.driver === "s3" ? (
+            {form.driver !== "local" ? (
               <Field label="Public base URL" hint="Where this bucket is already public — an R2 custom domain, a CDN in front of S3. Optional.">
                 <Input value={form.publicBase ?? ""} onChange={(e) => setForm({ ...form, publicBase: e.target.value })} placeholder="https://cdn.example.com" className="font-mono" />
               </Field>
@@ -279,6 +284,35 @@ function Buckets({ list, busy, onRun, ask }: { list: MediaBucket[]; busy: string
               </Field>
             )}
           </div>
+          {form.driver === "gcs" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="Bucket"><Input value={cfg("bucket")} onChange={(e) => setCfg("bucket", e.target.value)} required /></Field>
+              <Field label="Service account" hint="client_email from the key JSON.">
+                <Input value={form.accessKey ?? ""} onChange={(e) => setForm({ ...form, accessKey: e.target.value })} placeholder="uploader@project.iam.gserviceaccount.com" className="font-mono" required />
+              </Field>
+              <Field label="Prefix" hint="A folder inside the bucket. Optional."><Input value={cfg("prefix")} onChange={(e) => setCfg("prefix", e.target.value)} className="font-mono" /></Field>
+              <div className="sm:col-span-3">
+                <Field label="Private key" hint="private_key from the same JSON, BEGIN line and all. Stored sealed, never shown again.">
+                  <Input type="password" value={form.secret ?? ""} onChange={(e) => setForm({ ...form, secret: e.target.value })} placeholder="-----BEGIN PRIVATE KEY-----…" className="font-mono" />
+                </Field>
+              </div>
+            </div>
+          )}
+          {form.driver === "azure" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="Storage account" hint="The account name, which is also its hostname.">
+                <Input value={form.accessKey ?? ""} onChange={(e) => setForm({ ...form, accessKey: e.target.value })} placeholder="mycompany" className="font-mono" required />
+              </Field>
+              <Field label="Container"><Input value={cfg("container")} onChange={(e) => setCfg("container", e.target.value)} placeholder="media" required /></Field>
+              <Field label="Account key" hint="Either of the two keys from the portal. Stored sealed, never shown again.">
+                <Input type="password" value={form.secret ?? ""} onChange={(e) => setForm({ ...form, secret: e.target.value })} className="font-mono" />
+              </Field>
+              <Field label="Prefix" hint="A folder inside the container. Optional."><Input value={cfg("prefix")} onChange={(e) => setCfg("prefix", e.target.value)} className="font-mono" /></Field>
+              <Field label="Endpoint" hint="Only for Azurite or a sovereign cloud. Optional.">
+                <Input value={cfg("endpoint")} onChange={(e) => setCfg("endpoint", e.target.value)} placeholder="https://mycompany.blob.core.windows.net" className="font-mono" />
+              </Field>
+            </div>
+          )}
           {form.driver === "s3" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Endpoint"><Input value={cfg("endpoint")} onChange={(e) => setCfg("endpoint", e.target.value)} placeholder="https://<id>.r2.cloudflarestorage.com" className="font-mono" required /></Field>

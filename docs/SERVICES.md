@@ -183,7 +183,10 @@ bucket is what exists.
 
 ## Phase C — the rest of the media brief
 
-- **GCS and Azure drivers.**
+- **GCS and Azure drivers. Shipped in v0.33.0** — a service-account driver for
+  Google Cloud Storage and a Shared Key driver for Azure Blob, both hand-written
+  beside the S3 one, both with signed URLs so a browser can upload straight to
+  the bucket.
 - **PDF**: text extraction for search. Page count and a thumbnail of page one
   shipped with Phase B.
 - **Video**: transcoding to web formats. **Shipped in v0.32.0**, with the queue

@@ -3201,3 +3201,47 @@ other derivative here is made on demand; a video is the one thing that cannot be
 so `GET /objects/{id}/mp4-720` answers `not_transcoded` when nothing has made it.
 Holding the connection open instead would be the same wait with less information,
 and 202 would be a lie: that request queued nothing.
+
+## 2026-09-30 — Google and Azure, and a migration that could not run in a transaction
+
+**Two drivers, not five.** The S3 driver already reaches AWS, R2, MinIO,
+Backblaze, Wasabi and Hetzner with an endpoint, and it reaches Google's buckets
+too if you make an HMAC key for them. What it cannot reach is Azure, which
+speaks nothing S3-shaped, and what it cannot *use* is the credential a Google
+project actually hands out — a service-account JSON rather than an HMAC pair. So
+the two gaps are a Shared Key driver and a service-account one, and both are
+written by hand for the reason the S3 one is: a vendor SDK is larger than this
+whole daemon, and what it would save is one file each.
+
+Azure's Shared Key is an HMAC over thirteen header values in a fixed order, most
+of them empty, and its only response to getting that wrong is a 403 with nothing
+in it — so the string is built in one function with a test that pins the order
+and the blank line where `Date` goes when `x-ms-date` is used instead. Google's
+is a JWT signed with the account's RSA key, traded for an hour-long token; its
+signed URLs are V4, the same shape as S3's with an RSA signature in place of a
+derived HMAC.
+
+**A migration ran outside its transaction, for the first time.** Widening a
+CHECK constraint means rebuilding the table, `media_objects` points at
+`media_buckets`, and SQLite refuses to drop a parent that has live children. The
+pragma that allows it — `foreign_keys = OFF` — is a no-op inside a transaction,
+and every migration here runs in one.
+
+Two attempts looked right and failed identically: `defer_foreign_keys`, which
+defers the check to the commit but counts one violation per orphaned child at
+the moment of the drop and does not take them back when the parent reappears
+under the same name; and `legacy_alter_table`, which did not stop the rename
+from rewriting the child's REFERENCES clause. The mechanism that works is the
+one SQLite documents: constraints off, rebuild, constraints on, check. A
+migration whose first line says `islet:no-transaction` now gets a connection of
+its own with the constraints down, and the runner refuses to record it unless
+`foreign_key_check` is clean afterwards — because with constraints off a mistake
+is otherwise silent.
+
+**All of which was found by rehearsing against a copy of a real database.** On a
+fresh install there are no objects, the drop succeeds, and the migration would
+have shipped and then failed on exactly the servers that had been using the
+feature — the ones with something to lose. The first rehearsal that *passed* had
+been copied without the write-ahead log and so had no rows in it either, which
+is worth remembering: a copy of a live SQLite database is the `.db`, the `-wal`
+and the `-shm`, or it is a copy of an older state.

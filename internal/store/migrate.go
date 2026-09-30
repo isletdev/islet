@@ -95,6 +95,18 @@ func migrate(ctx context.Context, db *sql.DB) (applied int, err error) {
 		if m.version <= current {
 			continue
 		}
+		// A migration that rebuilds a table other tables point at cannot run
+		// inside a transaction, because the only way to drop a foreign-key
+		// parent that has live children is to turn foreign keys off — and
+		// `PRAGMA foreign_keys` is a no-op inside one. Such a migration says so
+		// on its first line.
+		if looseMigration(m.sql) {
+			if err := applyLoose(ctx, db, m); err != nil {
+				return applied, err
+			}
+			applied++
+			continue
+		}
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return applied, err
@@ -113,4 +125,80 @@ func migrate(ctx context.Context, db *sql.DB) (applied int, err error) {
 		applied++
 	}
 	return applied, nil
+}
+
+// looseMigration reports whether a migration asked to run outside the usual
+// transaction. The marker is on the first line so that reading the file says so
+// before anything else about it.
+func looseMigration(sql string) bool {
+	first, _, _ := strings.Cut(sql, "\n")
+	return strings.Contains(first, "islet:no-transaction")
+}
+
+// applyLoose runs one migration on a connection of its own with foreign keys
+// switched off, and refuses to record it unless the database is still whole
+// afterwards.
+//
+// The transaction is still there — the statements are atomic — but it is opened
+// after the pragma rather than around it, which is the whole difference. The
+// connection is dedicated so that no other query runs while this one has
+// constraints disabled, and the pragma is put back on every path out, because
+// that connection returns to the pool afterwards and must not take a disabled
+// constraint with it.
+func applyLoose(ctx context.Context, db *sql.DB, m migration) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("migration %04d_%s: %w", m.version, m.name, err)
+	}
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA foreign_keys = ON`) }()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration %04d_%s: %w", m.version, m.name, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version, name) VALUES (?, ?)`, m.version, m.name); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// With the constraints off, a mistake in the SQL is silent: rows pointing at
+	// a table that is no longer there, and nothing said until somebody reads
+	// them. So it is checked, and a failure here is loud — the migration is
+	// recorded by then, but the daemon will not start on a database it has just
+	// broken.
+	rows, err := conn.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	var broken []string
+	for rows.Next() {
+		var table, parent string
+		var rowid, fkid sql.NullInt64
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return err
+		}
+		broken = append(broken, table+" -> "+parent)
+		if len(broken) > 5 {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(broken) > 0 {
+		return fmt.Errorf("migration %04d_%s left rows pointing at nothing: %s", m.version, m.name, strings.Join(broken, ", "))
+	}
+	return nil
 }

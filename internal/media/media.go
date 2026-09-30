@@ -230,15 +230,32 @@ func (s *Service) SaveBucket(ctx context.Context, actor string, b *Bucket, secre
 	if b.Name == "" {
 		return nil, errors.New("a bucket needs a name")
 	}
-	if b.Driver != "local" && b.Driver != "s3" {
-		return nil, errors.New("driver must be local or s3")
+	// What each driver cannot do without. Checked here rather than at the first
+	// upload, because a bucket that is wrong is wrong at the moment it is saved
+	// and finding out later means finding out from somebody else's application.
+	needs := map[string][]string{
+		"local": nil,
+		"s3":    {"endpoint", "bucket"},
+		"gcs":   {"bucket"},
+		"azure": {"container"},
 	}
-	if b.Driver == "s3" {
-		for _, need := range []string{"endpoint", "bucket"} {
-			if strings.TrimSpace(b.Config[need]) == "" {
-				return nil, fmt.Errorf("an s3 bucket needs %s", need)
-			}
+	need, ok := needs[b.Driver]
+	if !ok {
+		return nil, errors.New("driver must be local, s3, gcs or azure")
+	}
+	for _, k := range need {
+		if strings.TrimSpace(b.Config[k]) == "" {
+			return nil, fmt.Errorf("a %s bucket needs %s", b.Driver, k)
 		}
+	}
+	// Both of these carry their identity outside the generic access-key field:
+	// Google's is the service account's address, Azure's is the storage account
+	// whose name is also its hostname.
+	if b.Driver == "gcs" && strings.TrimSpace(b.AccessKey) == "" {
+		return nil, errors.New("a gcs bucket needs the service account's client_email as its access key, and its private_key as the secret")
+	}
+	if b.Driver == "azure" && strings.TrimSpace(b.AccessKey) == "" {
+		return nil, errors.New("an azure bucket needs the storage account name as its access key, and an account key as the secret")
 	}
 	// A public base is "the bucket is already reachable at this address, send
 	// people there instead of through Islet" — an R2 custom domain, a CDN in
@@ -318,6 +335,29 @@ func (s *Service) storage(ctx context.Context, b *Bucket) (Storage, error) {
 	switch b.Driver {
 	case "local":
 		return &Local{Root: filepath.Join(s.dir, "objects", b.ID)}, nil
+	case "gcs":
+		secret, err := s.bucketSecret(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &GCS{
+			Bucket:      b.Config["bucket"],
+			Prefix:      b.Config["prefix"],
+			ClientEmail: b.AccessKey,
+			PrivateKey:  secret,
+		}, nil
+	case "azure":
+		secret, err := s.bucketSecret(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &Azure{
+			Account:   b.AccessKey,
+			Key:       secret,
+			Container: b.Config["container"],
+			Prefix:    b.Config["prefix"],
+			Endpoint:  b.Config["endpoint"],
+		}, nil
 	case "s3":
 		secret, err := s.bucketSecret(ctx, b.ID)
 		if err != nil {
