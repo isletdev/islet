@@ -198,6 +198,37 @@ it. `Redact` now blanks a quoted value under a secret-looking key inside an
 argument — whole word only, quoted values only, so `passthrough` and prose are
 left alone. `internal/cmdrun` has a test file now, and these shapes are in it.
 
+### Known and not yet fixed
+
+From the two release checks of 2026-09-30, kept here rather than lost in a
+report. None is a fault in something's own path; each is a path around it.
+
+- **A variant orphaned by a preset change survives its object's deletion.**
+  `Delete` enumerates presets as they are *now*, and a derivative's name carries
+  the preset's dimensions — so changing a preset (which means delete-and-recreate,
+  since there is no `PUT /media/presets/{id}`) leaves the old variant reachable by
+  nothing. Fixing it properly needs `List` on the `Storage` interface, which all
+  four drivers would have to grow.
+- **Deleting an object or a bucket leaves its empty directories** on the local
+  driver. Harmless, untidy, and visible on this server already.
+- **A transcode does not take the conversion gate.** It is serialised by the work
+  queue instead, so two encodes cannot overlap — but an encode and a thumbnail
+  can. Making a transcode hold the gate would shed every thumbnail on the server
+  for the length of the encode, which is worse.
+- **`pdftotext` has no page or size ceiling** beyond the 256 MB object limit and
+  cmdrun's ten-minute deadline. On a 1 vCPU box one enormous document can make
+  every thumbnail request shed for twenty seconds.
+- **An encode's kill is a TOCTOU**: the pid comes from one `docker top` and is
+  signalled by a separate command. Docker filters that list to the container's
+  own processes, so an unrelated host process cannot appear, but nothing
+  re-reads `/proc/<pid>/cmdline` before signalling.
+- **Raw SQLite error text reaches the API** on a unique-constraint violation —
+  `constraint failed: UNIQUE constraint failed: media_presets.server_id, …`
+  arrives on the operator's screen as-is.
+- **An orphan ffmpeg survives a daemon restart.** Nothing sweeps the container at
+  startup, so an encode interrupted by `islet update` runs to the end beside the
+  next one. The staging files it leaves are now swept; the process is not.
+
 ### Packages with no tests
 
 Thirteen of thirty-two, and the list is not the comfortable half:
