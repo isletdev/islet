@@ -17,7 +17,12 @@ import (
 func (s *Server) handleGitHubConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.github.Load(r.Context())
 	cfg.PrivateKey, cfg.WebhookSecret = "", ""
-	out := map[string]any{"config": cfg, "hookUrl": "/api/v1/hooks/github"}
+	out := map[string]any{
+		"config":     cfg,
+		"hookUrl":    "/api/v1/hooks/github",
+		"account":    s.github.Account(r.Context()),
+		"installUrl": s.github.InstallURL(r.Context()),
+	}
 	if cfg.Configured {
 		if insts, err := s.github.Installations(r.Context()); err == nil {
 			out["installations"] = insts
@@ -62,17 +67,43 @@ func (s *Server) handleGitHubSave(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleGitHubRepos lists what this server can see, through whichever
+// connection can see it. Both may exist and the two lists overlap, so they are
+// merged by full name — a repository the App can read is listed once, not
+// twice because a token can read it as well.
 func (s *Server) handleGitHubRepos(w http.ResponseWriter, r *http.Request) {
-	if !s.github.Configured(r.Context()) {
-		writeJSON(w, http.StatusOK, []github.Repo{})
+	seen := map[string]bool{}
+	out := []github.Repo{}
+	var failed string
+	if s.github.Configured(r.Context()) {
+		repos, err := s.github.Repos(r.Context())
+		if err != nil {
+			failed = err.Error()
+		}
+		for _, repo := range repos {
+			if !seen[strings.ToLower(repo.FullName)] {
+				seen[strings.ToLower(repo.FullName)] = true
+				out = append(out, repo)
+			}
+		}
+	}
+	repos, err := s.github.TokenRepos(r.Context())
+	if err != nil && failed == "" {
+		failed = err.Error()
+	}
+	for _, repo := range repos {
+		if !seen[strings.ToLower(repo.FullName)] {
+			seen[strings.ToLower(repo.FullName)] = true
+			out = append(out, repo)
+		}
+	}
+	// A list that is short because one connection failed is worse than an
+	// error: it reads as "that repository is not there".
+	if len(out) == 0 && failed != "" {
+		writeJSON(w, http.StatusBadGateway, api.Error{Error: "github", Message: failed})
 		return
 	}
-	repos, err := s.github.Repos(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, api.Error{Error: "github", Message: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, repos)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleGitHubHook is the single webhook a GitHub App delivers to: pushes
@@ -84,7 +115,17 @@ func (s *Server) handleGitHubHook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	if cfg.WebhookSecret == "" || !runner.VerifyGitHub(cfg.WebhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
+	// Either secret: the App's, which covers every repository it is installed
+	// on, or the one Islet signs the webhooks it creates itself with. A server
+	// can have both connections, and a repository wired through one must not be
+	// refused because the other exists.
+	sig := r.Header.Get("X-Hub-Signature-256")
+	hook, _ := s.github.HookSecret(r.Context())
+	ok := cfg.WebhookSecret != "" && runner.VerifyGitHub(cfg.WebhookSecret, body, sig)
+	if !ok && hook != "" {
+		ok = runner.VerifyGitHub(hook, body, sig)
+	}
+	if !ok {
 		http.Error(w, "bad signature", http.StatusUnauthorized)
 		return
 	}

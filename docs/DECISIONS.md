@@ -3401,3 +3401,67 @@ saying all systems are operational, a GCS token cache that could never hit
 because the driver was rebuilt per call, credentials accepted in shapes their
 own signer cannot use — are the same lesson in smaller print. A page that is
 believed is the only kind of status page worth having.
+
+## 2026-10-01 — GitHub without a repository's settings page
+
+The reason this panel exists is deploying from GitHub, and the thing that made
+it tedious was the same sentence every deployment guide ends with: now go to
+your repository, open Settings → Webhooks, paste this URL, paste this secret,
+choose these events. Islet generated that secret per app and handed it over to
+be typed in, for every application, forever. That is now gone, in both
+directions, and neither of them asks anybody to open a repository.
+
+**The GitHub App is created in one click.** An App is the credential that makes
+a webhook per repository unnecessary — one app, one webhook, every repository it
+is installed on — and the price was always the registration: eleven fields, two
+permission grids, a private key to download and five values to paste back. The
+instruction to do it sat in `NEEDED_FROM_YOU.md` for months and nobody did it,
+including the person who wrote it. GitHub has a manifest flow for exactly this:
+the server describes the app it wants, the browser posts that to github.com, the
+person presses one button, and GitHub hands back the id, the private key and the
+webhook secret. Nothing is typed. The manual form is still there, one click
+away, because somebody will have an app already.
+
+**A token is the other half, and not a lesser one.** An App installation token
+cannot create a repository under a personal account and cannot push; both are
+the account's own authority. So a token stored once does the things an App
+cannot, and on its own it also covers the first direction — with it Islet adds
+each webhook through the API, which a person still never sees. Both may be
+present; whichever can answer a question answers it, and the App wins where both
+can, because its token is minted per hour and scoped to the installation.
+
+**Publishing a directory is the other direction.** The assistant writes an
+application into a workspace and the next thing anybody wants is for it to be a
+repository that deploys on push. `publish_to_github` takes a path: it commits
+what is there, creates the repository, pushes, creates the app, adds the webhook
+and starts the deploy. Three things it does that are worth stating:
+
+- **`.env` is always ignored**, whatever the directory's own `.gitignore` says.
+  "Publish this directory" is said about directories people have been running
+  locally, and those have an `.env` in them. An application's secrets live in
+  the app's environment here; the alternative to this rule is them on GitHub.
+- **It refuses before it touches anything.** Preparing the directory writes a
+  `.gitignore` and makes a commit, so discovering afterwards that there is no
+  credential leaves somebody's folder changed by an operation that did not
+  happen. The first version did exactly that, and reported it as a git error
+  about a temporary file.
+- **A directory inside another repository is published alone.** `git rev-parse
+  --git-dir` answers for the nearest repository *up* the tree, so publishing
+  `/srv/shop/api` out of a monorepo found the parent, staged the parent's entire
+  worktree, committed into it and pushed that. `--show-toplevel` is the question
+  that was meant. Found because this machine's `/tmp` turns out to be a git
+  repository and a test went looking for a file that was therefore never
+  written — the kind of accident worth keeping.
+
+**And no git command here can wait for a password.** A daemon has no terminal to
+answer on, so a command that decides to ask sits there until something kills it,
+holding the request that started it. Credential helpers are off and askpass is a
+program that answers nothing. Found by a test that hung for eighteen seconds on
+a `git fetch` that existed only to let `--set-upstream-to` work; the upstream is
+written into the config directly now, which needs no network at all.
+
+**The scope line.** Listing repositories, publishing one and wiring a webhook
+are `deploy`: what comes out of them is an app, a webhook and a push. The
+credential — the App's private key, the personal token — is `settings`. The
+assistant carries deploy and not settings, so it can put an application on
+GitHub and cannot change the account it does that as.

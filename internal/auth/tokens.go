@@ -308,6 +308,17 @@ func ScopeAllows(scopes, method, path string) bool {
 	// gate at all, whatever it was minted for.
 	case path == "/_islet/auth":
 		return true
+	// Connecting a repository, listing what is connectable, and publishing a
+	// directory as a new one are all deploying: what comes out is an app, a
+	// webhook and a push. The credentials themselves — the App's private key,
+	// the personal token — are configuration and stay with "settings". That is
+	// the line, and it is the line the assistant sits on: its token carries
+	// deploy and not settings, so it can put an application on GitHub and
+	// cannot replace the key it does so with.
+	case path == "/api/v1/github/repos":
+		return read && (has("deploy") || has("read"))
+	case path == "/api/v1/github/publish", strings.HasPrefix(path, "/api/v1/github/apps/"):
+		return has("deploy")
 	// Sending a notification is a write that the read scope must not cover,
 	// and it is the one thing under /api/v1/notify that "notify" is for.
 	case path == "/api/v1/notify/emit":

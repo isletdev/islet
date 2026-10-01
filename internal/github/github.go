@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/isletdev/islet/internal/auth"
+	"github.com/isletdev/islet/internal/cmdrun"
 	"github.com/isletdev/islet/internal/store"
 )
 
@@ -61,6 +62,10 @@ type Client struct {
 	st   *store.Store
 	keys *auth.Keys
 	http *http.Client
+	// cmds runs git, for publishing a directory. Through cmdrun like everything
+	// else, which is what keeps the credential in a push URL out of the audit
+	// table.
+	cmds *cmdrun.Runner
 
 	mu     sync.Mutex
 	tokens map[int64]cachedToken
@@ -72,8 +77,8 @@ type cachedToken struct {
 }
 
 // New builds the client.
-func New(st *store.Store, keys *auth.Keys) *Client {
-	return &Client{st: st, keys: keys, http: &http.Client{Timeout: 30 * time.Second}, tokens: map[int64]cachedToken{}}
+func New(st *store.Store, keys *auth.Keys, cmds *cmdrun.Runner) *Client {
+	return &Client{st: st, keys: keys, cmds: cmds, http: &http.Client{Timeout: 30 * time.Second}, tokens: map[int64]cachedToken{}}
 }
 
 // Load reads the stored config (secrets decrypted).
@@ -200,7 +205,11 @@ func (c *Client) call(ctx context.Context, bearer, method, path string, body any
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
+	// The manifest conversion is the one call with no credential: the code in
+	// its path is the credential, good once and for ten minutes.
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "islet")

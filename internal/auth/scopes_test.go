@@ -225,3 +225,46 @@ func TestAIProviderScopes(t *testing.T) {
 		}
 	}
 }
+
+// What an agent may do with GitHub, and what it may not.
+//
+// The assistant's token carries deploy and not settings. It has to be able to
+// list repositories, publish a directory and wire a webhook — that is the whole
+// feature — and it must not be able to read or replace the credential it does
+// that with, because a token that can rewrite the GitHub connection is a token
+// that can point this server's deploys at somebody else's code.
+func TestAnAgentCanPublishToGitHubAndCannotTakeTheCredential(t *testing.T) {
+	const agent = "read,deploy,containers,domains,db,files,backups,uptime,runners,catalog,notify,logs,system,media"
+	may := []struct{ method, path string }{
+		{"GET", "/api/v1/github/repos"},
+		{"POST", "/api/v1/github/publish"},
+		{"POST", "/api/v1/github/apps/abc/webhook"},
+		{"POST", "/api/v1/apps"},
+	}
+	for _, c := range may {
+		if !ScopeAllows(agent, c.method, c.path) {
+			t.Errorf("an agent cannot %s %s, which is most of what this is for", c.method, c.path)
+		}
+	}
+	// Reading the connection is a read like any other, and the handler blanks
+	// the private key and the webhook secret before it answers —
+	// TestTheGitHubConfigNeverCarriesItsSecrets in internal/api pins that half.
+	// What an agent must not do is *change* the credential.
+	mayNot := []struct{ method, path string }{
+		{"POST", "/api/v1/github"},
+		{"POST", "/api/v1/github/token"},
+		{"DELETE", "/api/v1/github/token"},
+	}
+	for _, c := range mayNot {
+		if ScopeAllows(agent, c.method, c.path) {
+			t.Errorf("an agent can %s %s, which is the GitHub credential itself", c.method, c.path)
+		}
+	}
+	// And a read-only token cannot publish anything.
+	if ScopeAllows("read", "POST", "/api/v1/github/publish") {
+		t.Error("a read scope can publish a repository")
+	}
+	if !ScopeAllows("read", "GET", "/api/v1/github/repos") {
+		t.Error("a read scope cannot list repositories, which is a read")
+	}
+}

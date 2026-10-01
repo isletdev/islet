@@ -467,13 +467,90 @@ function GitHubApp() {
   const [form, setForm] = useState({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" });
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState("");
+  const [org, setOrg] = useState("");
+  const [byHand, setByHand] = useState(false);
   const load = () => api.github().then((s) => { setSt(s); setForm((f) => ({ ...f, appId: s.config.appId, clientId: s.config.clientId, slug: s.config.slug })); }).catch(() => {});
   useEffect(() => { void load(); }, []);
   const save = async (e: FormEvent) => { e.preventDefault(); setBusy(true); setMsg(null); try { await api.githubSave(form); setForm((f) => ({ ...f, privateKey: "", webhookSecret: "" })); setMsg("Saved and verified with GitHub."); await load(); } catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); } finally { setBusy(false); } };
   const clear = async () => { if (!(await ask.confirm({ title: "Remove the GitHub App?", body: "Repository pickers stop listing private repositories, and apps and runners fall back to personal access tokens.", confirmLabel: "Remove", tone: "danger" }))) return; await api.githubSave({ appId: "", clientId: "", slug: "", privateKey: "", webhookSecret: "" }); await load(); };
+  // The one-click half. GitHub's manifest flow wants a form POST from the
+  // person's own browser — they have to be the one asking, on a page where they
+  // can see what they are agreeing to — so this builds one and submits it.
+  const createApp = async (org: string) => {
+    setBusy(true); setMsg(null);
+    try {
+      const m = await api.githubManifest(org || undefined);
+      const f = document.createElement("form");
+      f.method = "POST";
+      f.action = m.postUrl;
+      const field = document.createElement("input");
+      field.type = "hidden";
+      field.name = "manifest";
+      field.value = m.manifest;
+      f.appendChild(field);
+      document.body.appendChild(f);
+      f.submit();
+    } catch (er) {
+      setMsg(er instanceof RequestError ? er.message : String(er));
+      setBusy(false);
+    }
+  };
+
+  const saveToken = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setMsg(null);
+    try { await api.githubToken(token); setToken(""); setMsg("Token saved."); await load(); }
+    catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+    finally { setBusy(false); }
+  };
+
   if (!st) return null;
+  const acc = st.account;
   return (
-    <Card title="GitHub App" description="Lets people pick repositories from a list, clones private repositories with short-lived tokens, registers runners without personal access tokens, and receives one webhook for pushes and CI jobs.">
+    <Card title="GitHub" description="Connect once here, and never open a repository's settings again: Islet picks repositories from a list, clones private ones, adds each webhook itself, and can create a repository for an application that only exists on this server.">
+      {/* The two ways in, and what each is for. Before anything else, because
+          the form below is the thing this exists to stop people doing. */}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-md border border-border p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-sm font-medium">GitHub App</span>
+            {acc.app ? <span className="text-xs text-success">connected</span> : <span className="text-xs text-ink-muted">not set up</span>}
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">
+            One app, one webhook, every repository you install it on — so connecting a repository needs nothing in the repository. Islet writes the whole thing; you press Create on GitHub.
+          </p>
+          {!acc.app ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button className="h-8 text-xs" disabled={busy} onClick={() => void createApp(org)}>Create it on GitHub</Button>
+              <Input value={org} onChange={(e) => setOrg(e.target.value)} placeholder="organisation (optional)" className="h-8 w-44 text-xs" />
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-ink-muted">
+              Installed on {acc.installs === 0 ? "nobody yet" : `${acc.installs} account${acc.installs === 1 ? "" : "s"}`}.
+              {st.installUrl && <> <a className="underline" href={st.installUrl} target="_blank" rel="noreferrer noopener">Install it somewhere</a>.</>}
+            </div>
+          )}
+        </div>
+        <div className="rounded-md border border-border p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-sm font-medium">Token</span>
+            {acc.login ? <span className="text-xs text-success">{acc.login}</span> : <span className="text-xs text-ink-muted">not set up</span>}
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">
+            What an App cannot do on a personal account: create a repository and push to it. Needed for &ldquo;publish this to GitHub&rdquo;, and enough on its own — with it Islet adds each webhook through the API.
+          </p>
+          {acc.login ? (
+            <button type="button" onClick={() => void api.githubTokenClear().then(load)} className="-my-1 mt-2 py-1 text-xs text-danger hover:underline">Forget it</button>
+          ) : (
+            <form onSubmit={saveToken} className="mt-2 flex items-center gap-2">
+              <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="ghp_… or github_pat_…" className="h-8 flex-1 font-mono text-xs" autoComplete="off" />
+              <Button type="submit" variant="secondary" className="h-8 text-xs" disabled={busy}>Save</Button>
+            </form>
+          )}
+        </div>
+      </div>
+      {msg && <div className="mb-3 text-sm text-ink-muted">{msg}</div>}
       {st.config.configured && (
         <div className="mb-3 rounded-md border border-success/40 bg-success-soft p-3 text-sm">
           <div className="text-success">Configured as App {st.config.appId}{st.installations && ` · installed on ${st.installations.map((i) => i.account).join(", ") || "nobody yet"}`}</div>
@@ -505,14 +582,20 @@ function GitHubApp() {
           <button type="button" onClick={() => void clear()} className="mt-2 text-xs text-danger hover:underline">Remove</button>
         </div>
       )}
-      <form onSubmit={save} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {!byHand ? (
+        <button type="button" onClick={() => setByHand(true)} className="-my-1 py-1 text-xs text-ink-muted hover:text-ink">
+          Paste an app&rsquo;s credentials by hand instead
+        </button>
+      ) : (
+      <form onSubmit={save} className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-3">
         <Field label="App ID"><Input value={form.appId} onChange={(e) => setForm({ ...form, appId: e.target.value })} className="font-mono" required /></Field>
         <Field label="Client ID"><Input value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="font-mono" /></Field>
         <Field label="App slug" hint="From the app URL, github.com/apps/<slug>"><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className="font-mono" /></Field>
         <div className="sm:col-span-2"><Field label="Private key (.pem)" hint={st.config.configured ? "Leave empty to keep the stored key." : "Generate one at the bottom of the GitHub App page and paste the file contents."}><textarea value={form.privateKey} onChange={(e) => setForm({ ...form, privateKey: e.target.value })} rows={4} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" /></Field></div>
         <Field label="Webhook secret" hint={st.config.configured ? "Leave empty to keep it." : "The secret you typed on the GitHub App page."}><Input type="password" value={form.webhookSecret} onChange={(e) => setForm({ ...form, webhookSecret: e.target.value })} autoComplete="off" /></Field>
-        <div className="flex items-center gap-2 sm:col-span-3"><Button type="submit" className="h-9" disabled={busy}>{busy ? "Verifying…" : "Save"}</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
+        <div className="flex items-center gap-2 sm:col-span-3"><Button type="submit" className="h-9" disabled={busy}>{busy ? "Verifying…" : "Save"}</Button><Button type="button" variant="secondary" className="h-9" onClick={() => setByHand(false)}>Cancel</Button></div>
       </form>
+      )}
     </Card>
   );
 }

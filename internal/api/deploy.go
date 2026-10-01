@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/isletdev/islet/internal/deploy"
+	"github.com/isletdev/islet/internal/github"
 	"github.com/isletdev/islet/pkg/api"
 )
 
@@ -83,7 +84,27 @@ func (s *Server) handleAppSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.Audit(r.Context(), u.Username, "app.save", saved.ID, saved.Name)
-	writeJSON(w, http.StatusOK, saved)
+
+	// And the step nobody should have to do by hand. An app that deploys on
+	// push needs the repository to tell this server about pushes, which used to
+	// mean opening the repository's settings and pasting a URL and a secret
+	// generated here. With a GitHub connection, Islet does it — through the
+	// App, which already covers every repository it is installed on, or through
+	// the API with a token.
+	//
+	// It is reported, never fatal: the app is saved either way, and a
+	// connection that cannot be made is a sentence on the page rather than a
+	// refusal to save what somebody just configured.
+	out := map[string]any{}
+	if b, err := json.Marshal(saved); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	if saved.AutoDeploy && saved.Source == "git" && s.github != nil {
+		if _, ok := github.RepoFromURL(saved.RepoURL); ok {
+			out["webhook"] = s.wireWebhook(r.Context(), r, u.Username, saved)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAppDelete(w http.ResponseWriter, r *http.Request) {

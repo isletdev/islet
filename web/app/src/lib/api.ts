@@ -392,7 +392,26 @@ export interface Attention { securityScore: number; securityFailing: number; bac
 
 export interface GitHubRepo { fullName: string; defaultBranch: string; private: boolean; url: string; installation: number }
 export interface GitHubNeed { kind: "permission" | "event"; name: string; level?: string; label: string; for: string }
-export interface GitHubState { config: { appId: string; clientId: string; slug: string; configured: boolean }; hookUrl: string; installations?: { id: number; account: string; type: string }[]; app?: { name: string; permissions: Record<string, string>; events: string[] }; missing?: GitHubNeed[]; repoCount?: number; error?: string }
+/** Who Islet is on GitHub, and what that lets it do. */
+export interface GitHubAccount {
+  /** The token's owner, empty when there is no token. */
+  login?: string;
+  app: boolean;
+  appSlug?: string;
+  installs: number;
+  /** Publishing a directory as a new repository needs the token, not the App. */
+  canCreateRepos: boolean;
+}
+
+export interface GitHubPublished {
+  repo: { fullName: string; defaultBranch: string; private: boolean; url: string };
+  htmlUrl: string;
+  branch: string;
+  wroteGitignore: boolean;
+  commits: number;
+}
+
+export interface GitHubState { account: GitHubAccount; installUrl?: string; config: { appId: string; clientId: string; slug: string; configured: boolean }; hookUrl: string; installations?: { id: number; account: string; type: string }[]; app?: { name: string; permissions: Record<string, string>; events: string[] }; missing?: GitHubNeed[]; repoCount?: number; error?: string }
 
 export class RequestError extends Error {
   status: number;
@@ -601,6 +620,13 @@ export const api = {
   github: () => request<GitHubState>("/api/v1/github"),
   githubSave: (b: { appId: string; clientId: string; slug: string; privateKey: string; webhookSecret: string }) => post<void>("/api/v1/github", b),
   githubRepos: () => request<GitHubRepo[]>("/api/v1/github/repos"),
+  /** The app to ask GitHub to create. The browser posts it to github.com itself. */
+  githubManifest: (org?: string) => request<{ postUrl: string; manifest: string; name: string }>(`/api/v1/github/manifest${org ? `?org=${encodeURIComponent(org)}` : ""}`),
+  githubToken: (token: string) => post<GitHubAccount>("/api/v1/github/token", { token }),
+  githubTokenClear: () => request<GitHubAccount>("/api/v1/github/token", { method: "DELETE" }),
+  githubPublish: (b: { path: string; name: string; owner?: string; description?: string; private?: boolean; branch?: string; createApp?: boolean; appName?: string; domain?: string }) =>
+    post<{ published: GitHubPublished; app?: DeployApp; webhook?: string; appError?: string }>("/api/v1/github/publish", b),
+  githubWire: (appId: string) => post<{ result: string }>(`/api/v1/github/apps/${encodeURIComponent(appId)}/webhook`, {}),
   /** What the sidebar shows: links somebody added, plus catalog apps with a domain. */
   sidebar: () => request<{ label: string; url: string; auto?: boolean }[]>("/api/v1/sidebar"),
   /** Only the links the editor may change; the automatic ones are left out. */

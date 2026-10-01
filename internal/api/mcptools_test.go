@@ -300,3 +300,70 @@ func TestQueryValuesAreWhatHandlersRead(t *testing.T) {
 		}
 	}
 }
+
+// Every tool docs/MCP.md names has to exist.
+//
+// The first draft of that page listed twenty-five tools that did not: written
+// from memory, in the voice of somebody who knew the codebase, and wrong. A
+// reader cannot tell the difference, and an agent handed the page as context
+// cannot either — it will call `create_database` and be told there is no such
+// tool, which reads as the server being broken.
+//
+// Any backticked word with an underscore in it is taken to be a tool name,
+// because every tool here has one and almost nothing else in that document
+// does.
+func TestTheMCPDocumentNamesOnlyRealTools(t *testing.T) {
+	body, err := os.ReadFile("../../docs/MCP.md")
+	if err != nil {
+		t.Skip("docs/MCP.md is not here")
+	}
+	s := &Server{}
+	real := map[string]bool{}
+	for _, tool := range s.curatedTools() {
+		real[tool.Name] = true
+	}
+	for _, name := range builtinToolNames(t) {
+		real[name] = true
+	}
+	// Words that look like tools and are not: scopes, and the names of things
+	// in the API that are not tools.
+	notATool := map[string]bool{
+		"islet_media": true, "x_access": true,
+	}
+
+	seen := 0
+	for _, m := range regexp.MustCompile("`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`").FindAllStringSubmatch(string(body), -1) {
+		name := m[1]
+		if notATool[name] {
+			continue
+		}
+		seen++
+		if !real[name] {
+			t.Errorf("docs/MCP.md names the tool %q, which does not exist", name)
+		}
+	}
+	if seen < 30 {
+		t.Fatalf("only found %d tool names in the document; the pattern has stopped matching", seen)
+	}
+	// And the three this document exists to explain are in it.
+	for _, must := range []string{"publish_to_github", "list_github_repos", "wire_github_webhook"} {
+		if !strings.Contains(string(body), must) {
+			t.Errorf("the document does not mention %s", must)
+		}
+	}
+}
+
+// builtinToolNames reads the hand-written tools out of mcp.go, which is where
+// they are defined rather than in a list anything can ask for without a server.
+func builtinToolNames(t *testing.T) []string {
+	t.Helper()
+	body, err := os.ReadFile("mcp.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, m := range regexp.MustCompile(`\{Name: "([a-z_0-9]+)"`).FindAllStringSubmatch(string(body), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}

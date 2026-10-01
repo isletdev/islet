@@ -228,7 +228,7 @@ func (s *Server) curatedTools() []mcp.Tool {
 		// ---- apps and deploys ------------------------------------------
 		{"inspect_repo", "Look at a git repository and report the framework, build and start commands and port Islet would use. Run this before create_app to see what it will do.", "deploy", "POST", "/api/v1/apps/inspect", []string{"repoUrl"},
 			map[string]any{"repoUrl": str("Git URL, for example https://github.com/owner/repo"), "branch": str("Branch, default the repository's own"), "rootDir": str("Subdirectory for a monorepo")}},
-		{"create_app", "Create an app from a git repository, a Docker image or a local path and deploy it. Combine with create_domain to put it behind a hostname.", "deploy", "POST", "/api/v1/apps", []string{"name"},
+		{"create_app", "Create an app from a git repository, a Docker image or a local path and deploy it. For a GitHub repository this also adds the push webhook through the server's GitHub connection, so deploy-on-push works without anybody opening the repository's settings. Combine with create_domain to put it behind a hostname.", "deploy", "POST", "/api/v1/apps", []string{"name"},
 			map[string]any{
 				"name": str("App name, lowercase"), "source": str("git, image or upload"),
 				"repoUrl": str("Git URL when source is git"), "branch": str("Branch to deploy"),
@@ -237,6 +237,29 @@ func (s *Server) curatedTools() []mcp.Tool {
 				"port": num("Port the app listens on"), "domain": str("Hostname to route to it"),
 			}},
 		{"get_app", "One app in full: source, status, environment, current release.", "read", "GET", "/api/v1/apps/{id}", []string{"id"}, map[string]any{"id": str("App name or id")}},
+
+		// ---- GitHub ----------------------------------------------------
+		//
+		// The loop these close: list what this server can already see, put a
+		// repository behind an app that redeploys on every push, and — the
+		// other direction — take an application that exists only as a
+		// directory here and give it a repository. Nobody opens a repository's
+		// settings page in any of it.
+		{"list_github_repos", "Repositories this server can see through its GitHub connection, to pick one to deploy. Empty means no connection is set up yet, or the App is installed on no account.", "read", "GET", "/api/v1/github/repos", nil, map[string]any{}},
+		{"publish_to_github", "Create a GitHub repository from a directory on this server and push it. Use this for an application you have just written here: give it the path, and it commits what is there, creates the repository and pushes. With createApp it also makes an Islet app that redeploys on every push, and adds the webhook itself — nothing is ever pasted into GitHub by hand. A .gitignore is written when there is none, and .env is always ignored.", "deploy", "POST", "/api/v1/github/publish", []string{"path", "name"},
+			map[string]any{
+				"path":        str("Absolute path of the directory on this server, for example /var/lib/islet/workspaces/shop"),
+				"name":        str("Repository name, for example shop-api"),
+				"owner":       str("Organisation to create it under. Leave empty for your own account"),
+				"description": str("One line about what it is"),
+				"private":     flag("Private repository. Default false"),
+				"branch":      str("Branch to push, default main"),
+				"createApp":   flag("Also create an Islet app that deploys this repository on every push"),
+				"appName":     str("Name for that app, default the repository name"),
+				"domain":      str("Hostname to serve it on, for example shop.example.com"),
+			}},
+		{"wire_github_webhook", "Make a GitHub repository tell this server about its pushes, for an app that was created before the GitHub connection existed. Apps created afterwards get this automatically.", "deploy", "POST", "/api/v1/github/apps/{id}/webhook", []string{"id"},
+			map[string]any{"id": str("App name or id")}},
 		{"delete_app", "Remove an app and its containers.", "deploy", "DELETE", "/api/v1/apps/{id}", []string{"id"}, map[string]any{"id": str("App name or id")}},
 		{"app_deploy_log", "The live or last deploy log for an app. Read this when a deploy fails.", "read", "GET", "/api/v1/apps/{id}/deploy/log", []string{"id"}, map[string]any{"id": str("App name or id")}},
 		{"cancel_deploy", "Stop a deploy that is running.", "deploy", "POST", "/api/v1/apps/{id}/cancel", []string{"id"}, map[string]any{"id": str("App name or id")}},

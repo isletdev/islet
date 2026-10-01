@@ -250,6 +250,15 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/github", s.requireAuth(s.handleGitHubConfig))
 	mux.HandleFunc("POST /api/v1/github", requireJSON(s.requireAuth(s.handleGitHubSave)))
 	mux.HandleFunc("GET /api/v1/github/repos", s.requireAuth(s.handleGitHubRepos))
+	// Connecting GitHub without anybody opening a repository's settings: the
+	// App created from a manifest in one click, a token for what an App cannot
+	// do on a personal account, and publishing a directory as a new repository.
+	mux.HandleFunc("GET /api/v1/github/manifest", s.requireAuth(s.handleGitHubManifest))
+	mux.HandleFunc("GET /api/v1/github/manifest/callback", s.requireAuth(s.handleGitHubManifestCallback))
+	mux.HandleFunc("POST /api/v1/github/token", requireJSON(s.requireAuth(s.handleGitHubToken)))
+	mux.HandleFunc("DELETE /api/v1/github/token", s.requireAuth(s.handleGitHubToken))
+	mux.HandleFunc("POST /api/v1/github/publish", requireJSON(s.requireAuth(s.handleGitHubPublish)))
+	mux.HandleFunc("POST /api/v1/github/apps/{id}/webhook", s.requireAuth(s.handleGitHubWire))
 	mux.HandleFunc("GET /api/v1/vault", s.requireAuth(s.handleVault))
 	mux.HandleFunc("POST /api/v1/vault", requireJSON(s.requireAuth(s.handleVault)))
 	// PUT is what every other collection uses to write one item, and a vault

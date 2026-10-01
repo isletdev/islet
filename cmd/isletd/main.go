@@ -146,7 +146,7 @@ func run() error {
 	dbs := db.New(cmds, dk, cat, *dataDir)
 	bus := notify.New(st, keys, log)
 	go bus.Run(ctx)
-	gh := github.New(st, keys)
+	gh := github.New(st, keys, cmds)
 	dep := deploy.New(st, keys, cmds, dk, px, bus, *dataDir, log)
 	dep.CloneAuth = gh.CloneURL
 	if err := dep.Start(ctx); err != nil {
