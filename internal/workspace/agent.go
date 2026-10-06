@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 )
@@ -209,7 +210,9 @@ func (s *Service) launchAgent(ctx context.Context, w *Workspace, a *Agent) strin
 			mcp = p
 		}
 	}
-	return resolveAgentCommand(cmd, claudePath, mcp, a)
+	// Running as root is the daemon's ordinary state here, and it is the thing
+	// Claude Code refuses to skip permissions under.
+	return resolveAgentCommand(cmd, claudePath, mcp, a, os.Geteuid() == 0)
 }
 
 // isClaude reports whether a command line runs Claude Code, which is what
@@ -230,12 +233,21 @@ func isClaude(cmd string) bool {
 // own --model, --mcp-config or --resume meant it, and a second copy appended
 // after it is at best ignored and at worst an error they cannot see, since the
 // line that runs is not the line they typed.
-func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent) string {
+func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent, asRoot bool) string {
 	if !isClaude(cmd) {
 		return cmd
 	}
+	// The bare word, and only the bare word, becomes the full path.
+	//
+	// `claude` on its own is not a command unless it happens to be on the PATH
+	// a tmux window inherits, and on the machine this was written for it is
+	// not — so it is replaced. Anything with a slash in it is a path somebody
+	// chose, and replacing that was this function overruling the person: an
+	// agent edited to run `./claude` or `/home/jasir/.local/bin/claude` went on
+	// running /root/.local/bin/claude, with no way to say otherwise and nothing
+	// to explain why.
 	head, rest, _ := strings.Cut(cmd, " ")
-	if claudePath != "" && !strings.HasPrefix(head, "/") && claudePath != head {
+	if claudePath != "" && head == "claude" {
 		cmd = claudePath
 		if rest != "" {
 			cmd += " " + rest
@@ -264,6 +276,22 @@ func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent) string {
 	if a.SkipPermissions && !has("--dangerously-skip-permissions") {
 		cmd += " --dangerously-skip-permissions"
 	}
+	// Claude Code refuses --dangerously-skip-permissions outright when it is
+	// running as root: "cannot be used with root/sudo privileges for security
+	// reasons". This daemon runs as root — that is how it manages a server —
+	// so the box in the panel did nothing except produce that sentence in a
+	// window nobody was looking at.
+	//
+	// IS_SANDBOX is the escape hatch Claude Code itself provides for exactly
+	// this, and it is set only where the operator has already asked for the
+	// guard rail to come off. Written as a prefix on the command rather than
+	// through tmux's own -e, because -e applies when a window is created and an
+	// agent that is being restarted already has one. It is not a secret, so the
+	// scrollback is the right place for it: anybody reading that window can see
+	// precisely why the flag was accepted.
+	if a.SkipPermissions && asRoot && !strings.HasPrefix(cmd, "IS_SANDBOX=") {
+		cmd = "IS_SANDBOX=1 " + cmd
+	}
 	return cmd
 }
 
@@ -285,6 +313,15 @@ func (s *Service) StartAgent(ctx context.Context, actor, wsID, id string) error 
 	}
 	if err := s.ensureWindow(ctx, actor, w, a); err != nil {
 		return err
+	}
+	// Something already running in this window would be what the command is
+	// typed into — the agent's own prompt, not a shell. That is how editing an
+	// agent's command and pressing Start left it running the command it had
+	// before, with the new one typed into the conversation as a question.
+	if st := s.windowState(ctx, w.ID); st != nil {
+		if doing, ok := st[a.Name]; ok && doing != "" && !shells[doing] {
+			return fmt.Errorf("%s is already running %s in this workspace; stop it before starting it again", a.Name, doing)
+		}
 	}
 	cmd := s.launchAgent(ctx, w, a)
 	if cmd == "" {

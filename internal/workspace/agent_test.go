@@ -41,8 +41,73 @@ func TestLaunchAgentResume(t *testing.T) {
 	}
 
 	skip := &Agent{Preset: "claude", Command: "/usr/bin/claude", SkipPermissions: true}
-	if got, want := s.launchAgent(nil, w, skip), "/usr/bin/claude --dangerously-skip-permissions"; got != want {
+	// Asserted through resolveAgentCommand rather than launchAgent, because
+	// what the flag needs depends on whether this is running as root and a test
+	// whose expectation depends on who ran it is not a test.
+	if got, want := resolveAgentCommand(skip.Command, "", "", skip, false), "/usr/bin/claude --dangerously-skip-permissions"; got != want {
 		t.Errorf("skip = %q, want %q", got, want)
+	}
+}
+
+// Claude Code refuses --dangerously-skip-permissions when it is running as
+// root — "cannot be used with root/sudo privileges for security reasons" — and
+// this daemon runs as root, which is how it manages a server. So the box in the
+// panel did nothing at all except produce that sentence in a window nobody was
+// looking at.
+//
+// IS_SANDBOX is Claude Code's own escape hatch for this, and it is set only
+// where somebody has already asked for the guard rail to come off.
+func TestSkippingPermissionsAsRootIsMadeToWork(t *testing.T) {
+	a := &Agent{Preset: "claude", Command: "claude", SkipPermissions: true}
+	const claude = "/root/.local/bin/claude"
+
+	asRoot := resolveAgentCommand("claude", claude, "", a, true)
+	if !strings.HasPrefix(asRoot, "IS_SANDBOX=1 ") {
+		t.Errorf("as root the flag is refused by Claude Code and nothing makes it work: %q", asRoot)
+	}
+	if !strings.Contains(asRoot, "--dangerously-skip-permissions") {
+		t.Errorf("the flag somebody asked for is missing: %q", asRoot)
+	}
+
+	// Not as root there is nothing to work around, and the variable is not set.
+	asUser := resolveAgentCommand("claude", claude, "", a, false)
+	if strings.Contains(asUser, "IS_SANDBOX") {
+		t.Errorf("a non-root agent was given a sandbox claim it does not need: %q", asUser)
+	}
+
+	// And an agent that did not ask never gets it, root or not.
+	plain := &Agent{Preset: "claude", Command: "claude"}
+	if got := resolveAgentCommand("claude", claude, "", plain, true); strings.Contains(got, "IS_SANDBOX") {
+		t.Errorf("an agent that asks before acting was given the bypass anyway: %q", got)
+	}
+
+	// Written once, however many times the command is resolved.
+	twice := resolveAgentCommand(asRoot, claude, "", a, true)
+	if strings.Count(twice, "IS_SANDBOX") != 1 {
+		t.Errorf("resolving twice stacked the variable: %q", twice)
+	}
+}
+
+// A path somebody wrote is the path that runs.
+//
+// The bare word `claude` is replaced with the full path because it is not a
+// command on the PATH a tmux window inherits. Anything with a slash in it was
+// being replaced too — so an agent edited to run a different binary went on
+// running /root/.local/bin/claude, with nothing anywhere to say why.
+func TestAChosenPathIsNotOverruled(t *testing.T) {
+	const claude = "/root/.local/bin/claude"
+	a := &Agent{Preset: "claude"}
+	for _, c := range []struct{ cmd, want string }{
+		{"claude", claude},
+		{"claude --model opus-5", claude + " --model opus-5"},
+		{"/usr/local/bin/claude", "/usr/local/bin/claude"},
+		{"/home/jasir/.local/bin/claude --model opus-5", "/home/jasir/.local/bin/claude --model opus-5"},
+		{"./claude", "./claude"},
+		{"bin/claude", "bin/claude"},
+	} {
+		if got := resolveAgentCommand(c.cmd, claude, "", a, false); got != c.want {
+			t.Errorf("%q became %q, want %q", c.cmd, got, c.want)
+		}
 	}
 }
 
@@ -79,7 +144,7 @@ func TestAgentValidateGivesEachItsOwnSession(t *testing.T) {
 	if err := sh.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if got := resolveAgentCommand("htop", "", "/etc/islet/mcp.json", sh); got != "htop" {
+	if got := resolveAgentCommand("htop", "", "/etc/islet/mcp.json", sh, false); got != "htop" {
 		t.Errorf("a command that is not Claude Code was given Claude Code's flags: %q", got)
 	}
 }
@@ -152,7 +217,7 @@ func TestResolveAgentCommandAddsWhatIsMissingAndNothingElse(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolveAgentCommand(c.cmd, claude, mcp, c.agent); got != c.want {
+			if got := resolveAgentCommand(c.cmd, claude, mcp, c.agent, false); got != c.want {
 				t.Errorf("\n got %q\nwant %q", got, c.want)
 			}
 		})
@@ -200,7 +265,7 @@ func contains(s, sub string) bool {
 // resume must leave a teleport command alone.
 func TestATeleportedSessionIsNotGivenASecondIdentity(t *testing.T) {
 	a := &Agent{Resume: true, SessionUUID: "11111111-2222-3333-4444-555555555555", LastStarted: "2026-09-21T00:00:00Z"}
-	got := resolveAgentCommand("claude --teleport abc123", "/usr/local/bin/claude", "", a)
+	got := resolveAgentCommand("claude --teleport abc123", "/usr/local/bin/claude", "", a, false)
 	if strings.Contains(got, "--resume") || strings.Contains(got, "--session-id") {
 		t.Errorf("a second conversation was added to a teleported one: %s", got)
 	}
@@ -208,7 +273,7 @@ func TestATeleportedSessionIsNotGivenASecondIdentity(t *testing.T) {
 		t.Errorf("the teleport was lost: %s", got)
 	}
 	// An ordinary agent still gets its own conversation back.
-	plain := resolveAgentCommand("claude", "/usr/local/bin/claude", "", a)
+	plain := resolveAgentCommand("claude", "/usr/local/bin/claude", "", a, false)
 	if !strings.Contains(plain, "--resume "+a.SessionUUID) {
 		t.Errorf("an ordinary agent lost its conversation: %s", plain)
 	}

@@ -705,7 +705,13 @@ export default function Assistant() {
               Drop to attach
             </div>
           )}
-          <div ref={scroller} className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-border bg-surface p-3">
+          {/* overflow-x-hidden is not decoration. `overflow-y-auto` makes the computed
+            overflow-x `auto` as well, so any child a pixel too wide turns the whole
+            conversation into something you scroll sideways — which is what a long
+            token or a bare URL did on a phone. The children wrap now; this is the
+            backstop, and the blocks that are meant to scroll — code, tables — carry
+            their own scrollers inside it. */}
+        <div ref={scroller} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-surface p-3">
             {msgs.length === 0 && !running && (
               <div className="py-8 text-center text-sm text-ink-muted">
                 <p className="font-medium text-ink">Try asking for something.</p>
@@ -994,7 +1000,7 @@ function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResu
             })}
           </ul>
         ) : null}
-        {m.text && <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-ink px-3 py-2 text-sm text-on-ink">{m.text}</div>}
+        {m.text && <div className="max-w-[85%] break-words whitespace-pre-wrap rounded-lg bg-ink px-3 py-2 text-sm text-on-ink">{m.text}</div>}
       </div>
     );
   }
@@ -1058,7 +1064,7 @@ function ToolLine({ name, input, ok, ms, output }: { name: string; input?: Recor
     <>
       <span aria-hidden className={tone}>{mark}</span>
       <span className={ok === false ? "text-warning" : "text-ink"}>{name}</span>
-      {input && Object.keys(input).length > 0 && <span className="min-w-0 truncate text-ink-muted">{summarise(input)}</span>}
+      {input && Object.keys(input).length > 0 && <span className="min-w-0 break-all text-ink-muted">{summarise(input)}</span>}
       {ms !== undefined && <span className="text-ink-muted">{fmtMs(ms)}</span>}
     </>
   );

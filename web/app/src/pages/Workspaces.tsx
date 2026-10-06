@@ -55,6 +55,21 @@ function runsClaude(cmd?: string): boolean {
   return head !== "" && head.split("/").pop() === "claude";
 }
 
+/**
+ * Whether this agent will be Claude Code, which is not the same question as
+ * whether it says so yet.
+ *
+ * A new agent starts with an empty command and the daemon fills it in on save —
+ * so asking the command alone hid "come back to the same conversation" and
+ * "act without asking first" on the one screen where an agent is created. They
+ * appeared only after saving and reopening, which is how somebody ends up
+ * editing an agent they made thirty seconds ago.
+ */
+function willRunClaude(a: Partial<Agent>): boolean {
+  const cmd = (a.command ?? "").trim();
+  return cmd === "" ? a.preset === "claude" : runsClaude(cmd);
+}
+
 // A new agent starts with no command of its own: the daemon fills it in from
 // the model this server is set up with, which is the one place that knows where
 // Claude Code actually lives. The form used to default to the bare word
@@ -800,10 +815,11 @@ export default function Workspaces() {
                 placeholder="claude --model opus-5"
               />
             </Field>
-            {runsClaude(editingAgent.command) && (
+            {willRunClaude(editingAgent) && (
               <>
                 <p className="text-xs text-ink-muted md:col-span-2">
-                  Islet adds what this needs and nothing you have already written: the binary's full path, {" "}
+                  Islet adds what this needs and nothing you have already written: the full path when the command is the
+                  bare word <code>claude</code> — a path of your own is left exactly as you wrote it — {" "}
                   <code>--session-id</code> or <code>--resume</code> for the options below, and{" "}
                   <code>--mcp-config</code> when the workspace has Islet's tools switched on. Write any of them yourself
                   and yours is used.
@@ -839,7 +855,9 @@ export default function Workspaces() {
                       <span className="block text-ink-muted">
                         Adds <code>--dangerously-skip-permissions</code>. The agent stops pausing for approval on a
                         machine that is serving real sites. Useful when nobody is watching, which is also exactly when
-                        it costs the most.
+                        it costs the most. Claude Code refuses this flag as root, so Islet sets{" "}
+                        <code>IS_SANDBOX=1</code> for this agent — visible in its window — which is the escape hatch
+                        Claude Code provides for it.
                       </span>
                     </span>
                   </label>

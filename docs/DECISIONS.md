@@ -3465,3 +3465,53 @@ are `deploy`: what comes out of them is an app, a webhook and a push. The
 credential — the App's private key, the personal token — is `settings`. The
 assistant carries deploy and not settings, so it can put an application on
 GitHub and cannot change the account it does that as.
+
+## 2026-10-06 — five things that made the panel unusable on a phone
+
+Reported together, and they belong together: every one of them is this product
+being built on a desktop by somebody with a keyboard.
+
+**The chat scrolled sideways.** A container with `overflow-y: auto` has a
+computed `overflow-x: auto` whether anybody asked for it or not, so one child a
+pixel too wide turns the whole conversation into something you drag left and
+right. The children were inline code and bare URLs — a model writes tokens, ids
+and paths with nothing in them to break at — and on a 390px phone the chat pane
+was 356px wide with 1,125px of content. Measured, not guessed. They wrap now,
+and the pane carries `overflow-x-hidden` as a backstop, with code blocks and
+tables keeping their own scrollers inside it.
+
+**Skipping permissions could not work at all.** Claude Code refuses
+`--dangerously-skip-permissions` when it is running as root — *cannot be used
+with root/sudo privileges for security reasons* — and this daemon runs as root,
+because that is how it manages a server. So the checkbox in the panel produced
+that sentence in a window nobody was looking at, and nothing else. `IS_SANDBOX`
+is Claude Code's own escape hatch for this, and Islet now sets it, only for an
+agent whose operator has already asked for the guard rail to come off. As a
+prefix on the command rather than through tmux's `-e`, because `-e` applies when
+a window is created and an agent being restarted already has one — and because
+it is not a secret, so the scrollback is the right place for it: anybody reading
+that window can see exactly why the flag was accepted.
+
+**The box could not be ticked when it mattered.** Both Claude options were shown
+only when the command said `claude`, and a new agent starts with an empty
+command that the daemon fills in on save. So they appeared after saving and
+reopening — which is how somebody ends up editing an agent they created thirty
+seconds earlier. The question is whether the agent *will* run Claude Code, and
+for an empty command that is what the preset says.
+
+**An edited command did not take.** Two separate causes, both real. Any head
+whose basename was `claude` was replaced with the path Islet found, so an agent
+edited to run a different binary went on running `/root/.local/bin/claude` with
+nothing anywhere to say why; the bare word is replaced now and a path somebody
+wrote is left alone. And starting an agent whose window already had something
+running typed the new command *into that program* — the old command kept
+running and the new one arrived as a line of chat. Starting an agent that is
+already going is refused, by name.
+
+**A question could be read and not answered.** A terminal program that asks
+something draws a list and moves a cursor with the arrow keys, and a phone
+keyboard has no arrows, no Escape and no Ctrl. Agents ask questions constantly,
+so the one device you would most want to answer from was the one that could not.
+The terminal has a row of those keys under it on any device with a coarse
+pointer, sending the bytes a real keyboard would; they do not take focus, so the
+soft keyboard stays up between answers.

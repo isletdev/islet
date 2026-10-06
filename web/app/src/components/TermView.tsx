@@ -41,6 +41,28 @@ function selectModifier() {
 // The close code the daemon sends the connection it displaced.
 const TAKEN_OVER = 4001;
 
+/**
+ * The keys a phone does not have.
+ *
+ * A terminal program that asks a question — which is most of what an agent does
+ * — draws a list and moves a cursor with the arrow keys. A phone keyboard has
+ * no arrows, no Escape and no Ctrl, so the question could be read and not
+ * answered: the one place where being able to open a workspace from a phone
+ * stopped being useful.
+ *
+ * These are the bytes a real keyboard would send, and nothing else.
+ */
+const TOUCH_KEYS: { label: string; aria: string; code: string }[] = [
+  { label: "↑", aria: "Up arrow", code: "\x1b[A" },
+  { label: "↓", aria: "Down arrow", code: "\x1b[B" },
+  { label: "←", aria: "Left arrow", code: "\x1b[D" },
+  { label: "→", aria: "Right arrow", code: "\x1b[C" },
+  { label: "Enter", aria: "Enter", code: "\r" },
+  { label: "Tab", aria: "Tab", code: "\t" },
+  { label: "Esc", aria: "Escape", code: "\x1b" },
+  { label: "Ctrl-C", aria: "Ctrl-C", code: "\x03" },
+];
+
 export default function TermView({
   path,
   className = "",
@@ -85,6 +107,21 @@ export default function TermView({
   // that reconnects steals the session from the window actually being used.
   const waiting = useRef(false);
   // The manual paste box, for browsers that refuse to read the clipboard.
+  // A coarse pointer is a finger, and a finger has no arrow keys. Watched
+  // rather than read once, because a tablet with a keyboard attached and
+  // removed is the same page.
+  const [coarse, setCoarse] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: coarse)").matches
+      : false,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const q = window.matchMedia("(pointer: coarse)");
+    const on = () => setCoarse(q.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
 
@@ -519,6 +556,29 @@ export default function TermView({
           onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
         />
       </div>
+      {/* Under the terminal rather than above it: this is answered with a thumb
+          while reading the question just above, and the soft keyboard — when it
+          is open at all — comes up below everything. */}
+      {coarse && (
+        <div className="mt-1.5 flex flex-wrap gap-1" role="group" aria-label="Keys this device does not have">
+          {TOUCH_KEYS.map((k) => (
+            <button
+              key={k.aria}
+              type="button"
+              aria-label={k.aria}
+              disabled={status !== "open"}
+              // The terminal must keep the keyboard: a button that takes focus
+              // closes the soft keyboard on every press, and answering three
+              // questions then costs three taps to get it back.
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => send(k.code)}
+              className="min-w-10 rounded-md border border-border-strong px-2.5 py-1.5 font-mono text-xs text-ink-muted active:bg-surface-2 disabled:opacity-40"
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
+      )}
       {menu && (
         <>
           <div className="fixed inset-0 z-40" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />

@@ -21,7 +21,12 @@ import { CheckIcon } from "@/components/icons";
  * deliberately partial.
  */
 export default function Markdown({ text, className = "" }: { text: string; className?: string }) {
-  return <div className={`space-y-3 ${className}`}>{blocks(text)}</div>;
+  // break-words, because the alternative is a sideways scrollbar on the whole
+  // conversation. A model writes tokens, ids and paths with nothing in them to
+  // break at, and a container with overflow-y:auto has overflow-x:auto whether
+  // anybody asked for it or not — so one 900px word turns a phone's chat window
+  // into something you scroll left and right in.
+  return <div className={`space-y-3 break-words ${className}`}>{blocks(text)}</div>;
 }
 
 /** A list item at any depth: its indent, its marker, and what it says. */
@@ -266,7 +271,7 @@ function inline(text: string): ReactNode[] {
     if (at > last) out.push(text.slice(last, at));
     const tok = m[0];
     if (tok.startsWith("`")) {
-      out.push(<code key={key++} className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.9em] text-ink">{tok.slice(1, -1)}</code>);
+      out.push(<code key={key++} className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.9em] break-all text-ink">{tok.slice(1, -1)}</code>);
     } else if (tok.startsWith("**") || tok.startsWith("__")) {
       out.push(<strong key={key++} className="font-semibold text-ink">{tok.slice(2, -2)}</strong>);
     } else if (tok.startsWith("~~")) {
@@ -291,7 +296,7 @@ function inline(text: string): ReactNode[] {
 function link(href: string, label: string, key: number): ReactNode {
   if (!/^https?:\/\//i.test(href) && !/^mailto:/i.test(href)) return <span key={key}>{label}</span>;
   return (
-    <a key={key} href={href} target="_blank" rel="noreferrer noopener" className="-my-1 py-1 text-accent underline underline-offset-2 hover:text-accent-strong">
+    <a key={key} href={href} target="_blank" rel="noreferrer noopener" className="-my-1 py-1 text-accent underline break-all underline-offset-2 hover:text-accent-strong">
       {label}
     </a>
   );
