@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `8a332f2`, tagged `v0.38.5`, 2026-10-16. 263 commits, 109 tags, CI green on `main`.
+**Head:** `ab958ce`, tagged `v0.40.0`, 2026-10-16. 265 commits, 110 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -123,6 +123,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.38.3 | `2da649b` | **The page scrolled with the terminal.** The touch handler claimed a drag only once a whole row had moved, and a browser commits to a page scroll on the first move it is not told otherwise — after that every touchmove is uncancelable. An eight-row drag in an emulated phone scrolled the page 148px with all eight cancels ignored; every move is claimed now, with `touch-action: none` on the box for iOS, and the page stays put |
 | v0.38.4 | `700d4eb` | **Saving a wildcard DNS provider took every site down, and nothing brought it back.** Replacing the proxy ran on the request's context, and through the panel's own domain that request travels through the proxy being stopped — so `docker stop` cancelled it, and every command after, the rollback included, refused to start. Nothing on 80 and 443, the old proxy stopped as `islet-proxy-prev`, and a 522 on every site behind Cloudflare. The rebuild is detached from its caller now, with a test that fails with the original `context canceled` without it. Plus: **blocked IPs come twenty a page with a search** — five thousand fail2ban bans had made the card about 165,000px tall |
 | v0.38.5 | `8a332f2` | **A domain asks for its own certificate settings, the way Nginx Proxy Manager does.** A wildcard used to be refused with "set a DNS provider under Settings", a separate form and a separate Apply. Choosing DNS challenge, or typing a `*.` host, now opens the provider and key in the domain form, with the Let's Encrypt email if none is set, and Save applies them and then saves the domain. The key is still stored per provider, because Traefik reads it from its environment. A feature under a patch number: it should have been v0.39.0, and the published tag was left rather than replaced |
+| v0.40.0 | `ab958ce` | **A VPN of Islet's own.** wg-easy could not touch the host firewall, so neither "this phone reaches the sites and nothing else" nor a VPN-only panel that also covers its domain could be said. WireGuard now runs in the kernel from the VPN page: device keys made in the browser and never sent to the server, a preshared key per peer, access levels as an nftables table that only drops, expiry, revoke and re-key; a lockdown that closes the panel (port and domain) and SSH to all but the tunnel and undoes itself unless confirmed from inside it; fleet servers managed through the tunnel; a one-button move from wg-easy that keeps every phone working. All of it run for real in network namespaces, which is how `wg setconf` was caught disconnecting every device whenever one was added. v0.39.0 was skipped, because v0.38.5 should have been it |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
@@ -161,7 +162,7 @@ node hack/width-audit.mjs <cookie> /domains
 and it is worth running by hand for anything touching concurrency: the v0.11.3
 crash was a data race in everything but name.
 
-- **Migrations are sequential and never edited once pushed.** `internal/store/migrations/` is at `0041`; the next one is `0042`.
+- **Migrations are sequential and never edited once pushed.** `internal/store/migrations/` is at `0042`; the next one is `0043`.
 - **`internal/web/dist/index.html` is a tracked placeholder.** A UI build overwrites it. Restore it before staging, or a build artefact lands in the commit.
 - **State is read from the system, not stored**, wherever the system already knows it — workspace state comes from tmux, runner state from Docker labels. Adding a status column is usually the wrong instinct.
 - **One release per tag.** Push `main`, then the tag; the release workflow needs `test` to pass, so a red CI cannot publish. Afterwards, check the tag carries five assets and that `checksums.txt.sig` verifies against the key in `internal/update/pubkey.go` — the honest way is to run the daemon's own `update.VerifySignature`, not a reimplementation of it.
