@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `700d4eb`, tagged `v0.38.4`, 2026-10-16. 261 commits, 108 tags, CI green on `main`.
+**Head:** `8a332f2`, tagged `v0.38.5`, 2026-10-16. 263 commits, 109 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -122,6 +122,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.38.2 | `f498f69` | **Scrolling an agent from a phone moved it three lines a screen.** Claude Code 2.1 runs full-screen, on the alternate screen, and scrolls only to mouse wheel reports — tmux's history for its pane is empty — so the touch handler's wheel events were the only way in, and they were pixel events one row high. xterm 6 multiplies a pixel wheel under 50px by 0.3 and drops the fraction, so an eleven-row drag sent three reports; measured in Chrome against xterm 6, line-mode events send eleven. Page up and Page down join the phone key row |
 | v0.38.3 | `2da649b` | **The page scrolled with the terminal.** The touch handler claimed a drag only once a whole row had moved, and a browser commits to a page scroll on the first move it is not told otherwise — after that every touchmove is uncancelable. An eight-row drag in an emulated phone scrolled the page 148px with all eight cancels ignored; every move is claimed now, with `touch-action: none` on the box for iOS, and the page stays put |
 | v0.38.4 | `700d4eb` | **Saving a wildcard DNS provider took every site down, and nothing brought it back.** Replacing the proxy ran on the request's context, and through the panel's own domain that request travels through the proxy being stopped — so `docker stop` cancelled it, and every command after, the rollback included, refused to start. Nothing on 80 and 443, the old proxy stopped as `islet-proxy-prev`, and a 522 on every site behind Cloudflare. The rebuild is detached from its caller now, with a test that fails with the original `context canceled` without it. Plus: **blocked IPs come twenty a page with a search** — five thousand fail2ban bans had made the card about 165,000px tall |
+| v0.38.5 | `8a332f2` | **A domain asks for its own certificate settings, the way Nginx Proxy Manager does.** A wildcard used to be refused with "set a DNS provider under Settings", a separate form and a separate Apply. Choosing DNS challenge, or typing a `*.` host, now opens the provider and key in the domain form, with the Let's Encrypt email if none is set, and Save applies them and then saves the domain. The key is still stored per provider, because Traefik reads it from its environment. A feature under a patch number: it should have been v0.39.0, and the published tag was left rather than replaced |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
