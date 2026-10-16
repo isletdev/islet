@@ -79,8 +79,30 @@ export interface FleetServer {
   id: string; name: string; host: string; sshPort: number; sshUser: string; panelPort: number;
   status: "pending" | "joining" | "ready" | "unreachable" | "failed";
   statusNote?: string; version?: string; hostname?: string; lastSeen?: string; createdAt: string;
+  /** Where it answers inside this panel's VPN, once it has joined it. */
+  vpnAddress?: string;
 }
 export interface FleetLocal { id: string; name: string; hostname: string; status: string; version: string }
+
+export type VpnAccess = "admin" | "apps" | "internet" | "server";
+export interface VpnConfig { enabled: boolean; endpoint: string; port: number; subnet: string; dns: string; publicKey: string }
+export interface VpnPeer {
+  id: string; name: string; kind: "device" | "server"; publicKey: string; address: string; access: VpnAccess;
+  ports: number[]; fullTunnel: boolean; expiresAt?: string; fleetServerId?: string; firstSeenAt?: string;
+  createdAt: string; createdBy?: string;
+  expired: boolean; online: boolean; endpoint?: string; lastHandshake?: string; rxBytes: number; txBytes: number;
+}
+export interface VpnLockdown { panel: boolean; ssh: boolean; panelPort?: number; sshPort?: number; keepIp?: string; subnet?: string; pending: boolean; deadline?: string }
+export interface VpnStatus {
+  config: VpnConfig; address: string; up: boolean; peers: VpnPeer[]; lockdown: VpnLockdown;
+  uplink?: { endpoint: string; address: string; serverAddress: string; online: boolean; lastHandshake?: string };
+  supported: boolean; note?: string;
+}
+export interface VpnState { status: VpnStatus; suggestedEndpoint: string; clientIp: string; inTunnel: boolean; panelPort: string }
+/** What a new or re-keyed device needs. The preshared key is in it, so it is only ever returned once. */
+export interface VpnIssued { peer: VpnPeer; presharedKey: string; serverPublicKey: string; endpoint: string; allowedIps: string[]; dns?: string }
+export interface VpnPeerInput { name: string; publicKey?: string; access: VpnAccess; ports: number[]; fullTunnel: boolean; expiresAt: string }
+export interface WgEasyFound { container: string; name: string; running: boolean; plan?: { subnet: string; publicKey: string; devices: string[]; skipped?: string[] }; error?: string }
 
 export interface DockerStatus { available: boolean; version: string; composeVersion: string; error?: string }
 export interface Container { id: string; name: string; image: string; state: string; status: string; ports: string; createdAt: string; stack?: string; service?: string; cpuPct: number; memUsage: string; memPct: number; netIO: string }
@@ -681,6 +703,19 @@ export const api = {
   registries: () => request<Registry[]>("/api/v1/docker/registries"),
   registryLogin: (b: { host: string; username: string; password: string }) => post<void>("/api/v1/docker/registries", b),
   registryLogout: (host: string) => post<void>(`/api/v1/docker/registries/${host}`, undefined, "DELETE"),
+  vpn: () => request<VpnState>("/api/v1/vpn"),
+  vpnEnable: (c: { endpoint: string; port: number; subnet: string; dns: string }) => post<VpnConfig>("/api/v1/vpn", c),
+  vpnDisable: () => post<void>("/api/v1/vpn", undefined, "DELETE"),
+  vpnPeerAdd: (p: VpnPeerInput) => post<VpnIssued>("/api/v1/vpn/peers", p),
+  vpnPeerUpdate: (id: string, p: VpnPeerInput) => post<VpnPeer>(`/api/v1/vpn/peers/${encodeURIComponent(id)}`, p, "PUT"),
+  vpnPeerRemove: (id: string) => post<void>(`/api/v1/vpn/peers/${encodeURIComponent(id)}`, undefined, "DELETE"),
+  vpnPeerRekey: (id: string, publicKey: string) => post<VpnIssued>(`/api/v1/vpn/peers/${encodeURIComponent(id)}/rekey`, { publicKey }),
+  vpnLockdown: (b: { panel: boolean; ssh: boolean; keepIp: string }) => post<VpnLockdown>("/api/v1/vpn/lockdown", b),
+  vpnConfirm: () => post<VpnLockdown>("/api/v1/vpn/lockdown/confirm"),
+  vpnImportScan: () => request<WgEasyFound[]>("/api/v1/vpn/import"),
+  vpnImport: (b: { container: string; endpoint: string; port: number }) => post<{ subnet: string; devices: string[]; skipped?: string[] }>("/api/v1/vpn/import", b),
+  vpnFleetJoin: (id: string) => post<{ address: string }>(`/api/v1/vpn/fleet/${encodeURIComponent(id)}`),
+  vpnFleetLeave: (id: string) => post<{ note?: string } | undefined>(`/api/v1/vpn/fleet/${encodeURIComponent(id)}`, undefined, "DELETE"),
   panelRestrict: (cidr: string) => post<void>("/api/v1/security/firewall/panel", { cidr }),
   lynis: () => post<{ score: number; output: string }>("/api/v1/security/lynis"),
   security: () => request<SecurityState>("/api/v1/security"),

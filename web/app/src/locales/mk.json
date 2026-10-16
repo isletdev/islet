@@ -24,6 +24,8 @@
   "nav.backups": "Бекапи",
   "nav.backups.blurb": "Шифрирани бекапи проверени со враќање.",
   "nav.security": "Безбедност",
+  "nav.vpn": "VPN",
+  "nav.vpn.blurb": "WireGuard за вашите уреди и сервери, а панелот достапен само преку него.",
   "nav.security.blurb": "Оценка, заштитен ѕид, SSH, заштита од упади, скенирања.",
   "nav.settings": "Поставки",
   "nav.settings.blurb": "Корисници, 2FA, API-токени, ажурирања.",

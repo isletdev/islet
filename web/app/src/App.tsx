@@ -24,6 +24,7 @@ const Databases = lazy(() => import("./pages/Databases"));
 const Monitoring = lazy(() => import("./pages/Monitoring"));
 const Runners = lazy(() => import("./pages/Runners"));
 const Security = lazy(() => import("./pages/Security"));
+const Vpn = lazy(() => import("./pages/Vpn"));
 const Backups = lazy(() => import("./pages/Backups"));
 const Embed = lazy(() => import("./pages/Embed"));
 const Servers = lazy(() => import("./pages/Servers"));
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="/logs" element={<Monitoring />} />
         <Route path="/runners" element={<Runners />} />
         <Route path="/security" element={<Security />} />
+        <Route path="/vpn" element={<Vpn />} />
         <Route path="/backups" element={<Backups />} />
         <Route path="/embed/:i" element={<Embed />} />
         {NAV.filter((n) => !n.ready).map((n) => (

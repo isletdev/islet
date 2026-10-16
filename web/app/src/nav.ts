@@ -47,6 +47,7 @@ export const NAV: NavItem[] = [
   { path: "/uptime", key: "uptime", label: "Logs & Uptime", group: "operate", phase: "v0.4", ready: true, blurb: "Whether it is up, and the logs that say why not." },
   { path: "/backups", key: "backups", label: "Backups", group: "operate", phase: "v0.6", ready: true, blurb: "Encrypted backups that are tested by restoring them." },
   { path: "/security", key: "security", label: "Security", group: "operate", phase: "v0.6", ready: true, blurb: "Score, firewall, SSH, intrusion prevention, scans." },
+  { path: "/vpn", key: "vpn", label: "VPN", group: "operate", phase: "v0.40", ready: true, blurb: "WireGuard for your devices and servers, and the panel only inside it." },
 
   { path: "/notifications", key: "notifications", label: "Notifications", group: "account", phase: "v0.4", ready: true, blurb: "Telegram, Discord, Slack, email and webhooks." },
   { path: "/servers", key: "servers", label: "Servers", group: "account", phase: "v0.3", ready: true, blurb: "Every machine this panel manages, and how to add another." },

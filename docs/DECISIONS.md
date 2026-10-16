@@ -3595,3 +3595,51 @@ provider, and says so in the field hint when a value is already stored.
 
 Applying from this form restarts the proxy, which became safe to do from a
 request riding on that proxy only in v0.38.4.
+
+## 2026-10-16 — a VPN of Islet's own, replacing wg-easy as the answer
+wg-easy in the catalog was a VPN with a web UI and nothing else: its own
+password to set as a bcrypt hash by hand, every device's private key in a JSON
+file, and no way to touch the host firewall, so "this phone reaches the sites
+and not SSH" could not be said, and "the panel only over the VPN" was a ufw
+rule on the panel port that a panel published on a domain walked straight past.
+
+`internal/vpn` runs WireGuard in the kernel instead, and the calls that shape it:
+
+- **The device's private key never reaches the server.** It is generated in
+  the browser (WebCrypto X25519, with an RFC 7748 BigInt fallback for plain
+  HTTP, checked against the RFC vector and `wg pubkey`) and leaves as a QR code
+  and a file, once. A lost code is a new key, not a recovery. The cost is that
+  the panel cannot show a configuration twice; that is the point.
+- **A preshared key per peer**, encrypted at rest, as the symmetric layer
+  WireGuard offers against recorded traffic being decrypted later.
+- **Access levels are an nftables table of Islet's own** — admin, apps on
+  listed ports, internet only, and fleet servers that are reached but never
+  reach back — loaded atomically and only ever dropping. An accept in one table
+  cannot overrule a drop in another, so the openings stay ufw rules, visible on
+  the Security page, and the table narrows them. Docker-published ports are
+  matched on `ct original` so DNAT does not hide them. Measured in network
+  namespaces with a real kernel, for all four levels and the exit path.
+- **`wg syncconf`, not `setconf`.** setconf rebuilds the peer list, which
+  dropped every connected device whenever one was added. Measured, then fixed.
+- **The lockdown is two layers:** ufw closes the panel and SSH ports to all but
+  the tunnel, and the daemon refuses to sign in or serve a signed-in request
+  from anywhere else, which is what covers a panel domain arriving through the
+  proxy. Loopback stays allowed, for fleet tunnels and workspaces. It undoes
+  itself unless confirmed from an address inside the tunnel within two
+  minutes, and a daemon restarting while it waits undoes it on the way up; the
+  firewall rules it removed are stored as `ufw show added` printed them and put
+  back verbatim. Outside the tunnel a right and a wrong password get the same
+  answer.
+- **Fleet over VPN reuses the SSH transport** rather than adding one: the member
+  makes its own key, joins as a peer, and the controller dials SSH at the tunnel
+  address, falling back to the public one. A join that never handshakes is
+  undone on both ends rather than left set up and silent.
+- **Importing wg-easy keeps the server key, port and range**, so devices see no
+  change, and leaves the clients' private keys behind.
+
+What it would take to reverse: the table, the interface and the ufw rules all
+come from one `Apply`, and turning the VPN off removes them; the catalog app is
+still there for anyone who prefers it.
+
+This is a feature release and is v0.40.0. v0.39.0 was skipped: the release
+before it, v0.38.5, should itself have been v0.39.0.

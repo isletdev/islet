@@ -24,6 +24,8 @@
   "nav.backups": "Backups",
   "nav.backups.blurb": "Verschlüsselte Backups, die per Wiederherstellung geprüft werden.",
   "nav.security": "Sicherheit",
+  "nav.vpn": "VPN",
+  "nav.vpn.blurb": "WireGuard für Ihre Geräte und Server, und das Panel nur darin erreichbar.",
   "nav.security.blurb": "Punktzahl, Firewall, SSH, Einbruchschutz, Scans.",
   "nav.settings": "Einstellungen",
   "nav.settings.blurb": "Benutzer, 2FA, API-Tokens, Updates.",

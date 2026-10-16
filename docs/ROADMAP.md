@@ -286,6 +286,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Diagnostics: ping, traceroute, dig, port check (Security page)
 - [x] Bandwidth per interface (Overview) and per container (Containers)
 - [x] "Protect this app with Islet login" forward-auth toggle on any route, per host or per location, with a per-rule list of who may pass
+- [x] Islet VPN (v0.40.0): kernel WireGuard with keys made in the browser, a preshared key per device, access levels enforced in nftables (admin, apps on listed ports, internet only), expiry, revoke and re-key; a lockdown that limits the panel (port and domain) and SSH to the tunnel and undoes itself unless confirmed from inside it; fleet servers managed through the tunnel; one-button move from wg-easy
 
 **Not in this phase:** nothing paid; everything here stays free forever.
 

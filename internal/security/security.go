@@ -129,6 +129,7 @@ type Service struct {
 	panelPort   func() string
 	panelRouted func(context.Context) bool
 	proxySubnet func(context.Context) string
+	vpnOnly     func() (panel, ssh bool)
 }
 
 // Hooks lets other packages answer questions the score needs.
@@ -148,12 +149,15 @@ type Hooks struct {
 	// the daemon for forward auth and the panel route, so that range needs the
 	// panel port even when the internet does not.
 	ProxySubnet func(context.Context) string
+	// VPNOnly reports whether the panel and SSH are reachable only through
+	// Islet's own VPN, confirmed from inside it.
+	VPNOnly func() (panel, ssh bool)
 }
 
 // New builds the service.
 func New(st *store.Store, run *cmdrun.Runner, bus *notify.Bus, dataDir string, h Hooks, log *slog.Logger) *Service {
 	abs, _ := filepath.Abs(dataDir)
-	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, proxyPorts: h.ProxyPorts, panelPort: h.PanelPort, panelRouted: h.PanelRouted, proxySubnet: h.ProxySubnet}
+	s := &Service{st: st, run: run, bus: bus, log: log, dataDir: abs, sshdPath: "/etc/ssh/sshd_config.d/00-islet.conf", scans: map[string]Scan{}, hasPlan: h.HasBackupPlan, has2FA: h.Admin2FA, panelCert: h.PanelHasCert, proxyPorts: h.ProxyPorts, panelPort: h.PanelPort, panelRouted: h.PanelRouted, proxySubnet: h.ProxySubnet, vpnOnly: h.VPNOnly}
 	if b, err := os.ReadFile(filepath.Join(abs, "scans.json")); err == nil {
 		_ = json.Unmarshal(b, &s.scans)
 	}
@@ -304,6 +308,20 @@ func (s *Service) Report(ctx context.Context) Report {
 			blDetail = "Turned on, but nothing is loaded yet — check the error on the Blocklist card."
 		}
 		add(Check{ID: "blocklist", Title: "Known-bad addresses dropped", Detail: blDetail, Weight: 4, Status: st})
+		// A warning rather than a failure, like the blocklist: plenty of
+		// servers are run from places a VPN cannot reach, and a panel behind
+		// two factors on a trusted certificate is a sound place to stop.
+		if s.vpnOnly != nil {
+			panel, ssh := s.vpnOnly()
+			st, detail := "warn", "Nobody on the internet can even try a password when the panel and SSH answer only inside the VPN."
+			switch {
+			case panel && ssh:
+				st, detail = "pass", "The panel and SSH answer only inside Islet's VPN."
+			case panel || ssh:
+				detail = "Only one of the panel and SSH is limited to the VPN."
+			}
+			add(Check{ID: "vpn-only", Title: "Panel and SSH reachable only over the VPN", Detail: detail, Weight: 4, Status: st, FixNote: "VPN → Lockdown"})
+		}
 		// Unattended upgrades
 		st = "fail"
 		if _, err := os.Stat("/etc/apt/apt.conf.d/20auto-upgrades"); err == nil && unitActive(ctx, s, "unattended-upgrades") {

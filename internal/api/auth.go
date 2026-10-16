@@ -153,6 +153,9 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, api.Error{Error: "mfa_required", Message: "second factor required"})
 			return
 		}
+		if !s.vpnGate(w, r) {
+			return
+		}
 		// The role floor, from the one table in roles.go rather than from
 		// whatever each handler remembered to check. r.Pattern is set by then:
 		// routing has already happened, which is how this handler was reached.
@@ -325,6 +328,11 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Before the password is looked at, so that from outside the VPN a
+	// correct password and a wrong one get the same answer.
+	if !s.vpnGate(w, r) {
+		return
+	}
 	var req api.LoginRequest
 	if err := decode(r, &req); err != nil {
 		s.badJSON(w, err)
@@ -370,6 +378,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
+	if !s.vpnGate(w, r) {
+		return
+	}
 	sess := sessionFrom(r.Context())
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, api.Error{Error: "unauthenticated", Message: "sign in first"})

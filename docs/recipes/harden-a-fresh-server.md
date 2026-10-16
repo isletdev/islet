@@ -8,4 +8,4 @@ Ten minutes from a default image to a Security Score of 90.
 4. **Databases.** If any instance shows a public port you do not need, stop publishing it. Use an SSH tunnel or Tailscale instead.
 5. **Backups.** Add a destination and a plan; a server without backups caps the score.
 6. **Blocklist** (Security, near the bottom). Tick FireHOL level 1 and press **Turn on**: about twenty thousand networks that are known to be hostile stop reaching the proxy or any container. It refreshes daily and comes back after a reboot. Your own address is never dropped. Whole countries can be blocked from the same card, which is blunt — it stops customers and VPN exits as readily as attackers — so reach for it only when a server serves one part of the world.
-7. Optional: install **Tailscale** or **WireGuard** from the catalog and allow the panel port only from the VPN range, then remove the public rule.
+7. Optional: turn on the **VPN**, add your phone, and use its **Lockdown** so the panel and SSH answer only inside it. The [VPN recipe](vpn-only-panel.md) walks through it; it undoes itself if you cannot confirm from inside.

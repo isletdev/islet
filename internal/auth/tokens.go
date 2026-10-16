@@ -236,6 +236,7 @@ var areas = []struct{ prefix, scope string }{
 	// route to the media scope.
 	{"/api/v1/tasks", "media"},
 	{"/api/v1/security", "security"},
+	{"/api/v1/vpn", "security"},
 	{"/api/v1/uptime", "uptime"},
 	// The status page is what the uptime checks are for, seen from outside.
 	{"/api/v1/status-page", "uptime"},

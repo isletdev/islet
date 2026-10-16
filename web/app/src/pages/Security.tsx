@@ -422,7 +422,7 @@ function PanelRestrict({ cidr, onChanged }: { cidr: string; onChanged: () => Pro
     if (!ok) return; setMsg(null); try { await api.panelRestrict(c); setMsg(c ? `Panel reachable only from ${c}.` : "Panel public again."); await onChanged(); } catch (e) { setMsg(err(e)); } };
   return (
     <div className="mt-3 flex flex-wrap items-start gap-2 border-t border-border pt-3">
-      <Field label="Panel only via VPN" hint="CIDR of your VPN: 10.8.0.0/24 for wg-easy, 100.64.0.0/10 for Tailscale."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>
+      <Field label="Panel only via VPN" hint="CIDR of another VPN: 100.64.0.0/10 for Tailscale. For Islet's own VPN, use its Lockdown instead — it also covers SSH and a panel domain."><Input value={v} onChange={(e) => setV(e.target.value)} className="w-44 font-mono" placeholder="10.8.0.0/24" /></Field>
       <FieldAction className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply(v)} disabled={!v}>Restrict</Button>
         {cidr && <Button type="button" variant="secondary" className="h-9 text-xs" onClick={() => void apply("")}>Make public again</Button>}

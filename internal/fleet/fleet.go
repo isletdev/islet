@@ -52,6 +52,9 @@ type Server struct {
 	LastSeen   string `json:"lastSeen,omitempty"`
 	CreatedAt  string `json:"createdAt"`
 	CreatedBy  string `json:"createdBy,omitempty"`
+	// VPNAddress is where it answers inside this panel's VPN, when it has
+	// joined it.
+	VPNAddress string `json:"vpnAddress,omitempty"`
 }
 
 // Service owns the address book and the connections to it.
@@ -79,7 +82,7 @@ func New(st *store.Store, keys *auth.Keys) *Service {
 
 func (s *Service) List(ctx context.Context) ([]Server, error) {
 	rows, err := s.st.DB.QueryContext(ctx, `SELECT id, name, host, ssh_port, ssh_user, panel_port,
-		status, status_note, version, hostname, last_seen, created_at, created_by
+		status, status_note, version, hostname, last_seen, created_at, created_by, vpn_address
 		FROM fleet_servers WHERE server_id = ? ORDER BY name`, s.st.ServerID)
 	if err != nil {
 		return nil, err
@@ -89,7 +92,7 @@ func (s *Service) List(ctx context.Context) ([]Server, error) {
 	for rows.Next() {
 		var v Server
 		if err := rows.Scan(&v.ID, &v.Name, &v.Host, &v.SSHPort, &v.SSHUser, &v.PanelPort,
-			&v.Status, &v.StatusNote, &v.Version, &v.Hostname, &v.LastSeen, &v.CreatedAt, &v.CreatedBy); err != nil {
+			&v.Status, &v.StatusNote, &v.Version, &v.Hostname, &v.LastSeen, &v.CreatedAt, &v.CreatedBy, &v.VPNAddress); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -100,10 +103,10 @@ func (s *Service) List(ctx context.Context) ([]Server, error) {
 func (s *Service) Get(ctx context.Context, id string) (*Server, error) {
 	var v Server
 	err := s.st.DB.QueryRowContext(ctx, `SELECT id, name, host, ssh_port, ssh_user, panel_port,
-		status, status_note, version, hostname, last_seen, created_at, created_by
+		status, status_note, version, hostname, last_seen, created_at, created_by, vpn_address
 		FROM fleet_servers WHERE server_id = ? AND id = ?`, s.st.ServerID, id).
 		Scan(&v.ID, &v.Name, &v.Host, &v.SSHPort, &v.SSHUser, &v.PanelPort,
-			&v.Status, &v.StatusNote, &v.Version, &v.Hostname, &v.LastSeen, &v.CreatedAt, &v.CreatedBy)
+			&v.Status, &v.StatusNote, &v.Version, &v.Hostname, &v.LastSeen, &v.CreatedAt, &v.CreatedBy, &v.VPNAddress)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -295,8 +298,20 @@ func (s *Service) connect(ctx context.Context, v *Server) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := Dial(ctx, fmt.Sprintf("%s:%d", v.Host, v.SSHPort),
-		Credentials{User: v.SSHUser, PrivateKey: kp.PrivatePEM}, hostKey)
+	creds := Credentials{User: v.SSHUser, PrivateKey: kp.PrivatePEM}
+	// A server on this panel's VPN is reached through it, so its SSH need not
+	// be open to the internet. The public address stays the fallback: a
+	// tunnel that is down should cost a slower path, not the server. The host
+	// key is the same sshd's either way, so the pin holds for both.
+	var conn *Conn
+	if vpn := s.vpnAddress(ctx, v.ID); vpn != "" {
+		vctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		conn, err = Dial(vctx, fmt.Sprintf("%s:%d", vpn, v.SSHPort), creds, hostKey)
+		cancel()
+	}
+	if conn == nil {
+		conn, err = Dial(ctx, fmt.Sprintf("%s:%d", v.Host, v.SSHPort), creds, hostKey)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +319,28 @@ func (s *Service) connect(ctx context.Context, v *Server) (*Conn, error) {
 	s.conns[v.ID] = &pooled{conn: conn, used: time.Now()}
 	s.mu.Unlock()
 	return conn, nil
+}
+
+func (s *Service) vpnAddress(ctx context.Context, id string) string {
+	var a string
+	_ = s.st.DB.QueryRowContext(ctx, `SELECT vpn_address FROM fleet_servers WHERE server_id = ? AND id = ?`, s.st.ServerID, id).Scan(&a)
+	return a
+}
+
+// SetVPNAddress records where a server answers inside this panel's VPN, or
+// clears it with "". The pooled connection is dropped so the next request
+// takes the new path.
+func (s *Service) SetVPNAddress(ctx context.Context, actor, id, addr string) error {
+	v, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if _, err := s.st.DB.ExecContext(ctx, `UPDATE fleet_servers SET vpn_address = ? WHERE server_id = ? AND id = ?`, addr, s.st.ServerID, id); err != nil {
+		return err
+	}
+	s.drop(id)
+	_ = s.st.Audit(ctx, actor, "fleet.vpn", v.Name, addr)
+	return nil
 }
 
 func (s *Service) drop(id string) {

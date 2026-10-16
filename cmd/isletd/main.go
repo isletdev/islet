@@ -45,6 +45,7 @@ import (
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
+	"github.com/isletdev/islet/internal/vpn"
 	"github.com/isletdev/islet/internal/watch"
 	"github.com/isletdev/islet/internal/web"
 	"github.com/isletdev/islet/internal/work"
@@ -159,7 +160,12 @@ func run() error {
 	fl2 := fleet.New(st, keys)
 	bk := backup.New(st, keys, cmds, dbs, bus, *dataDir, log)
 	bk.Start(ctx)
+	vp := vpn.New(st, cmds, keys, bus, vpn.Hooks{PanelPort: func() string { p, _ := panelPort.Load().(string); return p }})
 	sec := security.New(st, cmds, bus, *dataDir, security.Hooks{
+		VPNOnly: func() (bool, bool) {
+			l := vp.Lockdown()
+			return l.Panel && !l.Pending, l.SSH && !l.Pending
+		},
 		ProxyPorts:    px.Ports,
 		ProxySubnet:   px.Subnet,
 		PanelRouted:   px.PanelRouted,
@@ -235,7 +241,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, Fleet: fl2, Backup: bk, Uploads: upl, Media: med, Work: wq, DataDir: *dataDir, GitHub: gh, UI: web.Handler(), Log: log}),
+		Handler:           api.New(api.Deps{Store: st, Keys: keys, Auth: as, Metrics: collector, Sampler: sampler, Docker: dk, Files: fl, Runner: cmds, Proxy: px, Catalog: cat, Notify: bus, Cron: cr, Workspaces: ws, Vault: vlt, DB: dbs, Uptime: up, Deploy: dep, Runners: rn, Security: sec, VPN: vp, Fleet: fl2, Backup: bk, Uploads: upl, Media: med, Work: wq, DataDir: *dataDir, GitHub: gh, UI: web.Handler(), Log: log}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       0, // streams (deploys, logs) outlive any fixed read deadline; headers are still bounded
 		WriteTimeout:      0, // streaming endpoints (logs, terminal) manage their own deadlines
@@ -254,6 +260,8 @@ func run() error {
 	if err := px.Reconcile(ctx); err != nil {
 		log.Warn("proxy reconcile failed", "err", err)
 	}
+	// Before the listener serves: the VPN lockdown gates sign-ins.
+	vp.Start(ctx)
 	// A reboot takes every tmux session with it. Put the workspaces back at a
 	// shell prompt, without re-running what was in them.
 	go ws.Reconcile(ctx)

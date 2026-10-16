@@ -120,6 +120,14 @@ export const BackupsIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const VpnIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="5" y="10.5" width="14" height="10" rx="2" />
+    <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" />
+    <path d="M12 14.5v2.5" />
+  </Icon>
+);
+
 export const SecurityIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 2.8 20 6v6c0 4.6-3.2 8.2-8 9.2C7.2 20.2 4 16.6 4 12V6z" />
@@ -486,6 +494,7 @@ export const MediaIcon = (p: IconProps) => (
 );
 
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
+  vpn: VpnIcon,
   assistant: AssistantIcon,
   vault: VaultIcon,
   workspaces: WorkspacesIcon,

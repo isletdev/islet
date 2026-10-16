@@ -24,6 +24,8 @@
   "nav.backups": "Backups",
   "nav.backups.blurb": "Encrypted backups that are tested by restoring them.",
   "nav.security": "Security",
+  "nav.vpn": "VPN",
+  "nav.vpn.blurb": "WireGuard for your devices and servers, and the panel only inside it.",
   "nav.security.blurb": "Score, firewall, SSH, intrusion prevention, scans.",
   "nav.servers": "Servers",
   "nav.servers.blurb": "Every machine this panel manages, and how to add another.",

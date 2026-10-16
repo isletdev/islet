@@ -42,6 +42,7 @@ import (
 	"github.com/isletdev/islet/internal/uptime"
 	"github.com/isletdev/islet/internal/vault"
 	"github.com/isletdev/islet/internal/version"
+	"github.com/isletdev/islet/internal/vpn"
 	"github.com/isletdev/islet/internal/work"
 	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
@@ -68,6 +69,7 @@ type Deps struct {
 	Deploy     *deploy.Service
 	Runners    *runner.Service
 	Security   *security.Service
+	VPN        *vpn.Service
 	Fleet      *fleet.Service
 	Backup     *backup.Service
 	Uploads    *uploads.Service
@@ -103,6 +105,7 @@ type Server struct {
 	deploy     *deploy.Service
 	runners    *runner.Service
 	security   *security.Service
+	vpn        *vpn.Service
 	fleet      *fleet.Service
 	sqlMgr     *sqlclient.Manager
 	sqlStore   *sqlclient.Store
@@ -149,7 +152,7 @@ type Server struct {
 
 // New builds the HTTP handler for the daemon.
 func New(d Deps) http.Handler {
-	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, work: d.Work, dataDir: d.DataDir, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
+	s := &Server{store: d.Store, keys: d.Keys, auth: d.Auth, metrics: d.Metrics, sampler: d.Sampler, docker: d.Docker, files: d.Files, runner: d.Runner, proxy: d.Proxy, catalog: d.Catalog, notify: d.Notify, cron: d.Cron, workspaces: d.Workspaces, vault: d.Vault, db: d.DB, uptime: d.Uptime, deploy: d.Deploy, runners: d.Runners, security: d.Security, vpn: d.VPN, fleet: d.Fleet, backup: d.Backup, uploads: d.Uploads, media: d.Media, work: d.Work, dataDir: d.DataDir, github: d.GitHub, ui: d.UI, log: d.Log, started: time.Now(), runs: newRuns(), seats: newSeats(), ai: ai.New(d.Store)}
 	if s.store != nil {
 		s.chats = assistant.NewChats(s.store)
 	}
@@ -200,6 +203,17 @@ func New(d Deps) http.Handler {
 	// have been.
 	if s.cron != nil {
 		s.cron.Secrets = s.expandSecrets
+	}
+	// A VPN device connecting from a new country is worth saying, and saying
+	// it means sending the address to the same lookup login alerts use — so
+	// it follows the same opt-in.
+	if s.vpn != nil {
+		s.vpn.SetCountry(func(ctx context.Context, ip string) string {
+			if !s.geoEnabled(ctx) {
+				return ""
+			}
+			return lookupGeo(ctx, ip)
+		})
 	}
 	if s.catalog != nil {
 		s.catalog.Secrets = s.expandSecrets
@@ -492,6 +506,23 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/security/host/audit", s.requireAuth(s.handleHostAudit))
 	mux.HandleFunc("POST /api/v1/security/host/audit", requireJSON(s.requireAuth(s.handleHostAudit)))
 	mux.HandleFunc("POST /api/v1/security/host/baseline", requireJSON(s.requireAuth(s.handleHostBaseline)))
+	// ---- the VPN ----
+	mux.HandleFunc("GET /api/v1/vpn", s.requireAuth(s.handleVPN))
+	mux.HandleFunc("POST /api/v1/vpn", requireJSON(s.requireAuth(s.handleVPN)))
+	mux.HandleFunc("DELETE /api/v1/vpn", s.requireAuth(s.handleVPN))
+	mux.HandleFunc("POST /api/v1/vpn/peers", requireJSON(s.requireAuth(s.handleVPNPeers)))
+	mux.HandleFunc("PUT /api/v1/vpn/peers/{id}", requireJSON(s.requireAuth(s.handleVPNPeer)))
+	mux.HandleFunc("DELETE /api/v1/vpn/peers/{id}", s.requireAuth(s.handleVPNPeer))
+	mux.HandleFunc("POST /api/v1/vpn/peers/{id}/rekey", requireJSON(s.requireAuth(s.handleVPNRekey)))
+	mux.HandleFunc("POST /api/v1/vpn/lockdown", requireJSON(s.requireAuth(s.handleVPNLockdown)))
+	mux.HandleFunc("POST /api/v1/vpn/lockdown/confirm", requireJSON(s.requireAuth(s.handleVPNConfirm)))
+	mux.HandleFunc("GET /api/v1/vpn/import", s.requireAuth(s.handleVPNImportScan))
+	mux.HandleFunc("POST /api/v1/vpn/import", requireJSON(s.requireAuth(s.handleVPNImport)))
+	mux.HandleFunc("POST /api/v1/vpn/uplink/key", requireJSON(s.requireAuth(s.handleVPNUplinkKey)))
+	mux.HandleFunc("POST /api/v1/vpn/uplink", requireJSON(s.requireAuth(s.handleVPNUplink)))
+	mux.HandleFunc("DELETE /api/v1/vpn/uplink", s.requireAuth(s.handleVPNUplink))
+	mux.HandleFunc("POST /api/v1/vpn/fleet/{id}", requireJSON(s.requireAuth(s.handleVPNFleet)))
+	mux.HandleFunc("DELETE /api/v1/vpn/fleet/{id}", s.requireAuth(s.handleVPNFleet))
 
 	// Runners
 	mux.HandleFunc("GET /api/v1/runners", s.requireAuth(s.handleRunnerPools))
