@@ -255,6 +255,9 @@ export default function Domains() {
   const [dnsEnv, setDnsEnv] = useState<Record<string, string>>({});
   // The form is hidden once there is nothing to decide; this opens it again.
   const [settings, setSettings] = useState(false);
+  // The domain form shows the stored DNS provider rather than asking again;
+  // this is its "Change".
+  const [changeDns, setChangeDns] = useState(false);
   const [cookieDom, setCookieDom] = useState("");
   // Accounts to offer in the protection grid. Listing users is admin-only, and
   // an editor may still open this form, so a refusal means the grid shows only
@@ -332,11 +335,37 @@ export default function Domains() {
     }
     finally { setBusy(false); }
   };
+  // Everything a certificate needs is asked for in the domain's own form, the
+  // way Nginx Proxy Manager asks for it on a host's SSL tab. It used to be a
+  // detour: a wildcard was refused with "set a DNS provider under Settings",
+  // somewhere else on the page, followed by Apply and coming back. The provider
+  // and email are still the proxy's — Traefik holds one set of credentials per
+  // provider — so saving here applies them to the proxy first, which since
+  // v0.38.4 survives the request riding on the proxy it restarts.
   const save = async (e: FormEvent) => {
     e.preventDefault(); if (!editing) return;
     setBusy(true); setMsg(null);
-    try { await api.domainSave(editing); setEditing(null); setMsg("Saved. The proxy picks it up within a few seconds."); await load(); }
-    catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+    // A wildcard has no HTTP challenge to answer, whatever the row says.
+    const tls = editing.host.trim().startsWith("*.") && editing.tls === "letsencrypt" ? "letsencrypt-dns" : editing.tls;
+    const applyDns = isAdmin && tls === "letsencrypt-dns" && (!status?.dnsProvider || changeDns);
+    const applyEmail = isAdmin && (tls === "letsencrypt" || tls === "letsencrypt-dns") && !status?.acmeEmail;
+    try {
+      if (applyDns || applyEmail) {
+        if (applyDns && !dnsProvider) throw new Error("Choose the DNS provider this domain's DNS is hosted at.");
+        await api.proxyInstall(email, applyDns ? { dnsProvider, dnsEnv } : undefined);
+        setDnsEnv({});
+        setChangeDns(false);
+      }
+      await api.domainSave({ ...editing, tls });
+      setEditing(null);
+      // A note, not msg: msg renders inside the form this just closed, so the
+      // only confirmation a save ever gave went with it.
+      setNote(applyDns || applyEmail
+        ? "Saved, and the proxy restarted with the new certificate settings. The certificate takes a minute or two."
+        : "Saved. The proxy picks it up within a few seconds.");
+      await load();
+    }
+    catch (er) { setMsg(er instanceof Error ? er.message : String(er)); }
     finally { setBusy(false); }
   };
   const remove = async (d: Domain) => {
@@ -509,6 +538,9 @@ export default function Domains() {
         // saved, so the certificate field answers while the person types.
         const editingWildcard = editing.host.trim().startsWith("*.");
         const savedProvider = status?.dnsProvider ?? "";
+        const usesDns = editing.tls === "letsencrypt-dns" || (editingWildcard && editing.tls === "letsencrypt");
+        const askDns = usesDns && (!savedProvider || changeDns);
+        const askEmail = (usesDns || editing.tls === "letsencrypt") && !status?.acmeEmail;
         // The form opens with the credential field blank — it holds bcrypt
         // hashes and showing them would be worse — so whether this site has any
         // comes from the list rather than from the field.
@@ -516,14 +548,13 @@ export default function Domains() {
         return (
         <div ref={formRef}>
         <Card title={editing.id ? `Edit ${editing.host}` : "Add domain"} description="Create the DNS A record first; the helper checks it for you.">
-          {editingWildcard && !savedProvider && (
-            <Alert>
-              A wildcard certificate is issued by proving control of the DNS zone, so it needs a DNS
-              provider. Set one under Settings above, or give this host a self-signed certificate.
-            </Alert>
-          )}
           <form onSubmit={save} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Host" hint="e.g. app.example.com, or *.example.com for every name in the zone."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => setEditing({ ...editing, host: e.target.value })} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
+            <Field label="Host" hint="e.g. app.example.com, or *.example.com for every name in the zone."><div className="flex gap-2"><Input value={editing.host} onChange={(e) => {
+              const host = e.target.value;
+              // Typing a wildcard moves the certificate to the only method that
+              // can issue one, so the provider fields below appear on their own.
+              setEditing({ ...editing, host, tls: host.trim().startsWith("*.") && editing.tls === "letsencrypt" ? "letsencrypt-dns" : editing.tls });
+            }} required placeholder="app.example.com" /><Button type="button" variant="secondary" onClick={() => void suggest()}>Preview host</Button></div></Field>
             <Field label="Target">
               <Select value={editing.targetType} onChange={(e) => setEditing({ ...editing, targetType: e.target.value as Domain["targetType"] })}>
                 <option value="container">Container</option><option value="panel">Islet panel</option><option value="url">Any URL</option>
@@ -540,21 +571,56 @@ export default function Domains() {
                 editingWildcard
                   ? "A wildcard can only be issued over DNS: there is no single name to answer an HTTP challenge on."
                   : editing.tls === "letsencrypt-dns"
-                    ? savedProvider
-                      ? `Proved through ${savedProvider}, so port 80 does not have to reach this server. This is the one to use behind Cloudflare or on a private network.`
-                      : "No DNS provider is set yet — add one under Settings above, or issue this certificate over HTTP."
+                    ? "Proved through your DNS provider, so port 80 does not have to reach this server. The one to use behind Cloudflare or on a private network."
                     : "Proved over HTTP on port 80, which has to reach this server from the internet."
               }
             >
-              <Select value={editing.tls} onChange={(e) => setEditing({ ...editing, tls: e.target.value as Domain["tls"] })}>
+              <Select value={usesDns ? "letsencrypt-dns" : editing.tls} onChange={(e) => setEditing({ ...editing, tls: e.target.value as Domain["tls"] })}>
                 {/* A wildcard has no HTTP-01 option at all: there is no single
                     name to answer a challenge on. */}
                 {!editingWildcard && <option value="letsencrypt">Let's Encrypt (HTTP challenge)</option>}
-                <option value="letsencrypt-dns">Let's Encrypt (DNS challenge){savedProvider ? ` · ${savedProvider}` : " · needs a provider"}</option>
+                <option value="letsencrypt-dns">Let's Encrypt (DNS challenge){savedProvider ? ` · ${savedProvider}` : ""}</option>
                 <option value="self">Self-signed (previews, sslip.io)</option>
                 <option value="none">HTTP only</option>
               </Select>
             </Field>
+            {(usesDns || askEmail) && (
+              <div className="rounded-md border border-border p-3 md:col-span-2">
+                {usesDns && savedProvider && !changeDns && (
+                  <p className="text-sm text-ink-muted">
+                    DNS challenge through <span className="font-medium text-ink">{savedProvider}</span>, with the credentials already stored.{" "}
+                    {isAdmin && <button type="button" className="-my-1 py-1 text-ink underline" onClick={() => { setChangeDns(true); setDnsProvider(savedProvider); }}>Change</button>}
+                  </p>
+                )}
+                {askDns && isAdmin && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label="DNS provider" hint="Where this domain's DNS is hosted.">
+                      <Select value={dnsProvider} onChange={(e) => setDnsProvider(e.target.value)} required>
+                        <option value="">Choose…</option>
+                        {Object.keys(providers).sort().map((p) => <option key={p} value={p}>{p}</option>)}
+                      </Select>
+                    </Field>
+                    {dnsProvider && (providers[dnsProvider] ?? []).map((k) => (
+                      <Field key={k} label={k} hint={savedProvider === dnsProvider ? "Leave empty to keep the stored value." : undefined}>
+                        <Input type="password" value={dnsEnv[k] ?? ""} onChange={(e) => setDnsEnv({ ...dnsEnv, [k]: e.target.value })} required={savedProvider !== dnsProvider} autoComplete="off" className="font-mono" />
+                      </Field>
+                    ))}
+                  </div>
+                )}
+                {askEmail && isAdmin && (
+                  <Field label="Let's Encrypt email" hint="Asked once for the server: it is the account every certificate here is issued to." className={askDns ? "mt-3" : ""}>
+                    <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
+                  </Field>
+                )}
+                {(askDns || askEmail) && (
+                  <p className="mt-2 text-xs text-ink-muted">
+                    {isAdmin
+                      ? "Saving applies this to the proxy, which restarts once: sites on this server pause for a second or two."
+                      : "An admin has to add these before this certificate can be issued."}
+                  </p>
+                )}
+              </div>
+            )}
             <Field label="Path prefix (optional)" hint="Serve only this path on this host, e.g. /api. Leave empty for the whole host."><Input value={editing.pathPrefix} onChange={(e) => setEditing({ ...editing, pathPrefix: e.target.value })} placeholder="/" /></Field>
             <div className="md:col-span-2">
               <Locations
@@ -588,7 +654,7 @@ export default function Domains() {
               </label>
               <label className="flex items-center gap-1.5"><input type="checkbox" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />Enabled</label>
             </div>
-            <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
+            <div className="flex items-center gap-2 md:col-span-2"><Button type="submit" disabled={busy}>Save</Button><Button type="button" variant="secondary" onClick={() => { setEditing(null); setChangeDns(false); setDnsEnv({}); }}>Cancel</Button>{msg && <span className="text-sm text-ink-muted">{msg}</span>}</div>
           </form>
         </Card>
         </div>

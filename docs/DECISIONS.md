@@ -3572,3 +3572,26 @@ shell script answering as docker, and fails with the original
 "context canceled" when the detach is removed. Reaching `Install` from a test
 needed `claimHost` as a variable, since the real claim lives at a fixed path
 under `/run` that a daemon on the test machine already holds.
+
+## 2026-10-16 — a domain asks for its own certificate settings, the way NPM does
+Getting a wildcard took a detour: the domain form refused it with "set a DNS
+provider under Settings", the settings were a separate form further up the
+page, applying them was a separate button, and the domain had to be saved again
+afterwards. Nginx Proxy Manager asks for all of it on the host's own SSL tab,
+and that was the comparison people made.
+
+The domain form now asks for what the certificate it is set to needs, inline:
+the DNS provider and its key once DNS challenge is chosen or a `*.` host is
+typed, and the Let's Encrypt email if the server has none. Save applies those
+to the proxy first and then saves the domain; with a provider already stored
+the form says so with a Change link and Save touches nothing but the domain.
+
+What did not change is where the credential lives. NPM keeps a key per
+certificate because it runs its own ACME client; here Traefik issues, and it
+reads credentials from its environment, one value per provider — two Cloudflare
+tokens cannot be told apart by one Traefik. A key per domain would have meant
+Islet issuing certificates itself. So the form asks per domain and stores per
+provider, and says so in the field hint when a value is already stored.
+
+Applying from this form restarts the proxy, which became safe to do from a
+request riding on that proxy only in v0.38.4.
