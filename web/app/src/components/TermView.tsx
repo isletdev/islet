@@ -298,9 +298,17 @@ export default function TermView({
   // per wheel event whatever its magnitude.
   //
   // The event is dispatched at the finger, like a real wheel, so it reaches the
-  // same listener by the same path. preventDefault is called only once a line
-  // has moved, so a tap still focuses the terminal and raises the keyboard, and
-  // a drag the terminal cannot use still scrolls the page.
+  // same listener by the same path.
+  //
+  // A drag on the terminal belongs to the terminal from its first pixel. This
+  // used to call preventDefault only once a whole line had moved, so that a
+  // drag the terminal could not use still scrolled the page — but the browser
+  // decides a touch is a page scroll on the first move it is not told
+  // otherwise, and from then on every touchmove arrives uncancelable. In an
+  // emulated phone an eight-row drag scrolled the page 148px under the
+  // terminal while all eight attempts to stop it were ignored. touch-action on
+  // the box says the same thing before any script runs, which is what iOS
+  // needs; a tap has no move, so it still focuses and raises the keyboard.
   useEffect(() => {
     const el = host.current;
     const t = term.current;
@@ -314,6 +322,7 @@ export default function TermView({
     };
     const move = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
+      if (e.cancelable) e.preventDefault();
       const y = e.touches[0].clientY;
       carry += lastY - y;
       lastY = y;
@@ -322,7 +331,6 @@ export default function TermView({
       if (lines === 0) return;
       carry -= lines * rowHeight;
       scrollBy(lines, { x: e.touches[0].clientX, y });
-      e.preventDefault();
     };
     el.addEventListener("touchstart", start, { passive: true });
     el.addEventListener("touchmove", move, { passive: false });
@@ -569,7 +577,7 @@ export default function TermView({
         of its eighteen pixels. Which is what it looked like: half a line at the
         bottom, on every terminal in the panel.
       */}
-      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#0A0A0A] p-2">
+      <div className="min-h-0 flex-1 touch-none overflow-hidden overscroll-contain rounded-lg border border-border bg-[#0A0A0A] p-2">
         <div
           ref={host}
           className="h-full w-full"
