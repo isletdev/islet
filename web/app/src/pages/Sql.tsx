@@ -1,3 +1,4 @@
+import { copyText, randomId } from "@/lib/clipboard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -264,7 +265,7 @@ export default function Sql() {
     setBusy(true);
 
     const sessionId = await ensureSession(queryTab);
-    const id = crypto.randomUUID().replaceAll("-", "");
+    const id = randomId();
     setRunId(id);
     const collected: StatementResult[] = [];
     try {
@@ -703,7 +704,7 @@ function CopyMenu({ columns, rows }: { columns: Column[]; rows: Cell[][] }) {
   const [open, setOpen] = useState(false);
   const copy = async (f: ExportFormat) => {
     setOpen(false);
-    try { await navigator.clipboard.writeText(exportResult(columns, rows, f)); } catch { /* no clipboard */ }
+    try { await copyText(exportResult(columns, rows, f)); } catch { /* no clipboard */ }
   };
   return (
     <div className="relative">

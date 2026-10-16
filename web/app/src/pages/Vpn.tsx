@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import {
@@ -132,6 +133,8 @@ export default function Vpn() {
             <div className="mt-3 break-all font-mono text-[11px] text-ink-faint">Server key {c.publicKey} · range {c.subnet} · DNS {c.dns}</div>
           </Card>
 
+          <ReachCard v={v} />
+
           <Card title="Devices" description="Revoking a device takes effect at once. A device past its expiry is taken out of the tunnel on its own.">
             {devices.length === 0 ? (
               <div className="py-6 text-center text-sm text-ink-muted">
@@ -209,6 +212,44 @@ export default function Vpn() {
       )}
       {issued && <IssuedModal cfg={issued.cfg} name={issued.name} onClose={() => setIssued(null)} />}
     </div>
+  );
+}
+
+// What a device in the tunnel can open, read from the server's sockets. The
+// tunnel address stands for the server itself, loopback included, so a
+// database published on 127.0.0.1 is here and on the internet nowhere.
+function ReachCard({ v }: { v: VpnState }) {
+  const addr = v.status.address;
+  const panel = Number(v.panelPort);
+  const rows = (v.reach ?? []).filter((r) => r.port !== panel);
+  return (
+    <Card title="Reach this server" description={`From a device on the VPN, ${addr} is this server, including services that listen only on 127.0.0.1. Admin devices reach every port; an apps device only its own.`}>
+      <div className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
+          <span>Panel</span>
+          <a className="font-mono text-accent hover:underline" href={`http://${addr}`} target="_blank" rel="noreferrer">http://{addr}</a>
+        </div>
+        {rows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left">
+              <thead className="text-xs text-ink-faint">
+                <tr><th className="py-1 pr-3 font-normal">Address</th><th className="py-1 pr-3 font-normal">Service</th><th className="py-1 font-normal">Outside the VPN</th></tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.port} className="border-t border-border/70">
+                    <td className="py-1.5 pr-3 font-mono">{addr}:{r.port}</td>
+                    <td className="py-1.5 pr-3">{r.app || r.process || "—"}</td>
+                    <td className={`py-1.5 text-xs ${r.loopbackOnly ? "text-success" : "text-ink-muted"}`}>{r.loopbackOnly ? "Not reachable" : "Listens on every address"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-xs text-ink-muted">To keep a database for development off the internet, publish it on 127.0.0.1 from its page under Databases. Your laptop then connects to {addr} on that port.</p>
+      </div>
+    </Card>
   );
 }
 
@@ -343,7 +384,7 @@ function IssuedModal({ cfg, name, onClose }: { cfg: string; name: string; onClos
           <pre className="mt-2 max-h-56 overflow-auto rounded border border-border bg-surface-2 p-3 font-mono text-[11px] leading-relaxed">{cfg}</pre>
         </details>
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={() => { void navigator.clipboard?.writeText(cfg).then(() => setCopied(true)); }}>{copied ? "Copied" : "Copy"}</Button>
+          <Button type="button" variant="secondary" onClick={() => { void copyText(cfg).then(() => setCopied(true)); }}>{copied ? "Copied" : "Copy"}</Button>
           <Button type="button" variant="secondary" onClick={download}>Download .conf</Button>
           <Button type="button" onClick={onClose}>Done</Button>
         </div>
@@ -433,7 +474,7 @@ function LockdownCard({ v, busy, run, ask }: { v: VpnState; busy: string | null;
             <input type="checkbox" className="mt-1" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
             <span>Also allow my current address, <span className="font-mono">{v.clientIp}</span><span className="block text-xs text-ink-muted">A way back in if the VPN fails. It reaches the panel at the server's IP and port, not through a domain. Leave it off if your address changes, or for the strictest setting.</span></span>
           </label>
-          <p className="text-xs text-ink-muted">After you turn it on, open <span className="font-mono">https://{v.status.address}:{v.panelPort}</span> on a device connected to the VPN and confirm within two minutes. Unconfirmed, it undoes itself.</p>
+          <p className="text-xs text-ink-muted">After you turn it on, open <span className="font-mono">http://{v.status.address}</span> on a device connected to the VPN and confirm within two minutes. Unconfirmed, it undoes itself.</p>
           <div className="flex justify-end">
             <Button disabled={busy !== null || admins.length === 0 || (!panel && !ssh)} onClick={async () => {
               const ok = await ask.confirm({
@@ -460,7 +501,7 @@ function PendingLockdown({ v, busy, onConfirm }: { v: VpnState; busy: string | n
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex-1">
           The lockdown is waiting for you to confirm from inside the VPN: <span className="font-mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</span> left.{" "}
-          {v.inTunnel ? "You are connected through it." : <>Open <span className="font-mono">https://{v.status.address}:{l.panelPort || v.panelPort}</span> on a device connected to the VPN and confirm there.</>}
+          {v.inTunnel ? "You are connected through it." : <>Open <span className="font-mono">http://{v.status.address}</span> on a device connected to the VPN and confirm there.</>}
         </span>
         {v.inTunnel && <Button className="h-8 text-xs" disabled={busy !== null} onClick={onConfirm}>{busy === "confirm" ? "Confirming…" : "Confirm"}</Button>}
       </div>

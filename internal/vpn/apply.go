@@ -75,7 +75,13 @@ func (s *Service) Apply(ctx context.Context, actor string) error {
 	if _, err := s.sh(ctx, actor, nil, "ip", "link", "set", "dev", Iface, "mtu", "1420", "up"); err != nil {
 		return err
 	}
-	if _, err := s.sh(ctx, actor, []byte(Ruleset(c, live)), "nft", "-f", "/dev/stdin"); err != nil {
+	// Loopback addresses arriving on this one interface are routable, which
+	// the prerouting chain needs to reach a service on 127.0.0.1. It is a
+	// setting of the interface, so it goes with it and touches no other.
+	if _, err := s.sh(ctx, actor, nil, "sysctl", "-qw", "net.ipv4.conf."+Iface+".route_localnet=1"); err != nil {
+		return err
+	}
+	if _, err := s.sh(ctx, actor, []byte(Ruleset(c, live, s.PanelPort())), "nft", "-f", "/dev/stdin"); err != nil {
 		return fmt.Errorf("could not load the access rules: %w", err)
 	}
 	s.forwarding(ctx, actor)
@@ -170,7 +176,19 @@ const privateRanges = "10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 1
 // after it never fails; the three together replace the table in one
 // transaction, with no moment where the old rules are gone and the new ones
 // not yet there.
-func Ruleset(c Config, peers []Peer) string {
+//
+// The prerouting chain makes the server's tunnel address stand for the server
+// itself, loopback included. A database published on 127.0.0.1 — the way a
+// development database should be published — is then at 10.66.0.1:5432 for a
+// device in the tunnel and at nowhere for anybody else, with no port opened
+// and no second bind. It runs after Docker's own NAT (dstnat + 10), so a port
+// Docker publishes on every interface keeps going through Docker's DNAT, and
+// the forward chain below still judges it; only what Docker did not claim is
+// sent to loopback. Port 80 on the tunnel address is the panel over plain
+// HTTP, which is safe inside WireGuard and is what makes http://10.66.0.1
+// open it. The input chain sees the port after this, so an apps peer's ports
+// mean the same thing whether the service is on loopback or not.
+func Ruleset(c Config, peers []Peer, panelPort string) string {
 	var admin, internet, apps []string
 	for _, p := range peers {
 		switch p.Access {
@@ -220,12 +238,18 @@ func Ruleset(c Config, peers []Peer) string {
 		ip saddr @internet ip daddr != @private accept
 		drop
 	}
+	chain prerouting {
+		type nat hook prerouting priority dstnat + 10; policy accept;
+		iifname != "%[1]s" accept
+		ip daddr %[2]s tcp dport 80 redirect to :%[4]s
+		ip daddr %[2]s meta l4proto { tcp, udp } dnat ip to 127.0.0.1
+	}
 	chain postrouting {
 		type nat hook postrouting priority srcnat + 10; policy accept;
 		ip saddr %[3]s oifname != "%[1]s" masquerade
 	}
 }
-`, Iface, srv, c.Subnet)
+`, Iface, srv, c.Subnet, panelPort)
 	return b.String()
 }
 

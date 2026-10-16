@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useEffect, useRef, useState } from "react";
 
 import { CheckIcon, CopyIcon } from "@/components/icons";
@@ -57,8 +58,7 @@ export default function CodeBlock({ code, lang }: { code: string; lang?: string 
   };
 
   const copy = () => {
-    if (!navigator.clipboard?.writeText) { refused(); return; }
-    void navigator.clipboard.writeText(code).then(() => settle("copied")).catch(refused);
+    void copyText(code).then(() => settle("copied")).catch(refused);
   };
 
   return (

@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, RequestError, type Agent, type AIProvider, type Workspace } from "@/lib/api";
@@ -420,7 +421,7 @@ export default function Workspaces() {
             <Button
               variant="secondary"
               className="h-8 text-xs"
-              onClick={() => void navigator.clipboard.writeText(text).catch(() => {})}
+              onClick={() => void copyText(text).catch(() => {})}
             >
               Copy all of it
             </Button>
@@ -635,7 +636,7 @@ export default function Workspaces() {
                 <div className="ml-auto">
                   <MoreMenu label={`More for ${ws.name}`} items={[
                     { label: "Edit workspace", onClick: () => setEditingWs({ ...ws }) },
-                    { label: "Copy the SSH command", onClick: () => void navigator.clipboard?.writeText(`tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-${ws.id}`).catch(() => {}) },
+                    { label: "Copy the SSH command", onClick: () => void copyText(`tmux -S /var/lib/islet/tmux.sock attach -t islet-ws-${ws.id}`).catch(() => {}) },
                     { label: ws.running ? "Stop the session" : "Session is stopped", danger: true, disabled: !ws.running || busy !== null, onClick: () => void stopWorkspace(ws) },
                     { label: "Remove workspace", danger: true, disabled: busy !== null, onClick: () => void removeWorkspace(ws) },
                   ]} />

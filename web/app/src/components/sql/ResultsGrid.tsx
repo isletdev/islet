@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Cell, Class, Column, ForeignKey } from "@/lib/sql";
 
@@ -248,7 +249,7 @@ function CellSheet({ column, value, onClose }: { column: Column; value: Cell; on
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => void navigator.clipboard?.writeText(text)}
+              onClick={() => void copyText(text)}
               className="rounded-md border border-border px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
             >
               Copy

@@ -127,6 +127,15 @@ func (s *Service) InTunnel(ctx context.Context, ip string) bool {
 	return err == nil && p.Contains(a.Unmap())
 }
 
+// Serves says whether a connection from ip came through the tunnel, so the
+// panel may answer it over plain HTTP. Only while the VPN is on: the subnet
+// means nothing when no interface carries it.
+func (s *Service) Serves(ip netip.Addr) bool {
+	c := s.Config(context.Background())
+	p, err := netip.ParsePrefix(c.Subnet)
+	return c.Enabled && err == nil && p.Contains(ip.Unmap())
+}
+
 // SetLockdown turns parts of it on or off. clientIP is who asked, for the
 // audit and for the refusal below.
 func (s *Service) SetLockdown(ctx context.Context, actor string, in LockdownInput, clientIP string) error {
@@ -228,7 +237,7 @@ func (s *Service) Confirm(ctx context.Context, actor, clientIP string) error {
 		return errors.New("nothing is waiting to be confirmed")
 	}
 	if !s.InTunnel(ctx, clientIP) {
-		return fmt.Errorf("confirm from a device connected to the VPN, at https://%s:%d — this request came from %s", s.Config(ctx).Address(), l.PanelPort, clientIP)
+		return fmt.Errorf("confirm from a device connected to the VPN, at http://%s — this request came from %s", s.Config(ctx).Address(), clientIP)
 	}
 	s.lockMu.Lock()
 	if s.lockTime != nil {

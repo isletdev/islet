@@ -67,6 +67,7 @@ func (s *Server) handleVPN(w http.ResponseWriter, r *http.Request) {
 			"clientIp":          ip,
 			"inTunnel":          s.vpn.InTunnel(r.Context(), ip),
 			"panelPort":         s.vpn.PanelPort(),
+			"reach":             s.vpnReach(r),
 		})
 	case http.MethodPost:
 		if !s.adminOnly(w, r) {
@@ -466,4 +467,31 @@ func (s *Server) handleVPNFleet(w http.ResponseWriter, r *http.Request) {
 	_ = s.memberCall(ctx, id, http.MethodDelete, "/api/v1/vpn/uplink", nil, nil)
 	_ = s.vpn.RemovePeer(ctx, actor, iss.Peer.ID)
 	writeJSON(w, http.StatusBadGateway, api.Error{Error: "vpn", Message: fmt.Sprintf("%s set up its end but never connected, so nothing was changed. Check that UDP %d reaches this server from it, at %s.", srv.Name, c.Port, iss.Endpoint)})
+}
+
+// vpnReach is what a device in the tunnel can open on this server, with the
+// container behind each port Docker publishes. Only while the VPN is on, and
+// only for an admin: it is a list of every listening socket.
+func (s *Server) vpnReach(r *http.Request) []vpn.Reachable {
+	if !s.vpn.Config(r.Context()).Enabled || userFrom(r.Context()).Role != "admin" {
+		return nil
+	}
+	out := s.vpn.Reach(r.Context())
+	if s.docker == nil {
+		return out
+	}
+	cs, err := s.docker.Containers(r.Context(), "")
+	if err != nil {
+		return out
+	}
+	app := map[int]string{}
+	for _, c := range cs {
+		for _, p := range vpn.PublishedPorts(c.Ports) {
+			app[p] = c.Name
+		}
+	}
+	for i := range out {
+		out[i].App = app[out[i].Port]
+	}
+	return out
 }

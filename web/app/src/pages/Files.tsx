@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, RequestError, type FileEntry, type TrashItem } from "@/lib/api";
@@ -148,7 +149,7 @@ export default function Files() {
   const moveTo = (paths: string[]) => setPicking({ mode: "move", paths });
   const copyTo = (paths: string[]) => setPicking({ mode: "copy", paths });
   const copyPath = async (p: string) => {
-    try { await navigator.clipboard.writeText(p); setMsg("Path copied."); }
+    try { await copyText(p); setMsg("Path copied."); }
     catch { void ask.alert({ title: "Could not copy", body: p }); }
   };
   const chmod = async (e: FileEntry) => {

@@ -98,7 +98,9 @@ export interface VpnStatus {
   uplink?: { endpoint: string; address: string; serverAddress: string; online: boolean; lastHandshake?: string };
   supported: boolean; note?: string;
 }
-export interface VpnState { status: VpnStatus; suggestedEndpoint: string; clientIp: string; inTunnel: boolean; panelPort: string }
+/** Something listening on the server that a device in the tunnel opens at the server's tunnel address. */
+export interface VpnReachable { port: number; process: string; app?: string; loopbackOnly: boolean }
+export interface VpnState { status: VpnStatus; suggestedEndpoint: string; clientIp: string; inTunnel: boolean; panelPort: string; reach?: VpnReachable[] }
 /** What a new or re-keyed device needs. The preshared key is in it, so it is only ever returned once. */
 export interface VpnIssued { peer: VpnPeer; presharedKey: string; serverPublicKey: string; endpoint: string; allowedIps: string[]; dns?: string }
 export interface VpnPeerInput { name: string; publicKey?: string; access: VpnAccess; ports: number[]; fullTunnel: boolean; expiresAt: string }

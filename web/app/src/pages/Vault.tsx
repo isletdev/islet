@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, RequestError, type VaultSecret } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -131,7 +132,7 @@ export default function Vault({ embedded = false }: { embedded?: boolean } = {})
 function Revealed({ name, value, onClose }: { name: string; value: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    try { await copyText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }
     catch { /* a browser that refuses the clipboard still shows the value */ }
   };
   return (

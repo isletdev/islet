@@ -3643,3 +3643,51 @@ still there for anyone who prefers it.
 
 This is a feature release and is v0.40.0. v0.39.0 was skipped: the release
 before it, v0.38.5, should itself have been v0.39.0.
+
+## The tunnel address is the server, and the panel speaks HTTP inside it (v0.40.1)
+
+v0.40.0 put devices on a VPN and could hide the panel behind it, but the
+VPN reached only what already listened on every interface. The case that
+matters most — a development database, kept off the internet on 127.0.0.1 —
+was out of reach without an SSH tunnel on top of the VPN, which is the thing a
+VPN is meant to replace. And the locked-down panel was at
+`https://10.66.0.1:9443` with a self-signed certificate: a warning on every
+device, and on a phone one that some browsers will not remember for an IP.
+
+- **The tunnel address forwards to loopback.** A prerouting chain in the VPN's
+  own table DNATs `10.66.0.1` to `127.0.0.1` for packets arriving on
+  `wg-islet`, with `route_localnet` set on that one interface — never `all`,
+  which would make loopback routable from every network the server is on.
+  Measured in namespaces: without the sysctl the connection hangs, with it
+  the reply leaves through the tunnel. The chain runs at `dstnat + 10`, after
+  Docker's NAT, because a NAT binding is made once per connection: a port
+  Docker publishes on every interface keeps its own DNAT and the existing
+  forward-chain rules still judge it, and only what Docker did not claim goes
+  to loopback. The input chain sees the port after the DNAT, so an *apps*
+  device listed for 5432 reaches a 127.0.0.1:5432 database and nothing else.
+  The alternative was a third "VPN only" bind on the database page, binding
+  to the tunnel address; Docker cannot start a container whose bind address
+  does not exist yet, and the interface comes up after Docker at boot.
+- **Plain HTTP on the panel port, for tunnel addresses only.** The listener
+  reads the first byte of each connection — 0x16 opens every TLS handshake
+  and no HTTP method — and hands TLS to the server as before (still HTTP/2),
+  plain HTTP from the VPN subnet to the same handler, and plain HTTP from
+  anywhere else to a redirect to HTTPS. The read is in a goroutine with a
+  deadline, so an idle client stalls nobody. Port 80 on the tunnel address
+  redirects to the panel port in the same prerouting chain, so the address is
+  `http://10.66.0.1`. WireGuard is the encryption here; TLS inside it would
+  add only the warning. A second listener on the tunnel address was the
+  alternative, and Traefik's wildcard bind on 80 rules it out on Linux.
+- **What plain HTTP broke, fixed.** Browsers send `Sec-Fetch-Site` only to
+  secure origins, so the cross-site check now falls back to `Origin` when the
+  former is missing. `navigator.clipboard` and `crypto.randomUUID` do not
+  exist outside a secure context; every copy button goes through one helper
+  that falls back to a selected textarea and `execCommand("copy")`, and the
+  SQL run id comes from `getRandomValues`. Checked in a real browser at
+  `http://10.66.0.1`: sign-in through the form, the VPN page, a device added
+  and its configuration copied, the terminal's WebSocket, and a foreign origin
+  refused on both the API and the WebSocket. Passkeys would not work over an
+  address, but the panel has none.
+
+What would reverse it: the DNAT is two lines of `Ruleset` and the sysctl goes
+with the interface; `tlsutil.Split` is replaced by `ServeTLS` again.

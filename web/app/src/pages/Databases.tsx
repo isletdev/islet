@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, RequestError, type DBDetail, type DBInstance } from "@/lib/api";
@@ -48,7 +49,7 @@ async function askRemoveServer(ask: ReturnType<typeof useDialog>, name: string, 
 
 function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
-  return <button type="button" onClick={() => { void navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); }} className="text-xs text-ink-muted hover:text-ink">{done ? "Copied" : label}</button>;
+  return <button type="button" onClick={() => { void copyText(text); setDone(true); setTimeout(() => setDone(false), 1500); }} className="text-xs text-ink-muted hover:text-ink">{done ? "Copied" : label}</button>;
 }
 
 export default function Databases() {
@@ -133,7 +134,7 @@ export default function Databases() {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${i.state === "running" ? "bg-success" : i.state === "missing" ? "bg-ink-faint" : "bg-danger"}`} />
               </div>
               <div className="mt-2 text-xs text-ink-muted">{ENGINE[i.engine]} · {i.image.split("@")[0]}</div>
-              <div className="mt-2 font-mono text-[11px] text-ink-faint">{i.container}:{i.port}{i.public && <span className="ml-2 rounded-sm bg-warning-soft px-1 text-warning">public</span>}</div>
+              <div className="mt-2 font-mono text-[11px] text-ink-faint">{i.container}:{i.port}{i.public && (i.public.startsWith("127.0.0.1:") ? <span className="ml-2 rounded-sm bg-surface-2 px-1 text-ink-muted">server and VPN</span> : <span className="ml-2 rounded-sm bg-warning-soft px-1 text-warning">public</span>)}</div>
             </button>
             {isAdmin && (
               <button
@@ -234,11 +235,20 @@ function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin
   const [adminer, setAdminer] = useState<{ suggestedHost: string; panelHost?: string; cookieDomain?: string } | null>(null);
   const load = useCallback(() => api.database(name).then((x) => { setD(x); setError(null); }).catch((e) => setError(err(e))), [name]);
   useEffect(() => { setD(null); setMsg(null); setLog(null); setSlow(null); void load(); }, [load]);
+  // A port published on 127.0.0.1 is at the server's VPN address too, for a
+  // device in the tunnel. Admins only, like the VPN page.
+  const [vpnAddr, setVpnAddr] = useState("");
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.vpn().then((v) => setVpnAddr(v.status.config.enabled ? v.status.address : "")).catch(() => {});
+  }, [isAdmin]);
 
   const act = async (key: string, fn: () => Promise<unknown>, done?: string) => {
     setBusy(key); setMsg(null);
     try { await fn(); if (done) setMsg(done); await load(); } catch (e) { setMsg(err(e)); } finally { setBusy(null); }
   };
+  const local = !!d?.public?.startsWith("127.0.0.1:");
+  const reachUrl = local && vpnAddr ? (d?.publicUrl ?? "").replace("@127.0.0.1:", `@${vpnAddr}:`).replace("//127.0.0.1:", `//${vpnAddr}:`) : (d?.publicUrl ?? "");
   const togglePublic = async (on: boolean) => {
     let hostPort = d?.port ?? 0;
     let allowFrom = "";
@@ -246,8 +256,8 @@ function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin
     if (on) {
       const toInternet = await ask.confirm({
         title: `Who should reach port ${d?.port}?`,
-        body: "Bound to this server, only something already on the machine reaches it, which is what an SSH tunnel uses. Open to the internet, anyone can connect and try passwords.",
-        cancelLabel: "This server only",
+        body: "Bound to this server, only something on the machine, an SSH tunnel or a device on the VPN reaches it. Open to the internet, anyone can connect and try passwords.",
+        cancelLabel: "This server and the VPN",
         confirmLabel: "Open to the internet",
         tone: "danger",
       });
@@ -265,7 +275,7 @@ function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin
       }
       const v = await ask.prompt({
         title: "Which port on the server?",
-        body: toInternet ? "This port will answer on every network interface." : "This port answers on 127.0.0.1 only, so an SSH tunnel is the way in.",
+        body: toInternet ? "This port will answer on every network interface." : "This port answers on 127.0.0.1 only. A device on the VPN reaches it at the server's VPN address; otherwise an SSH tunnel is the way in.",
         label: "Host port",
         defaultValue: String(d?.port),
         mono: true,
@@ -284,7 +294,7 @@ function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin
       if (r.installed) setMsg(`Adminer installed at ${r.domain}. The certificate takes a moment.`);
       if (r.url) {
         window.open(r.url, "_blank", "noopener");
-        if (r.password) await navigator.clipboard?.writeText(r.password).catch(() => {});
+        if (r.password) await copyText(r.password).catch(() => {});
         setMsg((m) => `${m ? m + " " : ""}Opened Adminer; the password is on your clipboard.`);
       }
     } catch (e) {
@@ -344,15 +354,16 @@ function Detail({ name, isAdmin, onChanged, onRemoved }: { name: string; isAdmin
             <p className="mt-1 text-xs text-ink-muted">Attach the other stack to the <span className="font-mono">{d.network}</span> network, or connect from a stack on the same network by service name.</p>
           </div>
           <div>
-            <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{d.public ? "From the internet" : "From your machine"}</span>{isAdmin && d.publicUrl && <Copy text={d.publicUrl} />}</div>
-            {d.public ? <><pre className="overflow-x-auto rounded-md border border-warning/40 bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.publicUrl ?? "") : "(admins only)"}</pre>{d.allowFrom && <p className="mt-1 text-xs text-ink-muted">Firewall allows only: <span className="font-mono">{d.allowFrom}</span></p>}</>
+            <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{local ? (vpnAddr ? "From a device on the VPN" : "From this server") : d.public ? "From the internet" : "From your machine"}</span>{isAdmin && reachUrl && <Copy text={reachUrl} />}</div>
+            {local ? <><pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">{isAdmin ? mask(reachUrl) : "(admins only)"}</pre><p className="mt-1 text-xs text-ink-muted">{vpnAddr ? "Not reachable from the internet. Connect to the VPN, then use this address." : <>Not reachable from the internet. Turn on the <a href="/vpn" className="text-accent hover:underline">VPN</a> to connect from your laptop, or use an SSH tunnel to 127.0.0.1:{d.public?.split(":")[1]}.</>}</p></>
+              : d.public ? <><pre className="overflow-x-auto rounded-md border border-warning/40 bg-bg p-2 font-mono text-xs">{isAdmin ? mask(d.publicUrl ?? "") : "(admins only)"}</pre>{d.allowFrom && <p className="mt-1 text-xs text-ink-muted">Firewall allows only: <span className="font-mono">{d.allowFrom}</span></p>}</>
               : <pre className="overflow-x-auto rounded-md border border-border bg-bg p-2 font-mono text-xs">ssh -N -L {d.port}:{d.ip || "CONTAINER-IP"}:{d.port} you@your-server{"\n"}# then point the client at localhost:{d.port}{"\n"}# this address moves when the container is recreated; publishing the port{"\n"}# on 127.0.0.1 gives a tunnel target that does not.</pre>}
             {isAdmin && <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
               <button type="button" onClick={() => setShowSecrets(!showSecrets)} className="-my-1 py-1 text-ink-muted hover:text-ink">{showSecrets ? "Hide passwords" : "Show passwords"}</button>
               <button type="button" disabled={busy === "public"} onClick={() => void togglePublic(!d.public)} className={`-my-1 py-1 ${d.public ? "text-ink-muted hover:text-ink" : "text-warning hover:underline"}`}>{d.public ? "Stop publishing the port" : "Publish the port to the internet…"}</button>
               <button type="button" disabled={busy === "remove"} onClick={() => void removeServer()} className="-my-1 ml-auto py-1 text-danger hover:underline">{busy === "remove" ? "Removing…" : "Remove this database server"}</button>
             </div>}
-            {d.public && !d.allowFrom && <p className="mt-1 text-xs text-warning">Published on every interface, so anything that can reach this server can try to log in. Narrow it to the addresses you connect from when you publish the port, and keep the password strong either way.</p>}
+            {d.public && !local && !d.allowFrom && <p className="mt-1 text-xs text-warning">Published on every interface, so anything that can reach this server can try to log in. Narrow it to the addresses you connect from when you publish the port, and keep the password strong either way.</p>}
           </div>
         </div>
         {log && <pre className="mt-3 max-h-40 overflow-auto rounded-md border border-border bg-[#0A0A0A] p-2 font-mono text-xs text-[#FAFAFA]">{log.join("\n") || "…"}</pre>}

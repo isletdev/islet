@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -175,7 +176,16 @@ func requireJSON(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusUnsupportedMediaType, api.Error{Error: "bad_content_type", Message: "send application/json"})
 			return
 		}
-		if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" && sfs != "same-origin" && sfs != "none" {
+		// Browsers send Sec-Fetch-Site only to HTTPS origins, so the panel
+		// over plain HTTP inside the VPN gets no answer from it. Origin is sent
+		// either way, and says the same thing for a request that has one.
+		sfs := r.Header.Get("Sec-Fetch-Site")
+		cross := sfs != "" && sfs != "same-origin" && sfs != "none"
+		if o := r.Header.Get("Origin"); sfs == "" && o != "" {
+			u, err := url.Parse(o)
+			cross = err != nil || u.Host != r.Host
+		}
+		if cross {
 			writeJSON(w, http.StatusForbidden, api.Error{Error: "cross_site", Message: "cross-site request refused"})
 			return
 		}

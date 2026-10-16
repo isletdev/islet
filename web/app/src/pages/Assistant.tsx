@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, assistantUpload, RequestError, type AIProvider, type AssistantAttachment, type AssistantChat, type AssistantConfig, type AssistantEvent, type AssistantMessage, type AssistantToolResult } from "@/lib/api";
@@ -1023,7 +1024,7 @@ function Turn({ m, answers }: { m: AssistantMessage; answers?: AssistantToolResu
             type="button"
             aria-label="Copy this answer"
             title="Copy this answer"
-            onClick={() => void navigator.clipboard.writeText(m.text ?? "")}
+            onClick={() => void copyText(m.text ?? "")}
             className="absolute -top-1 right-0 rounded-md p-1 text-ink-faint opacity-0 transition-opacity hover:bg-surface-2 hover:text-ink focus:opacity-100 group-hover/turn:opacity-100"
           >
             <CopyIcon className="h-3.5 w-3.5" />

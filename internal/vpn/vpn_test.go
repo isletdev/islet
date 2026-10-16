@@ -165,13 +165,15 @@ func TestRulesetPutsEachPeerInItsSet(t *testing.T) {
 		{Address: "10.66.0.3", Access: AccessApps, Ports: []int{80, 443}, FullTunnel: true},
 		{Address: "10.66.0.4", Access: AccessInternet},
 		{Address: "10.66.0.5", Access: AccessServer},
-	})
+	}, "9443")
 	for _, want := range []string{
 		"set admin { type ipv4_addr; elements = { 10.66.0.2 } }",
 		"set internet { type ipv4_addr; elements = { 10.66.0.3, 10.66.0.4 } }",
 		"elements = { 10.66.0.3 . 80, 10.66.0.3 . 443 }",
 		"ct original ip daddr 10.66.0.1",
 		"ip saddr 10.66.0.0/24 oifname != \"wg-islet\" masquerade",
+		"ip daddr 10.66.0.1 tcp dport 80 redirect to :9443",
+		"ip daddr 10.66.0.1 meta l4proto { tcp, udp } dnat ip to 127.0.0.1",
 	} {
 		if !strings.Contains(r, want) {
 			t.Errorf("missing %q in\n%s", want, r)
@@ -353,5 +355,30 @@ func TestConfigValidation(t *testing.T) {
 	c := Config{Endpoint: "vpn.example.com", Subnet: "10.66.0.9/24"}
 	if err := c.validate(); err != nil || c.Subnet != "10.66.0.0/24" || c.Address() != "10.66.0.1" {
 		t.Errorf("%v %+v", err, c)
+	}
+}
+
+func TestParseSS(t *testing.T) {
+	out := `LISTEN 0 4096 127.0.0.1:5433 0.0.0.0:* users:(("docker-proxy",pid=1,fd=8))
+LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=2,fd=3))
+LISTEN 0 4096 [::]:22 [::]:* users:(("sshd",pid=2,fd=4))
+LISTEN 0 1024 172.21.0.1:3478 0.0.0.0:* users:(("turnserver",pid=3,fd=7))
+LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:* users:(("systemd-resolve",pid=4,fd=1))
+LISTEN 0 4096 127.0.0.54:53 0.0.0.0:* users:(("systemd-resolve",pid=4,fd=2))
+LISTEN 0 4096 *:9443 *:* users:(("isletd",pid=5,fd=9))
+LISTEN 0 4096 10.66.0.1:7000 0.0.0.0:* users:(("thing",pid=6,fd=1))
+`
+	got := parseSS(out, "10.66.0.1")
+	want := []Reachable{{Port: 22, Process: "sshd"}, {Port: 5433, Process: "docker-proxy", LoopbackOnly: true}, {Port: 7000, Process: "thing"}, {Port: 9443, Process: "isletd"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("%d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if p := PublishedPorts("127.0.0.1:5433->5432/tcp, 0.0.0.0:3000->3000/tcp, :::3000->3000/tcp, 5432/tcp"); len(p) != 3 || p[0] != 5433 || p[1] != 3000 {
+		t.Errorf("published ports: %v", p)
 	}
 }

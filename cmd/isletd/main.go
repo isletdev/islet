@@ -312,13 +312,21 @@ func run() error {
 	}
 
 	errc := make(chan error, 1)
-	go func() {
-		if srv.TLSConfig != nil {
-			errc <- srv.ServeTLS(ln, "", "")
-		} else {
-			errc <- srv.Serve(ln)
-		}
-	}()
+	if srv.TLSConfig != nil {
+		// One port, both schemes: HTTPS for everybody, and plain HTTP for a
+		// device inside the VPN, where WireGuard is the encryption and a
+		// certificate warning would be all a browser added. Anybody else
+		// speaking plain HTTP is sent to HTTPS.
+		srv.TLSConfig.NextProtos = []string{"h2", "http/1.1"}
+		panelLn, plainLn := tlsutil.Split(ln, srv.TLSConfig, vp.Serves)
+		toHTTPS := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "https://"+r.Host+r.URL.RequestURI(), http.StatusPermanentRedirect)
+		})}
+		go func() { _ = toHTTPS.Serve(plainLn) }()
+		go func() { errc <- srv.Serve(panelLn) }()
+	} else {
+		go func() { errc <- srv.Serve(ln) }()
+	}
 	// Root-only Unix socket for the local CLI: no token, no TLS, same handler.
 	if sockPath := socketPath(*dataDir); sockPath != "" {
 		_ = os.Remove(sockPath)

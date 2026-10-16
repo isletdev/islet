@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -450,7 +451,7 @@ export default function TermView({
   const copy = useCallback(async (text: string) => {
     if (!text) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
     } catch {
       // Refused, usually because the panel is on plain http, where the
       // clipboard API is not available. Say which, rather than nothing.

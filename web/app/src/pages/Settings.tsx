@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig, type AIKind, type AIProvider } from "@/lib/api";
@@ -755,7 +756,7 @@ function ClaudeCode({ cfg, onChanged }: { cfg: AssistantConfig | null; onChanged
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="rounded-sm border border-border bg-bg px-2 py-1 font-mono">{cmd}</code>
-            <button type="button" className="-my-1 py-1 text-accent hover:underline" onClick={() => void navigator.clipboard?.writeText(cmd).catch(() => {})}>Copy</button>
+            <button type="button" className="-my-1 py-1 text-accent hover:underline" onClick={() => void copyText(cmd).catch(() => {})}>Copy</button>
             <Link to="/terminal" className="-my-1 py-1 text-accent hover:underline">Open a shell</Link>
           </div>
           <p className="mt-2 text-ink-muted">Follow the prompt, then come back and press refresh.</p>

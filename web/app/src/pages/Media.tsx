@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -382,7 +383,7 @@ function Keys({ list, buckets, busy, minted, onMinted, onRun, ask }: {
             <div className="flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded-md bg-code-bg px-2 py-1 font-mono text-xs">{minted.secret}</code>
               <button type="button" aria-label="Copy the key" className="rounded-md p-1 text-ink-muted hover:text-ink"
-                onClick={() => void navigator.clipboard.writeText(minted.secret ?? "")}>
+                onClick={() => void copyText(minted.secret ?? "")}>
                 <CopyIcon className="h-4 w-4" />
               </button>
               <Button variant="secondary" className="h-8 text-xs" onClick={() => onMinted(null)}>Done</Button>
@@ -644,7 +645,7 @@ const { id, url, variants } = await res.json();
           </button>
         ))}
         <button type="button" aria-label="Copy" className="-my-1 ml-auto rounded-md p-1 text-ink-muted hover:text-ink"
-          onClick={() => void navigator.clipboard.writeText(text)}>
+          onClick={() => void copyText(text)}>
           <CopyIcon className="h-4 w-4" />
         </button>
       </div>

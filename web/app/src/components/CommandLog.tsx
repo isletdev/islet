@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useEffect, useState } from "react";
 import { api, type CommandEntry } from "@/lib/api";
 import { Button, Card } from "@/components/ui";
@@ -18,7 +19,7 @@ export default function CommandLog() {
                 <td className="whitespace-nowrap py-1 pr-2 font-mono text-ink-muted">{new Date(c.createdAt).toLocaleTimeString()}</td>
                 <td className="py-1 pr-2 text-ink-muted">{c.actor}</td>
                 <td className="py-1 pr-2 font-mono break-all">{c.command}{c.exitCode !== 0 && <span className="ml-1 text-ink-muted">exit {c.exitCode}</span>}</td>
-                <td className="py-1 text-right text-ink-muted whitespace-nowrap">{c.durationMs} ms <button type="button" onClick={() => { void navigator.clipboard.writeText(c.command); setCopied(c.id); setTimeout(() => setCopied(null), 1200); }} className="ml-2 hover:text-ink">{copied === c.id ? "copied" : "copy"}</button></td>
+                <td className="py-1 text-right text-ink-muted whitespace-nowrap">{c.durationMs} ms <button type="button" onClick={() => { void copyText(c.command); setCopied(c.id); setTimeout(() => setCopied(null), 1200); }} className="ml-2 hover:text-ink">{copied === c.id ? "copied" : "copy"}</button></td>
               </tr>
             ))}
             {rows.length === 0 && <tr><td className="py-2 text-ink-muted">Nothing recorded yet.</td></tr>}

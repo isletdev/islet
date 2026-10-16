@@ -1,3 +1,4 @@
+import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useParams, useSearchParams } from "react-router-dom";
 import { api, RequestError, type Container, type ContainerDetail, type DockerImage, type DockerNetwork, type DockerStatus, type DockerVolume, type Stack, type Registry } from "@/lib/api";
@@ -155,7 +156,7 @@ function List() {
                   least often read — it was setting the width of the whole
                   table. It is truncated, titled, and copies on click. */}
               <td className="max-w-0 py-2 font-mono text-xs text-ink-muted">
-                <button type="button" title={`${c.image}\nClick to copy`} onClick={() => void copyText(c.image)}
+                <button type="button" title={`${c.image}\nClick to copy`} onClick={() => void copyText(c.image).catch(() => {})}
                   className="-my-1 block w-full truncate py-1 text-left hover:text-ink">{c.image}</button>
               </td>
               <td className="py-2 text-ink-muted">{c.stack ? <Link to="/containers/stacks" className="-my-1 inline-block py-1 hover:underline">{c.stack}</Link> : ""}</td>
@@ -198,11 +199,6 @@ function IconAct({ label, icon, onClick, busy, danger }: { label: string; icon: 
       {busy ? <span className="text-xs">…</span> : icon}
     </button>
   );
-}
-
-/** Copy, without a dependency and without failing loudly when the browser says no. */
-function copyText(v: string) {
-  return navigator.clipboard?.writeText(v).catch(() => {});
 }
 
 // ---- detail ----
