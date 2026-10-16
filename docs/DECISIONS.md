@@ -3547,3 +3547,28 @@ visible rows while Claude Code is full-screen.
 Page ↑ and Page ↓ sit in the phone key row as well, scrolling a screen less one
 row through the same path, because on a dozen-row pane reading back through an
 answer one drag at a time is most of a minute.
+
+## 2026-10-16 — replacing the proxy outlives the request that asked for it
+Saving a DNS provider for wildcard certificates took every site down behind
+Cloudflare with a 522, and nothing brought it back. Cloudflare was only the
+trigger: saving those settings is what rebuilds the proxy.
+
+The rebuild ran on the request's context. With the panel on a domain, that
+request travels through `islet-proxy`, so `docker stop islet-proxy` closes it,
+Go cancels the context, and every command after it refuses to start —
+including the rollback that exists to put the old proxy back. What is left is
+nothing on 80 and 443, the old container stopped as `islet-proxy-prev` (stopped
+by hand, so `unless-stopped` never restarts it, not even after a reboot), and a
+panel unreachable at the address it was asked from.
+
+`Install` detaches its context itself rather than leaving it to the handler,
+because it is the one that knows it stops the thing a caller may be standing
+on; the handler detaches too, so the config rewrite and the reply after it
+survive. A browser that has gone is not a reason to abandon a rebuild halfway.
+Nothing can hang on it: every command keeps cmdrun's own deadline.
+
+The test runs `Install` with a context that is already cancelled, against a
+shell script answering as docker, and fails with the original
+"context canceled" when the detach is removed. Reaching `Install` from a test
+needed `claimHost` as a variable, since the real claim lives at a fixed path
+under `/run` that a daemon on the test machine already holds.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -62,21 +63,24 @@ func (s *Server) handleProxyInstall(w http.ResponseWriter, r *http.Request) {
 		s.badJSON(w, err)
 		return
 	}
+	// Not r.Context(): through the panel's own domain this request rides on the
+	// proxy Install stops, and the rest has to finish once it has. See Install.
+	ctx := context.WithoutCancel(r.Context())
 	if req.DNSProvider != nil {
-		if err := s.proxy.SetDNS(r.Context(), strings.TrimSpace(*req.DNSProvider), req.DNSEnv); err != nil {
+		if err := s.proxy.SetDNS(ctx, strings.TrimSpace(*req.DNSProvider), req.DNSEnv); err != nil {
 			writeJSON(w, http.StatusBadRequest, api.Error{Error: "dns", Message: err.Error()})
 			return
 		}
 	}
-	if err := s.proxy.Install(r.Context(), u.Username, strings.TrimSpace(req.AcmeEmail)); err != nil {
+	if err := s.proxy.Install(ctx, u.Username, strings.TrimSpace(req.AcmeEmail)); err != nil {
 		writeJSON(w, http.StatusBadGateway, api.Error{Error: "proxy", Message: err.Error()})
 		return
 	}
-	if err := s.proxy.Reconcile(r.Context()); err != nil {
+	if err := s.proxy.Reconcile(ctx); err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Error{Error: "internal", Message: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.proxy.Status(r.Context()))
+	writeJSON(w, http.StatusOK, s.proxy.Status(ctx))
 }
 
 // handleImportScan reads every place a known reverse proxy keeps its sites and

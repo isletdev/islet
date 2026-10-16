@@ -175,6 +175,11 @@ func (m *Manager) SetDNS(ctx context.Context, provider string, env map[string]st
 	if !ok {
 		return errors.New("unknown DNS provider")
 	}
+	// A request that names the provider and leaves its credentials out means
+	// "keep the stored ones", and writing those into a nil map panicked.
+	if env == nil {
+		env = map[string]string{}
+	}
 	old := m.dnsEnv(ctx)
 	for _, k := range keys {
 		if strings.TrimSpace(env[k]) == "" {
@@ -268,15 +273,30 @@ func (m *Manager) Status(ctx context.Context) Status {
 	return st
 }
 
+// claimHost is hostown.Claim, replaceable so a test does not contend with a
+// real daemon's claim on the machine running it.
+var claimHost = hostown.Claim
+
 // Install pulls Traefik, creates the network and config dir, and starts the
 // container. Re-running recreates the container with current settings.
 func (m *Manager) Install(ctx context.Context, actor, acmeEmail string) error {
+	// Detached from whoever asked, because the asking can be what stops.
+	//
+	// A panel reached through its own domain sends this request through the
+	// proxy being replaced, so `docker stop` below closes the request's own
+	// connection and the request's context is cancelled. Every command after
+	// that refused to start — the new container, and the rollback that exists
+	// to put the old one back — leaving nothing on 80 and 443, the old proxy
+	// stopped under another name, and the panel unreachable at the address it
+	// had been asked from. Behind Cloudflare that is a 522 on every site.
+	// Each command still has cmdrun's own deadline.
+	ctx = context.WithoutCancel(ctx)
 	// The proxy is one container on ports 80 and 443, whatever Islet thinks, so
 	// a second daemon installing it replaces the first one's — pointed at its
 	// own config directory, which takes every site on the machine down. That is
 	// not hypothetical; it is what a throwaway instance started for a screenshot
 	// did on the machine this was written on.
-	if err := hostown.Claim(filepath.Dir(m.dir)); err != nil {
+	if err := claimHost(filepath.Dir(m.dir)); err != nil {
 		return hostown.Refusal("reverse proxy")
 	}
 	if acmeEmail != "" {
