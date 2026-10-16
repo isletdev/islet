@@ -3515,3 +3515,35 @@ so the one device you would most want to answer from was the one that could not.
 The terminal has a row of those keys under it on any device with a coarse
 pointer, sending the bytes a real keyboard would; they do not take focus, so the
 soft keyboard stays up between answers.
+
+## 2026-10-16 — a finger scrolls Claude Code one line per row, not one per three
+Scrolling an agent from a phone did nothing anybody could see. A scrollbar was
+drawn, and dragging moved the transcript about three lines for a whole screen.
+
+Measured on the pane rather than reasoned about. Claude Code 2.1 starts in its
+full-screen renderer by default: it draws on the alternate screen, asks for
+mouse reports, and scrolls its own transcript one line per wheel report — and
+tmux's history for that pane is empty (`history_size=0`), because nothing it
+draws ever leaves the alternate screen. So a wheel report reaching Claude Code
+is the only thing that can scroll it, and the touch handler already turned a
+drag into wheel events for exactly that reason.
+
+What it sent was a pixel wheel of one row's height, about 18px. xterm 6 divides
+a pixel wheel by the cell height and then, for anything under 50px, multiplies
+by 0.3 — damping meant for trackpads, which send dozens of tiny events — and
+drops the fraction. Replayed in Chrome against xterm 6 at 38×11 with the pane's
+modes set (alternate screen, SGR mouse): an eleven-row drag produced **3** mouse
+reports. The same drag as `DOM_DELTA_LINE` events of one line each produced
+**11**, and eleven cursor keys rather than four when the program wants keys.
+
+Two things were considered and not done. Rewriting the page: the fault was one
+unit in one handler. And starting agents with `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`,
+which would put Claude's output back into tmux's history so tmux's own scrolling
+and the Text view work — but it changes Claude Code's renderer for everybody,
+desktop included, to fix a phone. It remains the answer if the Text view is
+wanted for agents, since that view reads tmux's history and shows only the
+visible rows while Claude Code is full-screen.
+
+Page ↑ and Page ↓ sit in the phone key row as well, scrolling a screen less one
+row through the same path, because on a dozen-row pane reading back through an
+answer one drag at a time is most of a minute.

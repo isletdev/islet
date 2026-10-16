@@ -226,6 +226,53 @@ export default function TermView({
     };
   }, []);
 
+  /**
+   * Scrolls whatever is in the terminal by whole lines: the scrollback in a
+   * shell, the program itself in anything full-screen.
+   *
+   * The wheel events are in lines, not pixels, and that is the whole fix. xterm
+   * turns a pixel wheel into lines by dividing by the cell height and then,
+   * for anything under 50px, multiplying by 0.3 — a damping meant for
+   * trackpads, which send dozens of tiny events. One row of a finger is about
+   * 18px, so it became 0.3 of a line, and only every third or fourth event
+   * reached the program at all. Claude Code draws on the alternate screen and
+   * scrolls one line per wheel report, so dragging across an eleven-row phone
+   * screen moved its transcript about three lines: a scrollbar that visibly
+   * did nothing. A line-mode event is passed through as exactly one report.
+   */
+  const scrollBy = useCallback((lines: number, at?: { x: number; y: number }) => {
+    const t = term.current;
+    const el = host.current;
+    if (!t || !el || lines === 0) return;
+    if (t.buffer.active.type === "normal") {
+      // There is a scrollback, so move through it directly. A synthetic wheel
+      // event cannot be used here: xterm lets the browser scroll its viewport
+      // natively, and an event made in script carries no default action, so
+      // dispatching one moves nothing at all.
+      t.scrollLines(lines);
+      return;
+    }
+    // The alternate screen has no scrollback to move. xterm's own wheel
+    // handler is what knows whether the program asked for mouse reports or
+    // wants cursor keys, so the movement is given to it as a wheel, at the
+    // finger, exactly where a real one would land — a mouse report carries the
+    // cell it happened over, and a program with more than one pane scrolls the
+    // one under the pointer. A button has no finger, so it aims at the middle.
+    const box = el.getBoundingClientRect();
+    const x = at?.x ?? box.left + box.width / 2;
+    const y = at?.y ?? box.top + box.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    const target = hit && el.contains(hit) ? hit : (t.element ?? el);
+    // Capped: a flick can cover a lot of rows, and a program fed several
+    // hundred scroll events at once behaves worse than one that scrolls less.
+    for (let i = 0; i < Math.min(Math.abs(lines), 60); i++) {
+      target.dispatchEvent(new WheelEvent("wheel", {
+        deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE,
+        clientX: x, clientY: y, bubbles: true, cancelable: true,
+      }));
+    }
+  }, []);
+
   // Scrolling with a finger.
   //
   // xterm's viewport scrolls to a wheel, and a phone has no wheel. The screen
@@ -274,31 +321,7 @@ export default function TermView({
       const lines = Math.trunc(carry / rowHeight);
       if (lines === 0) return;
       carry -= lines * rowHeight;
-      if (t.buffer.active.type === "normal") {
-        // There is a scrollback, so move through it directly. A synthetic wheel
-        // event cannot be used here: xterm lets the browser scroll its viewport
-        // natively, and an event made in script carries no default action, so
-        // dispatching one moves nothing at all.
-        t.scrollLines(lines);
-      } else {
-        // The alternate screen has no scrollback to move, which is why calling
-        // scrollLines here did nothing and the output inside a full-screen
-        // program stayed unreachable. xterm's own wheel handler is what knows
-        // whether the program asked for mouse reports or wants cursor keys, so
-        // the movement is given to it as a wheel, at the finger, exactly where
-        // a real one would land.
-        const x = e.touches[0].clientX;
-        const target = document.elementFromPoint(x, y) ?? el;
-        const step = lines < 0 ? -rowHeight : rowHeight;
-        // The position goes on the event because a mouse report carries the
-        // cell it happened over, and a program with more than one pane scrolls
-        // the one under the pointer. Without it every report reads as 1;1.
-        // Capped: a flick can cover a lot of rows, and a program fed several
-        // hundred scroll events at once behaves worse than one that scrolls less.
-        for (let i = 0; i < Math.min(Math.abs(lines), 30); i++) {
-          target.dispatchEvent(new WheelEvent("wheel", { deltaY: step, clientX: x, clientY: y, bubbles: true, cancelable: true }));
-        }
-      }
+      scrollBy(lines, { x: e.touches[0].clientX, y });
       e.preventDefault();
     };
     el.addEventListener("touchstart", start, { passive: true });
@@ -307,7 +330,7 @@ export default function TermView({
       el.removeEventListener("touchstart", start);
       el.removeEventListener("touchmove", move);
     };
-  }, []);
+  }, [scrollBy]);
 
   // The socket, replaced on every reconnect.
   useEffect(() => {
@@ -561,6 +584,22 @@ export default function TermView({
           is open at all — comes up below everything. */}
       {coarse && (
         <div className="mt-1.5 flex flex-wrap gap-1" role="group" aria-label="Keys this device does not have">
+          {/* A page at a time, for when a drag is not enough: a phone's pane is
+              a dozen rows, and reading back through an agent's answer one drag
+              at a time is most of a minute. These scroll the view and send no
+              keys, so they are safe to press while a question is on screen. */}
+          {([["Page ↑", "Scroll up a page", -1], ["Page ↓", "Scroll down a page", 1]] as const).map(([label, aria, dir]) => (
+            <button
+              key={aria}
+              type="button"
+              aria-label={aria}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => scrollBy(dir * Math.max(1, (term.current?.rows ?? 2) - 1))}
+              className="min-w-10 rounded-md border border-border-strong px-2.5 py-1.5 font-mono text-xs text-ink-muted active:bg-surface-2"
+            >
+              {label}
+            </button>
+          ))}
           {TOUCH_KEYS.map((k) => (
             <button
               key={k.aria}
