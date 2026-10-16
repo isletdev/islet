@@ -148,9 +148,7 @@ export default function Security() {
         <SSHCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card title="Blocked IPs" description="fail2ban bans after repeated failed SSH logins.">
-          <ul className="divide-y divide-border text-xs">{s.banned.map((b) => <li key={b} className="flex items-center justify-between py-1.5"><span className="font-mono">{b}</span>{isAdmin && <button type="button" onClick={async () => { await api.unban(b.split(" ")[0]); await load(); }} className="-my-1 py-1 text-ink-muted hover:text-ink">Unban</button>}</li>)}{s.banned.length === 0 && <li className="py-2 text-ink-muted">{r.linux ? "Nobody is banned right now." : "Available on Linux servers."}</li>}</ul>
-        </Card>
+        <BannedCard banned={s.banned} linux={r.linux} isAdmin={isAdmin} onChanged={load} />
         <ScanCard s={s} isAdmin={isAdmin} onChanged={load} />
       </div>
       {isAdmin && r.linux && <BlocklistCard onChanged={load} />}
@@ -171,6 +169,48 @@ export default function Security() {
  * page says what each list is, how many networks are loaded, and when they were
  * last fetched, so the decision is made with the facts in view.
  */
+// A page of bans rather than all of them. fail2ban on a server that has been up
+// for a while holds thousands — every address that ever tried a password — and
+// rendering them in one list made the rest of the page a long scroll away. The
+// search is what somebody arrives with: "is my office address banned?".
+const BANS_PER_PAGE = 20;
+
+function BannedCard({ banned, linux, isAdmin, onChanged }: { banned: string[]; linux: boolean; isAdmin: boolean; onChanged: () => Promise<void> }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const shown = q.trim() ? banned.filter((b) => b.includes(q.trim())) : banned;
+  const pages = Math.max(1, Math.ceil(shown.length / BANS_PER_PAGE));
+  // An unban or a narrower search can leave the page past the end.
+  const at = Math.min(page, pages - 1);
+  const rows = shown.slice(at * BANS_PER_PAGE, (at + 1) * BANS_PER_PAGE);
+  return (
+    <Card title="Blocked IPs" description={`fail2ban bans after repeated failed SSH logins.${banned.length > 0 ? ` ${banned.length.toLocaleString()} right now.` : ""}`}>
+      {banned.length > BANS_PER_PAGE && (
+        <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} placeholder="Search an address" aria-label="Search banned addresses" className="mb-2 font-mono" />
+      )}
+      <ul className="divide-y divide-border text-xs">
+        {rows.map((b) => (
+          <li key={b} className="flex items-center justify-between gap-2 py-1.5">
+            <span className="min-w-0 break-all font-mono">{b}</span>
+            {isAdmin && <button type="button" onClick={async () => { await api.unban(b.split(" ")[0]); await onChanged(); }} className="-my-1 shrink-0 py-1 text-ink-muted hover:text-ink">Unban</button>}
+          </li>
+        ))}
+        {banned.length === 0 && <li className="py-2 text-ink-muted">{linux ? "Nobody is banned right now." : "Available on Linux servers."}</li>}
+        {banned.length > 0 && shown.length === 0 && <li className="py-2 text-ink-muted">No banned address matches.</li>}
+      </ul>
+      {pages > 1 && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-ink-muted">
+          <Button variant="secondary" className="h-7 px-2 text-xs" disabled={at === 0} onClick={() => setPage(at - 1)}>Previous</Button>
+          <span>
+            {(at * BANS_PER_PAGE + 1).toLocaleString()}–{Math.min((at + 1) * BANS_PER_PAGE, shown.length).toLocaleString()} of {shown.length.toLocaleString()}
+          </span>
+          <Button variant="secondary" className="h-7 px-2 text-xs" disabled={at >= pages - 1} onClick={() => setPage(at + 1)}>Next</Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function BlocklistCard({ onChanged }: { onChanged: () => Promise<void> }) {
   const ask = useDialog();
   const [b, setB] = useState<Blocklist | null>(null);
