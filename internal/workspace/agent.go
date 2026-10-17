@@ -212,7 +212,24 @@ func (s *Service) launchAgent(ctx context.Context, w *Workspace, a *Agent) strin
 	}
 	// Running as root is the daemon's ordinary state here, and it is the thing
 	// Claude Code refuses to skip permissions under.
-	return resolveAgentCommand(cmd, claudePath, mcp, a, os.Geteuid() == 0)
+	return resolveAgentCommand(cmd, claudePath, mcp, a, os.Geteuid() == 0, remoteName(w, a))
+}
+
+// remoteName is what an agent is called in claude.ai and the Claude app when
+// it runs with Remote Control: the same "workspace/agent" the audit log uses,
+// so the session on the phone is recognisably the window on the server.
+//
+// Empty — no Remote Control — for an agent pointed at another model through
+// its environment. Remote Control needs a claude.ai sign-in talking to
+// api.anthropic.com; with an API key or a gateway, Claude Code still starts
+// but raises a failure notice in a window nobody is watching.
+func remoteName(w *Workspace, a *Agent) string {
+	for _, k := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} {
+		if a.Env[k] != "" {
+			return ""
+		}
+	}
+	return w.Name + "/" + a.Name
 }
 
 // isClaude reports whether a command line runs Claude Code, which is what
@@ -233,7 +250,7 @@ func isClaude(cmd string) bool {
 // own --model, --mcp-config or --resume meant it, and a second copy appended
 // after it is at best ignored and at worst an error they cannot see, since the
 // line that runs is not the line they typed.
-func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent, asRoot bool) string {
+func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent, asRoot bool, remote string) string {
 	if !isClaude(cmd) {
 		return cmd
 	}
@@ -272,6 +289,12 @@ func resolveAgentCommand(cmd, claudePath, mcpConfig string, a *Agent, asRoot boo
 	}
 	if mcpConfig != "" && !has("--mcp-config") {
 		cmd += " --mcp-config " + mcpConfig
+	}
+	// Every Claude session can be picked up from claude.ai or the phone. Both
+	// spellings count as already there, and so does --teleport, which is a
+	// session that already lives in the app.
+	if remote != "" && !has("--remote-control") && !has("--rc") && !has("--teleport") {
+		cmd += " --remote-control '" + strings.ReplaceAll(remote, "'", `'\''`) + "'"
 	}
 	if a.SkipPermissions && !has("--dangerously-skip-permissions") {
 		cmd += " --dangerously-skip-permissions"

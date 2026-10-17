@@ -3691,3 +3691,30 @@ device, and on a phone one that some browsers will not remember for an IP.
 
 What would reverse it: the DNAT is two lines of `Ruleset` and the sysctl goes
 with the interface; `tlsutil.Split` is replaced by `ServeTLS` again.
+
+## Every Claude agent starts with Remote Control (v0.40.2)
+
+An agent in a workspace runs in tmux on the server, and the point of it is
+that it keeps working when nobody is at the panel. Picking it up from a phone
+meant typing `/remote-control` into each window after every start. Islet now
+adds `--remote-control '<workspace>/<agent>'` to every Claude Code command it
+launches, the same name the audit log uses, so the session in claude.ai is
+recognisably the window on the server.
+
+- **A flag, not `remoteControlAtStartup`.** Claude Code has a user setting
+  that does this for every session, but it lives in `~/.claude/settings.json`,
+  which is the operator's file and covers every Claude on the machine, not
+  only Islet's. A project's own settings file can turn it off but not on. The
+  flag is scoped to exactly the sessions Islet starts.
+- **Measured with 2.1.302** in a scratch tmux: with `--session-id` on a first
+  start and `--resume` on a restart, the session comes up with "/rc active",
+  and the restart rejoins the same claude.ai session.
+- **Left out** when the person wrote `--remote-control`, `--rc` or
+  `--teleport` themselves, and for an agent whose environment points at
+  another endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN`): Remote Control needs a claude.ai sign-in against
+  api.anthropic.com, and there it would only raise a failure notice in a
+  window nobody watches.
+
+A running agent picks it up on its next start. What would reverse it: the
+four lines in `resolveAgentCommand`.

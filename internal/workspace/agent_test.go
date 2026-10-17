@@ -14,16 +14,17 @@ import (
 // reason the field exists.
 func TestLaunchAgentResume(t *testing.T) {
 	s := &Service{}
-	w := &Workspace{ID: "ws1", Directory: "/srv/app"}
+	w := &Workspace{ID: "ws1", Name: "app", Directory: "/srv/app"}
 	uuid := "11111111-2222-4333-8444-555555555555"
+	rc := " --remote-control 'app/'"
 
 	first := &Agent{Preset: "claude", Command: "/usr/bin/claude", Resume: true, SessionUUID: uuid}
-	if got, want := s.launchAgent(nil, w, first), "/usr/bin/claude --session-id "+uuid; got != want {
+	if got, want := s.launchAgent(nil, w, first), "/usr/bin/claude --session-id "+uuid+rc; got != want {
 		t.Errorf("first run = %q, want %q", got, want)
 	}
 
 	again := &Agent{Preset: "claude", Command: "/usr/bin/claude", Resume: true, SessionUUID: uuid, LastStarted: "2026-09-14T10:00:00Z"}
-	if got, want := s.launchAgent(nil, w, again), "/usr/bin/claude --resume "+uuid; got != want {
+	if got, want := s.launchAgent(nil, w, again), "/usr/bin/claude --resume "+uuid+rc; got != want {
 		t.Errorf("second run = %q, want %q", got, want)
 	}
 
@@ -36,7 +37,7 @@ func TestLaunchAgentResume(t *testing.T) {
 	}
 
 	off := &Agent{Preset: "claude", Command: "/usr/bin/claude", Resume: false, SessionUUID: uuid, LastStarted: "2026-09-14T10:00:00Z"}
-	if got, want := s.launchAgent(nil, w, off), "/usr/bin/claude"; got != want {
+	if got, want := s.launchAgent(nil, w, off), "/usr/bin/claude"+rc; got != want {
 		t.Errorf("resume off = %q, want %q", got, want)
 	}
 
@@ -44,7 +45,7 @@ func TestLaunchAgentResume(t *testing.T) {
 	// Asserted through resolveAgentCommand rather than launchAgent, because
 	// what the flag needs depends on whether this is running as root and a test
 	// whose expectation depends on who ran it is not a test.
-	if got, want := resolveAgentCommand(skip.Command, "", "", skip, false), "/usr/bin/claude --dangerously-skip-permissions"; got != want {
+	if got, want := resolveAgentCommand(skip.Command, "", "", skip, false, ""), "/usr/bin/claude --dangerously-skip-permissions"; got != want {
 		t.Errorf("skip = %q, want %q", got, want)
 	}
 }
@@ -61,7 +62,7 @@ func TestSkippingPermissionsAsRootIsMadeToWork(t *testing.T) {
 	a := &Agent{Preset: "claude", Command: "claude", SkipPermissions: true}
 	const claude = "/root/.local/bin/claude"
 
-	asRoot := resolveAgentCommand("claude", claude, "", a, true)
+	asRoot := resolveAgentCommand("claude", claude, "", a, true, "")
 	if !strings.HasPrefix(asRoot, "IS_SANDBOX=1 ") {
 		t.Errorf("as root the flag is refused by Claude Code and nothing makes it work: %q", asRoot)
 	}
@@ -70,19 +71,19 @@ func TestSkippingPermissionsAsRootIsMadeToWork(t *testing.T) {
 	}
 
 	// Not as root there is nothing to work around, and the variable is not set.
-	asUser := resolveAgentCommand("claude", claude, "", a, false)
+	asUser := resolveAgentCommand("claude", claude, "", a, false, "")
 	if strings.Contains(asUser, "IS_SANDBOX") {
 		t.Errorf("a non-root agent was given a sandbox claim it does not need: %q", asUser)
 	}
 
 	// And an agent that did not ask never gets it, root or not.
 	plain := &Agent{Preset: "claude", Command: "claude"}
-	if got := resolveAgentCommand("claude", claude, "", plain, true); strings.Contains(got, "IS_SANDBOX") {
+	if got := resolveAgentCommand("claude", claude, "", plain, true, ""); strings.Contains(got, "IS_SANDBOX") {
 		t.Errorf("an agent that asks before acting was given the bypass anyway: %q", got)
 	}
 
 	// Written once, however many times the command is resolved.
-	twice := resolveAgentCommand(asRoot, claude, "", a, true)
+	twice := resolveAgentCommand(asRoot, claude, "", a, true, "")
 	if strings.Count(twice, "IS_SANDBOX") != 1 {
 		t.Errorf("resolving twice stacked the variable: %q", twice)
 	}
@@ -105,7 +106,7 @@ func TestAChosenPathIsNotOverruled(t *testing.T) {
 		{"./claude", "./claude"},
 		{"bin/claude", "bin/claude"},
 	} {
-		if got := resolveAgentCommand(c.cmd, claude, "", a, false); got != c.want {
+		if got := resolveAgentCommand(c.cmd, claude, "", a, false, ""); got != c.want {
 			t.Errorf("%q became %q, want %q", c.cmd, got, c.want)
 		}
 	}
@@ -144,7 +145,7 @@ func TestAgentValidateGivesEachItsOwnSession(t *testing.T) {
 	if err := sh.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if got := resolveAgentCommand("htop", "", "/etc/islet/mcp.json", sh, false); got != "htop" {
+	if got := resolveAgentCommand("htop", "", "/etc/islet/mcp.json", sh, false, ""); got != "htop" {
 		t.Errorf("a command that is not Claude Code was given Claude Code's flags: %q", got)
 	}
 }
@@ -217,7 +218,7 @@ func TestResolveAgentCommandAddsWhatIsMissingAndNothingElse(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := resolveAgentCommand(c.cmd, claude, mcp, c.agent, false); got != c.want {
+			if got := resolveAgentCommand(c.cmd, claude, mcp, c.agent, false, ""); got != c.want {
 				t.Errorf("\n got %q\nwant %q", got, c.want)
 			}
 		})
@@ -265,7 +266,7 @@ func contains(s, sub string) bool {
 // resume must leave a teleport command alone.
 func TestATeleportedSessionIsNotGivenASecondIdentity(t *testing.T) {
 	a := &Agent{Resume: true, SessionUUID: "11111111-2222-3333-4444-555555555555", LastStarted: "2026-09-21T00:00:00Z"}
-	got := resolveAgentCommand("claude --teleport abc123", "/usr/local/bin/claude", "", a, false)
+	got := resolveAgentCommand("claude --teleport abc123", "/usr/local/bin/claude", "", a, false, "")
 	if strings.Contains(got, "--resume") || strings.Contains(got, "--session-id") {
 		t.Errorf("a second conversation was added to a teleported one: %s", got)
 	}
@@ -273,8 +274,35 @@ func TestATeleportedSessionIsNotGivenASecondIdentity(t *testing.T) {
 		t.Errorf("the teleport was lost: %s", got)
 	}
 	// An ordinary agent still gets its own conversation back.
-	plain := resolveAgentCommand("claude", "/usr/local/bin/claude", "", a, false)
+	plain := resolveAgentCommand("claude", "/usr/local/bin/claude", "", a, false, "")
 	if !strings.Contains(plain, "--resume "+a.SessionUUID) {
 		t.Errorf("an ordinary agent lost its conversation: %s", plain)
+	}
+}
+
+func TestRemoteControlOnEveryClaudeAgent(t *testing.T) {
+	claude := "/root/.local/bin/claude"
+	a := &Agent{Name: "agent", Resume: true, SessionUUID: "u-1", LastStarted: "x"}
+	got := resolveAgentCommand("claude", claude, "", a, false, "islet/agent")
+	if want := claude + " --resume u-1 --remote-control 'islet/agent'"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := resolveAgentCommand("claude", claude, "", a, false, "it's/agent"); !strings.HasSuffix(got, ` --remote-control 'it'\''s/agent'`) {
+		t.Errorf("a quote in the name: %q", got)
+	}
+	for _, cmd := range []string{"claude --rc", "claude --remote-control mine", "claude --teleport abc"} {
+		if got := resolveAgentCommand(cmd, claude, "", &Agent{}, false, "w/a"); strings.Count(got, "--r") > 1 || strings.Contains(got, "'w/a'") {
+			t.Errorf("%q became %q", cmd, got)
+		}
+	}
+	if got := resolveAgentCommand("htop", "", "", &Agent{}, false, "w/a"); got != "htop" {
+		t.Errorf("not Claude Code: %q", got)
+	}
+	gw := &Agent{Name: "a", Env: map[string]string{"ANTHROPIC_BASE_URL": "https://gateway.example"}}
+	if n := remoteName(&Workspace{Name: "w"}, gw); n != "" {
+		t.Errorf("an agent on another endpoint got Remote Control: %q", n)
+	}
+	if n := remoteName(&Workspace{Name: "w"}, &Agent{Name: "a"}); n != "w/a" {
+		t.Errorf("name: %q", n)
 	}
 }
