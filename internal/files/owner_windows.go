@@ -10,4 +10,8 @@ import (
 func ownerOf(os.FileInfo) (string, string) { return "", "" }
 
 // Chown is not supported on Windows; the panel is developed here but runs on Linux.
-func Chown(string, string, string) error { return errors.New("chown is not supported on Windows") }
+func Chown(string, string, string, bool) error {
+	return errors.New("chown is not supported on Windows")
+}
+
+func sameOwner(string, os.FileInfo) {}

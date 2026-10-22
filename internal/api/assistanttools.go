@@ -42,8 +42,17 @@ import (
 //	cron      a job is a root command on a timer, which is a shell by post
 //
 // Everything else is the work: deploy something, give it a database, put it on
-// a domain, look at why it is failing, back it up, say what happened.
-const assistantScopes = "read,deploy,containers,domains,db,files,backups,uptime,runners,catalog,notify,logs,system,media"
+// a domain, look at why it is failing, back it up, say what happened, and start
+// a workspace for a new project.
+//
+// "workspaces" was missing from the list without ever being one of the four,
+// and there was nowhere for the person to grant it, so "make a folder and a
+// workspace for my new project" stopped half done with the assistant inventing
+// a settings page to send them to. It is in now, knowingly: a workspace runs
+// the command its preset names, so this is closer to the shell than the rest
+// of the list. "files" already reached as far — it writes any file the daemon
+// can, which is every file — so it does not move the line the four draw.
+const assistantScopes = "read,deploy,containers,domains,db,files,backups,uptime,runners,catalog,workspaces,notify,logs,system,media"
 
 // assistantTokenTTL bounds a token that escapes. A run has a thirty-minute
 // ceiling; this is that with room for the revoke to be the thing that ends it.

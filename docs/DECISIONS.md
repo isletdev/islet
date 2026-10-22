@@ -3718,3 +3718,38 @@ recognisably the window on the server.
 
 A running agent picks it up on its next start. What would reverse it: the
 four lines in `resolveAgentCommand`.
+
+## The assistant makes the project, and what it makes belongs to the project (v0.40.3)
+
+Asked to make a folder and a workspace for a new project, the assistant made
+the folder and stopped. Its token had no `workspaces` scope, and the refusal
+told it to let the person "decide whether to grant it" — with nowhere in the
+panel to grant it, so it described a token setting that does not exist and
+was handed a live token in the chat. The folder it did make was `root:root
+0750`, because the daemon is root with a 0027 umask, so the person could not
+open their own project. And its file tool offered `chmod` but not `chown`.
+
+- **`workspaces` is in the assistant's scopes.** It was never one of the four
+  held back (shell, security, vault, cron), only missing. It is knowingly
+  near the shell — a workspace runs its preset's command — but `files`
+  already writes any file the daemon can, so it does not move the line.
+- **The system prompt no longer sends people to a grant that does not exist.**
+  The token is minted per conversation; a refusal now means "this one step is
+  yours, in the panel".
+- **Created paths take the owner of the folder they are made in.** `Mkdir`,
+  `Touch` and a new file from `Write` copy the parent's uid and gid; folders
+  are 0755, 0775 under a group-writable parent, keeping a setgid bit.
+  Saving an existing file keeps its owner — the rename used to give it to
+  root. The alternative, running file operations as the requesting user,
+  would need a user per panel account and would break the admin who really
+  means to write in `/etc`.
+- **`file_operation` does `chown`, recursively if asked**, changing links
+  rather than following them so a link in a project cannot hand over its
+  target. The advertised `write` op, which never existed on that route, is
+  gone from the tool.
+- **A refusal names the scope that would have worked**, worked out from the
+  route rather than the tool, so `islet_request` no longer says "needs
+  whatever the route needs"; routes no token can reach say so.
+
+What would reverse it: the scope list in `assistanttools.go`, and
+`sameOwner` in `internal/files`.

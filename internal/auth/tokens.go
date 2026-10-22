@@ -267,6 +267,19 @@ var areas = []struct{ prefix, scope string }{
 	{"/api/v1/report", "system"},
 }
 
+// ScopeNeeded names the one scope that would let a token make this call, or ""
+// when none would: accounts and tokens answer only to a session in the panel.
+// It is what a refusal says, so the person reading it knows what to tick
+// instead of being told only that something is missing.
+func ScopeNeeded(method, path string) string {
+	for _, sc := range Scopes {
+		if ScopeAllows(sc, method, path) {
+			return sc
+		}
+	}
+	return ""
+}
+
 // ScopeAllows reports whether a token's scopes cover a method and path.
 //
 // Deny by default, in both directions: a path nobody thought about is refused,

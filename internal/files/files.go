@@ -227,11 +227,17 @@ func (s *Service) Write(p string, content []byte) error {
 		return err
 	}
 	mode := os.FileMode(0o644)
-	if info, err := os.Stat(p); err == nil {
-		if info.IsDir() {
+	// The new file replaces the old one by rename, so it is a new inode and
+	// keeps nothing of the old one unless told: saving somebody's file used to
+	// hand it to root. A new file takes the owner of its folder.
+	like, statErr := os.Stat(p)
+	if statErr == nil {
+		if like.IsDir() {
 			return errors.New("is a directory")
 		}
-		mode = info.Mode().Perm()
+		mode = like.Mode().Perm()
+	} else if like, statErr = os.Stat(filepath.Dir(p)); statErr != nil {
+		like = nil
 	}
 	tmp := p + ".islet-tmp"
 	if err := os.WriteFile(tmp, content, mode); err != nil {
@@ -241,16 +247,55 @@ func (s *Service) Write(p string, content []byte) error {
 		os.Remove(tmp)
 		return err
 	}
+	if like != nil {
+		sameOwner(tmp, like)
+	}
 	return os.Rename(tmp, p)
 }
 
 // Mkdir creates a directory and parents.
+//
+// Each folder it creates belongs to whoever owns the folder it was made in, and
+// is 0755 — 0775 where that folder is group-writable — rather than what the
+// daemon's 0027 umask would leave. Made by root under /var/www, a new project
+// folder was root:root 0750: there, and closed to the person it was made for.
 func (s *Service) Mkdir(p string) error {
 	p, err := Clean(p)
 	if err != nil {
 		return err
 	}
-	return os.MkdirAll(p, 0o755)
+	var made []string
+	base := p
+	for {
+		if _, err := os.Lstat(base); err == nil {
+			break
+		}
+		made = append(made, base)
+		up := filepath.Dir(base)
+		if up == base {
+			break
+		}
+		base = up
+	}
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		return err
+	}
+	like, err := os.Stat(base)
+	if err != nil {
+		return nil
+	}
+	mode := 0o755 | like.Mode().Perm()&0o020
+	for _, d := range made {
+		info, err := os.Stat(d)
+		if err != nil {
+			continue
+		}
+		// A setgid parent is how a shared folder keeps its group; the kernel
+		// gave the new folder the bit, and a plain chmod would take it away.
+		_ = os.Chmod(d, mode|info.Mode()&os.ModeSetgid)
+		sameOwner(d, like)
+	}
+	return nil
 }
 
 // Touch creates an empty file if it does not exist.
@@ -263,7 +308,16 @@ func (s *Service) Touch(p string) error {
 	if err != nil {
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		return err
+	}
+	if like, err := os.Stat(filepath.Dir(p)); err == nil {
+		sameOwner(p, like)
+	}
+	return nil
 }
 
 // Rename moves a file or directory. Cross-device moves fall back to copy.

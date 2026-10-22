@@ -182,6 +182,7 @@ func New(d Deps) http.Handler {
 	s.loadCookieDomain()
 	s.StartWeeklyReport(context.Background())
 	s.mcp = mcp.New(s.mcpTools(), auth.ScopeAllows)
+	s.mcp.NeedsScope(auth.ScopeNeeded)
 	// A refused call is the one worth keeping: it is what a leaked token or a
 	// misdirected agent looks like, and it never reaches a handler, so nothing
 	// else would write it down.

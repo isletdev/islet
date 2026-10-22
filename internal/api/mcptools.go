@@ -299,8 +299,9 @@ func (s *Server) curatedTools() []mcp.Tool {
 		{"read_file", "Read a text file from the server. Returns its contents, and says so when the file is binary or too large.", "files", "GET", "/api/v1/files/read", []string{"path"}, map[string]any{"path": str("Absolute path")}},
 		{"search_files", "Search for files by name or content.", "files", "GET", "/api/v1/files/search", []string{"path", "query"},
 			map[string]any{"path": str("Directory to search"), "query": str("What to look for"), "content": flag("Search inside files as well as names")}},
-		{"file_operation", "Create, rename, move, copy, delete or change the mode of a path.", "files", "POST", "/api/v1/files/op", []string{"op"},
-			map[string]any{"op": str("mkdir, rename, move, copy, delete, chmod or write"), "path": str("Target path"), "to": str("Destination for rename, move and copy"), "content": str("File contents for write"), "mode": str("Octal mode for chmod")}},
+		{"file_operation", "Create, rename, move, copy or delete a path, or change its mode or owner. A folder or file created here belongs to the owner of the folder it is made in.", "files", "POST", "/api/v1/files/op", []string{"op"},
+			map[string]any{"op": str("mkdir, touch, rename, move, copy, delete, chmod or chown"), "path": str("Target path"), "to": str("Destination for rename, move and copy"), "mode": str("Octal mode for chmod, for example 0775"),
+				"owner": str("User name or uid for chown"), "group": str("Group name or gid for chown"), "recursive": flag("Apply chmod or chown to everything inside a directory too")}},
 
 		// ---- cron ---------------------------------------------------------
 		{"get_job", "One cron job in full: schedule, what it runs, where, and how its last runs went.", "read", "GET", "/api/v1/cron/jobs/{id}", []string{"id"}, map[string]any{"id": str("Job id or name")}},

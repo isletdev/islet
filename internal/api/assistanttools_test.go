@@ -105,7 +105,7 @@ func TestTheAssistantsScopesHoldBackTheDangerousFour(t *testing.T) {
 	for _, sc := range strings.Split(assistantScopes, ",") {
 		have[strings.TrimSpace(sc)] = true
 	}
-	for _, must := range []string{"read", "deploy", "containers", "domains", "db", "logs"} {
+	for _, must := range []string{"read", "deploy", "containers", "domains", "db", "logs", "files", "workspaces"} {
 		if !have[must] {
 			t.Errorf("the assistant cannot %s, which is most of what it is for", must)
 		}

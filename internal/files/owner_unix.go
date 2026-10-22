@@ -3,8 +3,10 @@
 package files
 
 import (
+	"io/fs"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -42,8 +44,26 @@ func ownerOf(info os.FileInfo) (string, string) {
 	return u, g
 }
 
-// Chown changes owner and group by name or numeric id.
-func Chown(p, owner, group string) error {
+// sameOwner gives p the owner and group of like. The daemon runs as root, so
+// anything it creates is root's unless it says otherwise: a folder made in
+// somebody's project came out root:root and they could not open it. Copying
+// the owner of the folder it was made in is what a person creating it there
+// would have got. Not being root is not an error — then everything is already
+// the caller's own.
+func sameOwner(p string, like os.FileInfo) {
+	if st, ok := like.Sys().(*syscall.Stat_t); ok && os.Geteuid() == 0 {
+		_ = os.Lchown(p, int(st.Uid), int(st.Gid))
+	}
+}
+
+// Chown changes owner and group by name or numeric id, and with recursive
+// everything beneath a directory as well. Links are changed themselves and
+// never followed, so a link inside a project cannot hand over its target.
+func Chown(p, owner, group string, recursive bool) error {
+	p, err := Clean(p)
+	if err != nil {
+		return err
+	}
 	uid, gid := -1, -1
 	if owner != "" {
 		if u, err := user.Lookup(owner); err == nil {
@@ -63,5 +83,13 @@ func Chown(p, owner, group string) error {
 			return err
 		}
 	}
-	return os.Lchown(p, uid, gid)
+	if !recursive {
+		return os.Lchown(p, uid, gid)
+	}
+	return filepath.WalkDir(p, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, uid, gid)
+	})
 }

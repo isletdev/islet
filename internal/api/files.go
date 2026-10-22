@@ -177,7 +177,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 	case "chmod":
 		err = s.files.Chmod(req.Path, req.Mode, req.Recursive)
 	case "chown":
-		err = files.Chown(req.Path, req.Owner, req.Group)
+		err = files.Chown(req.Path, req.Owner, req.Group, req.Recursive)
 	case "archive":
 		err = s.files.Archive(req.Paths, req.To)
 	case "extract":
@@ -190,7 +190,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 		fileErr(w, err)
 		return
 	}
-	_ = s.store.Audit(r.Context(), u.Username, "file."+req.Op, target, strings.TrimSpace(req.To+" "+req.Mode))
+	_ = s.store.Audit(r.Context(), u.Username, "file."+req.Op, target, strings.TrimSpace(req.To+" "+req.Mode+" "+strings.Trim(req.Owner+":"+req.Group, ":")))
 	if result == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return

@@ -46,12 +46,19 @@ type Server struct {
 	// until this existed neither left any trace: the refusal happened before
 	// any tool ran, so nothing reached the audit log.
 	refused func(ctx context.Context, actor, tool, method, path, why string)
+	// need names the scope a refused route would have needed. A tool that
+	// resolves its route from its arguments — islet_request reaches any of
+	// them — has no fixed scope to quote, so the route has to be asked.
+	need func(method, path string) string
 }
 
 // New builds a server from tools and a scope check.
 func New(tools []Tool, allow func(scopes, method, path string) bool) *Server {
 	return &Server{tools: tools, allow: allow}
 }
+
+// NeedsScope registers how to name the scope a route requires.
+func (s *Server) NeedsScope(f func(method, path string) string) { s.need = f }
 
 // OnRefusal registers a callback for calls a gate turned away.
 func (s *Server) OnRefusal(f func(ctx context.Context, actor, tool, method, path, why string)) {
@@ -196,7 +203,7 @@ func (s *Server) CallTool(ctx context.Context, actor, scopes, role, name string,
 			method, path = m, pth
 		}
 		if !s.allow(scopes, method, path) {
-			why := "this token's scopes do not cover " + method + " " + path + " (needs " + t.Scope + ")"
+			why := "this token's scopes do not cover " + method + " " + path + " (" + s.needs(t, method, path) + ")"
 			s.deny(ctx, actor, t.Name, method, path, why)
 			return "", errors.New(why)
 		}
@@ -214,6 +221,18 @@ func (s *Server) CallTool(ctx context.Context, actor, scopes, role, name string,
 	}
 	s.deny(ctx, actor, name, "", "", "no such tool")
 	return "", fmt.Errorf("%w %s", ErrNoSuchTool, name)
+}
+
+// needs says what would have let a refused call through.
+func (s *Server) needs(t Tool, method, path string) string {
+	sc := t.Scope
+	if s.need != nil {
+		sc = s.need(method, path)
+	}
+	if sc == "" {
+		return "no token scope covers it; it needs a signed-in session in the panel"
+	}
+	return "needs " + sc
 }
 
 func toolResult(text string, isErr bool) map[string]any {
