@@ -298,6 +298,73 @@ func (s *Service) Mkdir(p string) error {
 	return nil
 }
 
+// Receive saves an upload into dir under name, and nothing at all if it does
+// not arrive whole.
+//
+// The bytes go to a hidden file beside the destination and only take its name
+// once the last of them is written. Written straight to the destination, a
+// cancelled upload — the browser's cancel button, a closed laptop, a dropped
+// connection — left a truncated file under the real name that looked like the
+// real thing, and blocked the retry because the name was taken. Without
+// overwrite the final step is a hard link, which fails if the name has been
+// taken since, so two uploads of one name cannot both win.
+//
+// A new file takes its folder's owner and 0644; a replaced one keeps the owner
+// and mode it had.
+func (s *Service) Receive(dir, name string, r io.Reader, overwrite bool) (string, error) {
+	dir, err := Clean(dir)
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, name)
+	mode := os.FileMode(0o644)
+	like, err := os.Stat(dst)
+	switch {
+	case err == nil && like.IsDir():
+		return "", fmt.Errorf("%s is a folder: %w", name, fs.ErrExist)
+	case err == nil && !overwrite:
+		return "", fmt.Errorf("%s already exists: %w", name, fs.ErrExist)
+	case err == nil:
+		mode = like.Mode().Perm()
+	default:
+		if like, err = os.Stat(dir); err != nil {
+			return "", err
+		}
+	}
+	short := name
+	if len(short) > 64 {
+		short = short[:64]
+	}
+	tmp, err := os.CreateTemp(dir, "."+short+".islet-upload-*")
+	if err != nil {
+		return "", err
+	}
+	// After a rename this is already gone; after a link it is the second name
+	// for the file, and removing it leaves the first.
+	defer os.Remove(tmp.Name())
+	if _, err := io.Copy(tmp, r); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return "", err
+	}
+	sameOwner(tmp.Name(), like)
+	if overwrite {
+		return dst, os.Rename(tmp.Name(), dst)
+	}
+	if err := os.Link(tmp.Name(), dst); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", fmt.Errorf("%s already exists: %w", name, fs.ErrExist)
+		}
+		return "", err
+	}
+	return dst, nil
+}
+
 // Touch creates an empty file if it does not exist.
 func (s *Service) Touch(p string) error {
 	p, err := Clean(p)

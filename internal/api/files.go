@@ -23,6 +23,8 @@ func fileErr(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "no such file or directory"})
 	case errors.Is(err, os.ErrPermission):
 		writeJSON(w, http.StatusForbidden, api.Error{Error: "permission", Message: "permission denied"})
+	case errors.Is(err, os.ErrExist):
+		writeJSON(w, http.StatusConflict, api.Error{Error: "exists", Message: err.Error()})
 	default:
 		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
 	}
@@ -314,18 +316,7 @@ func (s *Server) handleFilesUpload(w http.ResponseWriter, r *http.Request) {
 		if name == "" || name == "." || name == ".." {
 			continue
 		}
-		dst := filepath.Join(dir, name)
-		flags := os.O_CREATE | os.O_WRONLY | os.O_EXCL
-		if overwrite {
-			flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-		}
-		f, err := os.OpenFile(dst, flags, 0o644)
-		if err != nil {
-			fileErr(w, err)
-			return
-		}
-		_, err = io.Copy(f, part)
-		f.Close()
+		dst, err := s.files.Receive(dir, name, part, overwrite)
 		if err != nil {
 			fileErr(w, err)
 			return

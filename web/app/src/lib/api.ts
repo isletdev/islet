@@ -855,29 +855,46 @@ export function assistantUpload(
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
 ): Promise<Upload> {
-  return new Promise<Upload>((resolve, reject) => {
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  return sendForm<Uploads>("/api/v1/assistant/uploads", fd, onProgress, signal).then((body) => {
+    const saved = body?.files?.[0];
+    if (!saved) throw new RequestError(200, { error: "invalid", message: "the server saved nothing" });
+    return saved;
+  });
+}
+
+/**
+ * POST a form, reporting how much of it has gone. The one shape every upload
+ * in the panel shares: the bar needs the bytes sent, which fetch cannot say,
+ * and the cancel button needs a request that can be aborted.
+ *
+ * A cancelled send rejects with error "aborted", which callers treat as
+ * something the person did rather than something that went wrong.
+ */
+export function sendForm<T>(
+  path: string,
+  form: FormData,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) { reject(new RequestError(0, { error: "aborted", message: "upload cancelled" })); return; }
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", apiPath("/api/v1/assistant/uploads"));
+    xhr.open("POST", apiPath(path));
     xhr.withCredentials = true;
     xhr.setRequestHeader("Accept", "application/json");
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       let body: unknown;
       try { body = JSON.parse(xhr.responseText) as unknown; } catch { body = undefined; }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const saved = (body as Uploads | undefined)?.files?.[0];
-        if (saved) { resolve(saved); return; }
-        reject(new RequestError(xhr.status, { error: "invalid", message: "the server saved nothing" }));
-        return;
-      }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(body as T); return; }
       if (xhr.status === 401) onUnauthorized();
       reject(new RequestError(xhr.status, (body as ApiError) ?? { error: "http_error", message: xhr.statusText }));
     };
     xhr.onerror = () => reject(new RequestError(0, { error: "network", message: "the upload did not reach the server" }));
     xhr.onabort = () => reject(new RequestError(0, { error: "aborted", message: "upload cancelled" }));
     signal?.addEventListener("abort", () => xhr.abort(), { once: true });
-    const fd = new FormData();
-    fd.append("file", file, file.name);
-    xhr.send(fd);
+    xhr.send(form);
   });
 }

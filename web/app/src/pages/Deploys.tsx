@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, RequestError, type DeployApp, type Detection, type GitHubRepo, type Release } from "@/lib/api";
+import { api, RequestError, sendForm, type DeployApp, type Detection, type GitHubRepo, type Release } from "@/lib/api";
 import { postStream, streamLines } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
+import UploadList from "@/components/UploadList";
+import { useUploads } from "@/lib/uploads";
 import { capLines } from "@/lib/logcap";
 import { pollInterval } from "@/lib/poll";
 import { useDialog } from "@/lib/dialogs";
@@ -201,27 +203,36 @@ function EnvGroups() {
 
 function UploadZone({ appId, busy, onUploaded, onError }: { appId: string; busy: boolean; onUploaded: (msg: string) => void; onError: (msg: string) => void }) {
   const [over, setOver] = useState(false);
-  const [state, setState] = useState<string | null>(null);
-  const send = async (fd: FormData, what: string) => {
-    setState(`Uploading ${what}…`);
-    try {
-      const r = await fetch(`/api/v1/apps/${appId}/upload`, { method: "POST", body: fd, credentials: "same-origin" });
-      if (!r.ok) throw new Error(((await r.json()) as { message: string }).message);
-      const j = (await r.json()) as { upload: { files: number }; detection: { summary: string } };
-      setState(null);
-      onUploaded(`Uploaded ${j.upload.files} files. ${j.detection.summary}`);
-    } catch (e) { setState(null); onError(err(e)); }
+  // The upload is one request — the folder travels as a single form — so it is
+  // one row with one bar, and its X stops it before anything is deployed.
+  const uploads = useUploads();
+  const sending = uploads.items.some((x) => x.state === "queued" || x.state === "sending" || x.state === "saving");
+  const send = (fd: FormData, what: string, size: number) => {
+    uploads.clear();
+    uploads.add([{
+      name: what, size,
+      run: async (onProgress, signal) => {
+        try {
+          const j = await sendForm<{ upload: { files: number }; detection: { summary: string } }>(`/api/v1/apps/${appId}/upload`, fd, onProgress, signal);
+          onUploaded(`Uploaded ${j.upload.files} files. ${j.detection.summary}`);
+        } catch (e) {
+          if (!(e instanceof RequestError && e.body.error === "aborted")) onError(err(e));
+          throw e;
+        }
+      },
+    }]);
   };
+  const sizeOf = (fd: FormData) => { let n = 0; for (const [, v] of fd.entries()) if (v instanceof File) n += v.size; return n; };
   const fromFiles = (files: FileList | File[]) => {
     const list = Array.from(files);
-    if (list.length === 1 && list[0].name.toLowerCase().endsWith(".zip")) { const fd = new FormData(); fd.append("zip", list[0]); void send(fd, list[0].name); return; }
+    if (list.length === 1 && list[0].name.toLowerCase().endsWith(".zip")) { const fd = new FormData(); fd.append("zip", list[0]); send(fd, list[0].name, list[0].size); return; }
     const fd = new FormData();
     for (const f of list) fd.append("file:" + ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name), f);
-    void send(fd, `${list.length} files`);
+    send(fd, `${list.length} files`, sizeOf(fd));
   };
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault(); setOver(false);
-    if (busy) return;
+    if (busy || sending) return;
     const items = Array.from(e.dataTransfer.items);
     const entries = items.map((it) => (it as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntry | null }).webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntry[];
     if (entries.length === 0) { fromFiles(e.dataTransfer.files); return; }
@@ -242,11 +253,12 @@ function UploadZone({ appId, busy, onUploaded, onError }: { appId: string; busy:
     };
     for (const en of entries) await walk(en, "");
     if (n === 0) { onError("Nothing to upload."); return; }
-    void send(fd, `${n} files`);
+    send(fd, `${n} files`, sizeOf(fd));
   };
   return (
     <div onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)} onDrop={(e) => void onDrop(e)} className={`mt-3 rounded-md border border-dashed p-3 text-xs ${over ? "border-accent bg-accent-soft" : "border-border-strong"}`}>
-      {state ?? <>Drop a folder or a .zip here to deploy it, or <label className="cursor-pointer text-accent hover:underline">choose a zip<input type="file" accept=".zip" className="hidden" disabled={busy} onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label> / <label className="cursor-pointer text-accent hover:underline">choose a folder<input type="file" className="hidden" disabled={busy} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label>.</>}
+      {uploads.items.length > 0 && <div className="mb-2"><UploadList items={uploads.items} onCancel={uploads.cancel} onCancelAll={uploads.cancelAll} onRetry={uploads.retry} onDismiss={uploads.dismiss} onClear={uploads.clear} /></div>}
+      {sending ? "Uploading — the deploy starts when it finishes." : <>Drop a folder or a .zip here to deploy it, or <label className="cursor-pointer text-accent hover:underline">choose a zip<input type="file" accept=".zip" className="hidden" disabled={busy || sending} onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label> / <label className="cursor-pointer text-accent hover:underline">choose a folder<input type="file" className="hidden" disabled={busy} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple onChange={(e) => { if (e.target.files?.length) fromFiles(e.target.files); e.target.value = ""; }} /></label>.</>}
     </div>
   );
 }

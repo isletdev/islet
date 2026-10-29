@@ -3753,3 +3753,37 @@ open their own project. And its file tool offered `chmod` but not `chown`.
 
 What would reverse it: the scope list in `assistanttools.go`, and
 `sameOwner` in `internal/files`.
+
+## One request per upload, each with a bar and a cancel (v0.40.4)
+
+The Files page sent every chosen file in one request and said nothing until
+it answered: no progress, no way to stop one file without losing all of
+them, and one name that was already taken failed the whole batch. Each file
+is now its own request through `sendForm` (XMLHttpRequest, because fetch
+still cannot report how much of a body has gone), three at a time, listed
+with a bar, its bytes and an X. The X cancels a file that is waiting or
+sending and removes one that has finished. A refused name says so and offers
+Replace, which sends that one file again with `overwrite=1`. The deploy
+upload uses the same list; it is still one request, because the folder is
+one form, so it is one row.
+
+- **The server had to change with it.** A cancel is a request cut off
+  midway, and the handler wrote straight to the destination, so every cancel
+  left a truncated file under the real name, which looked like the real file
+  and blocked the retry. `files.Receive` writes beside the destination and
+  takes the name only once the last byte is in: by rename when replacing, by
+  hard link otherwise, so two uploads of one name cannot both win. A taken
+  name is now a 409, which the list reads as "offer Replace".
+- **Uploads take their folder's owner**, as created folders and files have
+  since v0.40.3; the old handler left them root's.
+- **Three at a time.** One at a time leaves a fast link idle between small
+  files; everything at once makes every bar crawl and finishes nothing early.
+- **Measured** in headless Chrome against a scratch daemon, upload throttled
+  to 4 MB/s: four files, per-file bars moving, cancelling the 24 MB one left
+  nothing on disk while the rest finished, a repeated name was refused and
+  replaced, and at 390px the list fits without a sideways scroll. The deploy
+  zone was type-checked but not driven, because driving it starts a real
+  build on this machine's Docker.
+
+What would reverse it: `useUploads` in `web/app/src/lib/uploads.ts` and
+`Receive` in `internal/files`.

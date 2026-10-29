@@ -1,7 +1,7 @@
 import { copyText } from "@/lib/clipboard";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, RequestError, type FileEntry, type TrashItem } from "@/lib/api";
+import { api, RequestError, sendForm, type FileEntry, type TrashItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useDialog } from "@/lib/dialogs";
 import { bytes } from "@/lib/format";
@@ -9,6 +9,8 @@ import { SortHeader, useSort, type Column } from "@/lib/sortable";
 import { Alert, Button, Input } from "@/components/ui";
 import CodeEditor from "@/components/CodeEditor";
 import FolderPicker from "@/components/FolderPicker";
+import UploadList from "@/components/UploadList";
+import { useUploads } from "@/lib/uploads";
 import { openConsole } from "@/pages/Console";
 import {
   FolderIcon, FileIcon, ImageFileIcon, ArchiveFileIcon, DownloadIcon, CopyIcon,
@@ -174,11 +176,24 @@ export default function Files() {
     const d = await ask.prompt({ title: `Extract ${e.name}`, label: "Extract into", defaultValue: cur, mono: true, confirmLabel: "Extract" });
     if (d) void op({ op: "extract", path: e.path, to: d });
   };
-  const doUpload = async (files: FileList | null) => {
+  // One request per file, so each gets a bar and a cancel button. The folder
+  // is fixed when the files are chosen: moving to another folder while they
+  // go does not send the rest somewhere else.
+  const curRef = useRef(cur);
+  useEffect(() => { curRef.current = cur; }, [cur]);
+  const uploads = useUploads((job) => { if (job.dest === curRef.current) void load(job.dest); });
+  const doUpload = (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
-    const fd = new FormData(); for (const f of Array.from(files)) fd.append("file", f);
-    try { const r = await fetch(`/api/v1/files/upload?path=${encodeURIComponent(cur)}`, { method: "POST", body: fd, credentials: "same-origin" }); if (!r.ok) throw new Error(((await r.json()) as { message: string }).message); setMsg(`Uploaded ${files.length} file(s).`); void load(cur); } catch (er) { fail(er); }
+    const dest = cur;
+    uploads.add(Array.from(files).map((f) => ({
+      name: f.name, size: f.size, dest,
+      run: (onProgress, signal, replace) => {
+        const fd = new FormData(); fd.append("file", f, f.name);
+        return sendForm(`/api/v1/files/upload?path=${encodeURIComponent(dest)}${replace ? "&overwrite=1" : ""}`, fd, onProgress, signal);
+      },
+    })));
   };
+  const [dropping, setDropping] = useState(false);
   const runSearch = async (e: FormEvent) => {
     e.preventDefault(); if (!search) return;
     try { const hits = await api.filesSearch(cur, search.q, search.content); setSearch({ ...search, hits }); } catch (er) { fail(er); }
@@ -206,7 +221,7 @@ export default function Files() {
           <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void mkdir()}><NewFolderIcon className="h-4 w-4" />New folder</Button>
           <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void touch()}><FileIcon className="h-4 w-4" />New file</Button>
           <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => upload.current?.click()}><UploadIcon className="h-4 w-4" />Upload</Button>
-          <input ref={upload} type="file" multiple hidden onChange={(e) => void doUpload(e.target.files)} />
+          <input ref={upload} type="file" multiple hidden onChange={(e) => { doUpload(e.target.files); e.target.value = ""; }} />
           <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => openConsole({ dir: cur })} title="Open a shell in this folder"><TerminalIcon className="h-4 w-4" />Terminal</Button>
           <Button variant="secondary" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => { void loadTrash(); setSearch(null); }}><TrashIcon className="h-4 w-4" />Trash</Button>
         </>}
@@ -214,6 +229,12 @@ export default function Files() {
       </div>
       {protectedDir && <div className="mt-2"><Alert tone="warning">This is a protected system location. Changes here can break the server; deletions ask for typed confirmation.</Alert></div>}
       {(err || msg) && <div className="mt-2">{err ? <Alert>{err}</Alert> : <p className="text-sm text-ink-muted">{msg}</p>}</div>}
+
+      {uploads.items.length > 0 && (
+        <div className="mt-2">
+          <UploadList items={uploads.items} onCancel={uploads.cancel} onCancelAll={uploads.cancelAll} onRetry={uploads.retry} onDismiss={uploads.dismiss} onClear={uploads.clear} />
+        </div>
+      )}
 
       {selected.length > 0 && isAdmin && (
         <div className="mt-2 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-xs">
@@ -227,7 +248,13 @@ export default function Files() {
       )}
 
       <div className="mt-3 grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: (open || preview || trash || search) && window.innerWidth >= 768 ? "minmax(0,1fr) minmax(0,1.3fr)" : "1fr" }}>
-        <div className="min-h-0 overflow-auto rounded-lg border border-border bg-surface">
+        <div
+          className={`relative min-h-0 overflow-auto rounded-lg border bg-surface ${dropping ? "border-accent" : "border-border"}`}
+          onDragOver={(e) => { if (!isAdmin || !e.dataTransfer.types.includes("Files")) return; e.preventDefault(); setDropping(true); }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
+          onDrop={(e) => { if (!isAdmin) return; e.preventDefault(); setDropping(false); doUpload(Array.from(e.dataTransfer.files)); }}
+        >
+          {dropping && <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-accent-soft/80 text-sm font-medium text-accent">Drop to upload to {cur}</div>}
           <table className="w-full min-w-[480px] text-sm">
             <thead className="sticky top-0 bg-surface text-left text-xs text-ink-muted">
               <tr className="group">

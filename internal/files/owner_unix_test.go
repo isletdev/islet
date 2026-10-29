@@ -5,6 +5,7 @@ package files
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -70,6 +71,13 @@ func TestCreatedPathsBelongToTheFolderTheyAreMadeIn(t *testing.T) {
 	}
 	if u, g := ids(t, f); u != 4321 || g != 8765 {
 		t.Errorf("saving changed the owner to %d:%d", u, g)
+	}
+	up, err := s.Receive(deep, "upload.bin", strings.NewReader("x"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, g := ids(t, up); u != 1234 || g != 5678 {
+		t.Errorf("an upload is %d:%d, want its folder's 1234:5678", u, g)
 	}
 	tf := filepath.Join(deep, "empty")
 	if err := s.Touch(tf); err != nil {
