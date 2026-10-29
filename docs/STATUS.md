@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `ce4142b`, tagged `v0.40.3`, 2026-10-22. 271 commits, 113 tags, CI green on `main`.
+**Head:** `44699ca`, tagged `v0.40.4`, 2026-10-29. 273 commits, 114 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -127,6 +127,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.40.1 | `263cc7e` | **The VPN reaches the server, and the panel is plain HTTP inside it.** v0.40.0 reached only what listened on every interface and put the panel behind a self-signed certificate. Now `10.66.0.1` stands for the server, loopback included (DNAT on `wg-islet` with `route_localnet` on that interface alone), so a development database on 127.0.0.1 is at `10.66.0.1:5433` from a laptop and nowhere from the internet; the VPN page lists every reachable port and the container behind it. The panel answers plain HTTP on its own port to tunnel addresses only, telling TLS from HTTP by the first byte, and port 80 on the tunnel address leads to it, so it is `http://10.66.0.1`. Copy buttons, the run id and the cross-site check were fixed for a non-secure origin and checked in a real browser over the tunnel |
 | v0.40.2 | `84eeba6` | **Every Claude agent starts with Remote Control.** A workspace agent is launched with `--remote-control '<workspace>/<agent>'`, so it can be picked up from claude.ai or the phone without typing `/remote-control` into its window after each start. A flag rather than Claude Code's `remoteControlAtStartup`, which would cover every Claude on the machine from the operator's own settings file. Measured with 2.1.302 on a first start and a resume; left out when the command already asks for it, uses `--teleport`, or points at another endpoint |
 | v0.40.3 | `ce4142b` | **The assistant can start a project.** Its token gains `workspaces`, its file tool gains `chown` (recursive, links not followed), and folders and files Islet creates take the owner of the folder they are made in instead of `root:root 0750`; saving a file keeps its owner. A refusal names the scope that would have worked, and the assistant no longer sends people to a token setting that does not exist. Measured with the assistant's exact scopes against a scratch daemon over MCP |
+| v0.40.4 | `44699ca` | **Uploads you can watch and stop.** The Files page sends each file as its own request, three at a time, each with a progress bar, its bytes and an X that cancels it; a taken name offers Replace. The deploy upload uses the same list. A cancelled upload leaves nothing behind: the server writes beside the destination and takes the name only when the last byte is in, and uploads take their folder's owner. Measured in headless Chrome at 4 MB/s, 1440px and 390px |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
