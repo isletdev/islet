@@ -1,5 +1,5 @@
 import { copyText } from "@/lib/clipboard";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { api, getServer, RequestError, type Session, type ApiToken, type User, type GitHubState , type AssistantConfig, type AIKind, type AIProvider } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -267,6 +267,13 @@ function Tokens() {
   // scope offered here that no rule understands would grant nothing, and a
   // scope the rules know that is missing here cannot be given to anyone.
   const SCOPES = ["read", "deploy", "cron", "db", "containers", "domains", "files", "backups", "security", "uptime", "runners", "catalog", "workspaces", "vault", "notify", "logs", "system", "settings", "media", "shell"];
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editScopes, setEditScopes] = useState<string[]>([]);
+  const saveScopes = async (id: string) => {
+    setMsg(null);
+    try { await api.tokenScopes(id, editScopes.length ? editScopes.join(",") : "*"); setEditing(null); await load(); }
+    catch (er) { setMsg(er instanceof RequestError ? er.message : String(er)); }
+  };
   const create = async (e: FormEvent) => {
     e.preventDefault(); setMsg(null);
     try { const r = await api.tokenCreate({ name, scopes: scopes.length ? scopes.join(",") : "*", ttlDays: ttl }); setCreated(r.token); setName(""); setScopes([]); await load(); }
@@ -276,10 +283,24 @@ function Tokens() {
     <Card title="API tokens" description="For the islet CLI, CI jobs and scripts. Send as Authorization: Bearer. A token acts with your role, narrowed by its scopes.">
       <ul className="divide-y divide-border">
         {list.map((t) => (
-          <li key={t.id} className="flex items-center justify-between gap-4 py-2.5 text-sm">
-            <div className="min-w-0"><div className="font-medium">{t.name} <span className="ml-1 font-mono text-[11px] text-ink-muted">{t.scopes}</span></div><div className="text-xs text-ink-muted">created {new Date(t.createdAt).toLocaleDateString()}{t.lastUsedAt && ` · last used ${new Date(t.lastUsedAt).toLocaleString()}`}{t.expiresAt && ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`}</div></div>
+          <Fragment key={t.id}>
+          <li className="flex items-center justify-between gap-4 py-2.5 text-sm">
+            <div className="min-w-0"><div className="font-medium">{t.name}</div><div className="font-mono text-[11px] text-ink-muted">{t.scopes === "*" ? "everything" : t.scopes.split(",").join(", ")}</div><div className="text-xs text-ink-muted">created {new Date(t.createdAt).toLocaleDateString()}{t.lastUsedAt && ` · last used ${new Date(t.lastUsedAt).toLocaleString()}`}{t.expiresAt && ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`}</div></div>
+            <span className="flex shrink-0 gap-2">
+            <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={() => { setEditing(editing === t.id ? null : t.id); setEditScopes(t.scopes === "*" ? [] : t.scopes.split(",")); setMsg(null); }}>{editing === t.id ? "Close" : "Edit scopes"}</Button>
             <Button variant="secondary" className="h-8 px-2.5 text-xs" onClick={async () => { if (!(await ask.confirm({ title: `Revoke the token ${t.name}?`, body: "Anything using it stops working immediately — a script, a workspace agent, another server. It cannot be undone and the secret cannot be shown again, so replacing it means issuing a new one.", confirmLabel: "Revoke it", tone: "danger" }))) return; await api.tokenRevoke(t.id); await load(); }}>Revoke</Button>
+            </span>
           </li>
+          {editing === t.id && (
+            <li className="pb-3 text-sm">
+              <ScopePicker all={SCOPES} value={editScopes} onChange={setEditScopes} />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button className="h-8 px-2.5 text-xs" onClick={() => void saveScopes(t.id)}>Save scopes</Button>
+                <span className="text-xs text-ink-muted">The secret stays the same; whatever uses it gets the new access on its next call.</span>
+              </div>
+            </li>
+          )}
+          </Fragment>
         ))}
         {list.length === 0 && <li className="py-2 text-sm text-ink-muted">No tokens yet.</li>}
       </ul>
@@ -288,10 +309,21 @@ function Tokens() {
         <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="CI deploys" required /></Field>
         <Field label="Expires"><Select value={ttl} onChange={(e) => setTtl(+e.target.value)} className="w-auto"><option value={0}>Never</option><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></Select></Field>
         <FieldAction><Button type="submit" className="h-9">Create token</Button></FieldAction>
-        <div className="sm:col-span-3"><span className="mb-1 block text-sm font-medium">Scopes</span><div className="flex flex-wrap gap-1"><button type="button" onClick={() => setScopes([])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.length === 0 ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>everything</button>{SCOPES.map((sc) => <button key={sc} type="button" onClick={() => setScopes(scopes.includes(sc) ? scopes.filter((x) => x !== sc) : [...scopes, sc])} className={`rounded-sm border px-2 py-0.5 text-xs ${scopes.includes(sc) ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`}>{sc}</button>)}</div></div>
+        <div className="sm:col-span-3"><span className="mb-1 block text-sm font-medium">Scopes</span><ScopePicker all={SCOPES} value={scopes} onChange={setScopes} /></div>
         {msg && <p className="text-sm text-danger sm:col-span-3">{msg}</p>}
       </form>
     </Card>
+  );
+}
+
+/** Scope chips; none chosen means everything the role allows. */
+function ScopePicker({ all, value, onChange }: { all: string[]; value: string[]; onChange: (v: string[]) => void }) {
+  const chip = (on: boolean) => `rounded-sm border px-2 py-0.5 text-xs ${on ? "border-ink bg-ink text-on-ink" : "border-border-strong text-ink-muted"}`;
+  return (
+    <div className="flex flex-wrap gap-1">
+      <button type="button" onClick={() => onChange([])} className={chip(value.length === 0)}>everything</button>
+      {all.map((sc) => <button key={sc} type="button" onClick={() => onChange(value.includes(sc) ? value.filter((x) => x !== sc) : [...value, sc])} className={chip(value.includes(sc))}>{sc}</button>)}
+    </div>
   );
 }
 

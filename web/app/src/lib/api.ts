@@ -146,7 +146,7 @@ export interface Workspace {
   createdAt: string; updatedAt: string; lastAttachedAt: string;
   running: boolean; started?: string; error?: string;
 }
-export interface WorkspaceMCP { enabled: boolean; path: string; tools: number; scopes: string[] }
+export interface WorkspaceMCP { enabled: boolean; serverOn: boolean; path: string; tools: number; scopes: string[] }
 /**
  * One program running inside a workspace: a tmux window of its own, and for
  * Claude Code a conversation it keeps returning to. `running` means the command
@@ -606,6 +606,7 @@ export const api = {
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
+  tokenScopes: (id: string, scopes: string) => post<{ id: string; scopes: string }>(`/api/v1/auth/tokens/${id}`, { scopes }, "PUT"),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),
   revokeSession: (id: string) => post<void>(`/api/v1/auth/sessions/${id}`, undefined, "DELETE"),
   system: () => request<HostInfo>("/api/v1/system"),

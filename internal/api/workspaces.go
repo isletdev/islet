@@ -295,9 +295,12 @@ func (s *Server) handleWorkspaceMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": ws.MCPEnabled,
-		"path":    s.workspaces.MCPPath(id),
-		"tools":   len(s.mcpTools()),
-		"scopes":  strings.Split("read,logs,containers,cron,notify", ","),
+		// The token is useless while the endpoint it is for is switched off,
+		// and the agent only hears "disabled", so the page says it.
+		"serverOn": s.mcpEnabled(r.Context()),
+		"path":     s.workspaces.MCPPath(id),
+		"tools":    len(s.mcpTools()),
+		"scopes":   s.workspaceTokenScopes(r, id),
 	})
 }
 
@@ -535,6 +538,22 @@ func workspaceScopes() string { return strings.Join(auth.Scopes, ",") }
 // above to it, in place. A new token would have meant rewriting each
 // workspace's configuration and restarting its agents; changing the scopes of
 // the one they already hold reaches them on their next call.
+// workspaceTokenScopes is what the workspace's token may do now, read from the
+// token rather than restated here: a hard-coded list once went on saying
+// "read, logs, containers, cron, notify" after the token itself had every
+// scope.
+func (s *Server) workspaceTokenScopes(r *http.Request, id string) []string {
+	tid := s.workspaces.TokenID(r.Context(), id)
+	if tid == "" {
+		return []string{}
+	}
+	sc := s.auth.TokenScopes(r.Context(), tid)
+	if sc == "" {
+		return []string{}
+	}
+	return strings.Split(sc, ",")
+}
+
 func (s *Server) widenWorkspaceTokens(ctx context.Context) {
 	if s.workspaces == nil || s.auth == nil {
 		return

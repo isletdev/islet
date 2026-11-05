@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -64,6 +65,43 @@ func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.store.Audit(r.Context(), u.Username, "token.revoke", r.PathValue("id"), "")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleTokenScopes changes what an existing token may do without changing
+// its secret, so whatever holds it — a workspace agent, a CI job, another
+// server — gets the new access on its next call with nothing to re-paste or
+// restart. Before this, widening a token meant revoking it and issuing a new
+// one, which broke every place it was configured.
+func (s *Server) handleTokenScopes(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	if tokenFrom(r.Context()) != nil {
+		writeJSON(w, http.StatusForbidden, api.Error{Error: "forbidden", Message: "tokens cannot change tokens; sign in with a browser"})
+		return
+	}
+	var req struct {
+		Scopes string `json:"scopes"`
+	}
+	if err := decode(r, &req); err != nil {
+		s.badJSON(w, err)
+		return
+	}
+	scopes, err := auth.CapScopes(req.Scopes, u.Role)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	}
+	id := r.PathValue("id")
+	scopes, err = s.auth.UpdateTokenScopes(r.Context(), u.ID, id, scopes, u.Role == "admin")
+	if err != nil {
+		if errors.Is(err, auth.ErrBadToken) {
+			writeJSON(w, http.StatusNotFound, api.Error{Error: "not_found", Message: "token not found"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "invalid", Message: err.Error()})
+		return
+	}
+	_ = s.store.Audit(r.Context(), u.Username, "token.scopes", id, scopes)
+	writeJSON(w, http.StatusOK, map[string]string{"id": id, "scopes": scopes})
 }
 
 func tokenFrom(ctx context.Context) *auth.Token {

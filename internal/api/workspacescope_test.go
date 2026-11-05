@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -76,6 +77,10 @@ func TestOldWorkspaceTokensAreWidenedInPlace(t *testing.T) {
 	}
 	if after.Scopes != workspaceScopes() {
 		t.Fatalf("scopes after start = %q", after.Scopes)
+	}
+	// What the workspace page shows is the token's, not a list written down.
+	if got := strings.Join((&Server{auth: as, workspaces: ws}).workspaceTokenScopes(httptest.NewRequest("GET", "/", nil), "w1"), ","); got != workspaceScopes() {
+		t.Fatalf("the workspace reports %q", got)
 	}
 	if !auth.ScopeAllows(after.Scopes, "POST", "/api/v1/domains") {
 		t.Error("the widened token still cannot put an app on a domain")

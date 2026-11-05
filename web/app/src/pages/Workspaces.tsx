@@ -715,12 +715,13 @@ export default function Workspaces() {
                 <span>
                   Let its agents reach Islet
                   <span className="block text-ink-muted">
-                    A scoped API token and an MCP endpoint, so an agent can read container logs, restart a container,
-                    deploy and message you through audited calls instead of working it out as root. Never the shell scope.
+                    An API token and an MCP endpoint, so an agent can deploy, manage domains, databases, files and
+                    containers, and message you through audited calls instead of working it out as root.
                   </span>
                 </span>
               </label>
             </Field>
+            {editingWs.id && editingWs.mcpEnabled && <WorkspaceAccess id={editingWs.id} name={editingWs.name} />}
             <div className="flex gap-2 md:col-span-2">
               <Button type="submit" disabled={busy === "ws-save"}>{busy === "ws-save" ? "Saving…" : "Save workspace"}</Button>
               <Button type="button" variant="secondary" onClick={() => setEditingWs(null)}>Cancel</Button>
@@ -872,6 +873,57 @@ export default function Workspaces() {
           </form>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/**
+ * The workspace's own token: what it may do, read from the token itself, and a
+ * way to give the workspace a new one. A new token also rewrites the MCP file
+ * with this panel's current address, which is the fix when the old one points
+ * at a domain that has since moved.
+ */
+function WorkspaceAccess({ id, name }: { id: string; name: string }) {
+  const ask = useDialog();
+  const [scopes, setScopes] = useState<string[] | null>(null);
+  const [path, setPath] = useState("");
+  const [off, setOff] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    api.workspaceMcp(id).then((m) => { setScopes(m.scopes); setPath(m.path); setOff(!m.serverOn); }).catch(() => setScopes([]));
+  }, [id]);
+  const renew = async () => {
+    if (!(await ask.confirm({
+      title: `Give ${name} a new token?`,
+      body: "Islet issues a token with every scope, revokes the old one and rewrites the workspace's MCP file. Agents already running hold the old token, so restart them afterwards to pick up the new one.",
+      confirmLabel: "Issue new token",
+    }))) return;
+    setBusy(true); setMsg(null);
+    try {
+      const m = await api.workspaceMcpRenew(id);
+      setScopes(m.scopes); setPath(m.path);
+      setMsg({ ok: true, text: "New token written. Restart this workspace's agents to use it." });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof RequestError ? e.message : String(e) });
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="rounded-md border border-border p-3 text-sm md:col-span-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="font-medium">Islet token</span>
+        <Button type="button" variant="secondary" className="ml-auto h-8 px-2.5 text-xs" disabled={busy} onClick={() => void renew()}>
+          {busy ? "Issuing…" : scopes && scopes.length === 0 ? "Issue token" : "Issue new token"}
+        </Button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {scopes === null && <span className="text-xs text-ink-muted">Loading…</span>}
+        {scopes?.length === 0 && <span className="text-xs text-ink-muted">This workspace has no token yet.</span>}
+        {scopes?.map((sc) => <span key={sc} className="rounded-sm border border-border-strong px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">{sc}</span>)}
+      </div>
+      {off && <p className="mt-2 text-xs text-danger">The MCP server is off, so agents are refused whatever this token allows. Turn it on in <Link to="/settings" className="underline">Settings</Link>.</p>}
+      {path && <div className="mt-2 truncate font-mono text-[11px] text-ink-faint" title={path}>{path}</div>}
+      {msg && <p className={`mt-2 text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</p>}
     </div>
   );
 }

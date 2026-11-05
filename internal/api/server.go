@@ -338,6 +338,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/diagnostics", s.requireAuth(s.handleDiagnostics))
 	mux.HandleFunc("POST /api/v1/auth/tokens", requireJSON(s.requireAuth(s.handleTokenCreate)))
 	mux.HandleFunc("DELETE /api/v1/auth/tokens/{id}", requireJSON(s.requireAuth(s.handleTokenRevoke)))
+	mux.HandleFunc("PUT /api/v1/auth/tokens/{id}", requireJSON(s.requireAuth(s.handleTokenScopes)))
 	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", requireJSON(s.requireAuth(s.handleSessionRevoke)))
 
 	// System and metrics

@@ -109,6 +109,7 @@ var minRole = map[string]string{
 	"GET /api/v1/diagnostics":                                       viewer,
 	"POST /api/v1/auth/tokens":                                      viewer,
 	"DELETE /api/v1/auth/tokens/{id}":                               viewer,
+	"PUT /api/v1/auth/tokens/{id}":                                  viewer,
 	"DELETE /api/v1/auth/sessions/{id}":                             viewer,
 	"GET /api/v1/system":                                            viewer,
 	"GET /api/v1/system/processes":                                  viewer,

@@ -101,6 +101,7 @@ func TestAViewerReachesNothingThatWritesSomebodyElsesState(t *testing.T) {
 		"POST /api/v1/auth/totp/disable":          true,
 		"POST /api/v1/auth/tokens":                true, // capped to their own scopes at mint
 		"DELETE /api/v1/auth/tokens/{id}":         true,
+		"PUT /api/v1/auth/tokens/{id}":            true, // their own token, capped to their role
 		"DELETE /api/v1/auth/sessions/{id}":       true,
 		"POST /api/v1/assistant/chat":             true, // acts with their authority, not more
 		"POST /api/v1/assistant/chats":            true,

@@ -3837,3 +3837,32 @@ do with a command, only without the audit log and the checks Islet adds.
 
 What would reverse it: `workspaceScopes` in `internal/api/workspaces.go`, and
 existing tokens would need narrowing back by the same start-up step.
+
+## A token's scopes can be changed, and a workspace's token renewed, from the panel (v0.40.6)
+
+After v0.40.5 widened workspace tokens at start, a person updated another
+server and still saw the old list. Two things made that hard to get out of: the
+workspace endpoint returned a hard-coded `read, logs, containers, cron, notify`
+whatever the token held, and the panel had no way to change a token's scopes or
+give a workspace a new token — only revoke, which strands the agent. On this
+machine a third turned up: both workspaces' `mcp.json` pointed at a panel domain
+that had since moved to another server, which answered `bad_token`.
+
+- **`PUT /api/v1/auth/tokens/{id}`** changes scopes and keeps the secret, so
+  whatever holds the token has the new access on its next call. Capped to the
+  person's role like minting, limited to their own token unless they are an
+  admin, refused to a token. Self-service in the viewer allowlist for those
+  reasons.
+- **The workspace endpoint reads the token's scopes** instead of restating
+  them, and says whether the MCP server is on.
+- **The workspace form shows the token and offers *Issue new token*,** which was
+  already an endpoint (`POST /workspaces/{id}/mcp`) with nothing calling it. It
+  also rewrites the URL in `mcp.json`, which is the only way a workspace older
+  than a domain move gets a reachable address.
+- Not done: rewriting `mcp.json` URLs automatically when the panel domain
+  changes. The daemon learns its address from a request, so at start it does
+  not know what to write; the renew button is the explicit form of it.
+
+What would reverse it: the PUT route and `WorkspaceAccess` in
+`web/app/src/pages/Workspaces.tsx`.
+

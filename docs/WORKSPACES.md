@@ -105,6 +105,18 @@ they were there for and protected nothing. Workspaces made before v0.40.5 had
 their tokens widened in place when the daemon started, so a running agent kept
 its token and simply gained the scopes.
 
+**Seeing and changing it by hand (v0.40.6).** Edit a workspace and the *Islet
+token* box lists the scopes its token holds now, read from the token itself.
+*Issue new token* revokes the old one, mints one with every scope and rewrites
+`mcp.json` with the panel's current address — the fix when a workspace is
+older than a domain move and its agent is still calling the old host, which
+answers `bad_token` because that server has never seen the token. Agents
+already running hold the old token, so restart them afterwards. Any token's
+scopes, a workspace's included, can also be changed in place under *Settings →
+API tokens → Edit scopes*, which keeps the secret, so nothing has to restart.
+The box also says when the MCP server itself is off, since then every agent is
+refused whatever its token allows.
+
 What remains is real and should be understood before turning this on. The token
 does not expire, it lives in a file the agent can read, and a workspace runs as
 root on the host in a tmux session rather than in a sandbox. An agent that reads

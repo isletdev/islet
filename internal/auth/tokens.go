@@ -105,6 +105,35 @@ func (s *Service) SetTokenScopes(ctx context.Context, id, scopes string) error {
 	return err
 }
 
+// UpdateTokenScopes is SetTokenScopes for a person in the panel: their own
+// token, or anyone's for an admin, and an error when there is no such token
+// rather than a silent nothing.
+func (s *Service) UpdateTokenScopes(ctx context.Context, userID, id, scopes string, admin bool) (string, error) {
+	scopes, err := checkScopes(scopes)
+	if err != nil {
+		return "", err
+	}
+	q, args := `UPDATE api_tokens SET scopes = ? WHERE id = ? AND server_id = ? AND user_id = ?`, []any{scopes, id, s.st.ServerID, userID}
+	if admin {
+		q, args = `UPDATE api_tokens SET scopes = ? WHERE id = ? AND server_id = ?`, []any{scopes, id, s.st.ServerID}
+	}
+	res, err := s.st.DB.ExecContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return "", ErrBadToken
+	}
+	return scopes, nil
+}
+
+// TokenScopes is what one token may do now, or "" when it does not exist.
+func (s *Service) TokenScopes(ctx context.Context, id string) string {
+	var sc string
+	_ = s.st.DB.QueryRowContext(ctx, `SELECT scopes FROM api_tokens WHERE id = ? AND server_id = ?`, id, s.st.ServerID).Scan(&sc)
+	return sc
+}
+
 // UserByToken resolves a bearer token to its user and scopes.
 func (s *Service) UserByToken(ctx context.Context, plain string) (*User, *Token, error) {
 	if !strings.HasPrefix(plain, tokenPrefix) || len(plain) < 20 {
