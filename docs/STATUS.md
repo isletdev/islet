@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `3964e10`, tagged `v0.40.5`, 2026-11-05. 276 commits, 115 tags, CI green on `main`.
+**Head:** `31a5ffc`, tagged `v0.40.6`, 2026-11-05. 278 commits, 116 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -129,6 +129,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.40.3 | `ce4142b` | **The assistant can start a project.** Its token gains `workspaces`, its file tool gains `chown` (recursive, links not followed), and folders and files Islet creates take the owner of the folder they are made in instead of `root:root 0750`; saving a file keeps its owner. A refusal names the scope that would have worked, and the assistant no longer sends people to a token setting that does not exist. Measured with the assistant's exact scopes against a scratch daemon over MCP |
 | v0.40.4 | `44699ca` | **Uploads you can watch and stop.** The Files page sends each file as its own request, three at a time, each with a progress bar, its bytes and an X that cancels it; a taken name offers Replace. The deploy upload uses the same list. A cancelled upload leaves nothing behind: the server writes beside the destination and takes the name only when the last byte is in, and uploads take their folder's owner. Measured in headless Chrome at 4 MB/s, 1440px and 390px |
 | v0.40.5 | `3964e10` | **An open tab says when Islet was updated, and workspace agents can do their job.** The shell checks this daemon's commit once a minute and, when it changes, shows "Islet was updated to … — Reload" under the header instead of leaving an old tab running old screens. Workspace tokens carry every named scope (still never token minting) instead of read/logs/containers/notify, which blocked agents at domains, deploys and databases while their root shell could do it anyway; existing workspace tokens are widened in place at start, so running agents keep working. Both measured: a commit swap under an open tab in headless Chrome, and a pre-existing four-scope token widened by start-up in a test |
+| v0.40.6 | `31a5ffc` | **Token scopes are editable, and a workspace token can be renewed, from the panel.** *Settings → API tokens → Edit scopes* changes a token in place, keeping the secret. The workspace form shows the scopes its token really holds (the endpoint used to return a hard-coded old list), says when the MCP server is off, and has *Issue new token*, which also rewrites `mcp.json` with the current panel address — the fix for workspaces whose file still points at a domain that moved to another server. Measured against a scratch daemon in headless Chrome at 1440 and 390px. The release job failed installing cosign, so this tag lacks `checksums.txt.cosign.bundle`; the Ed25519 signature `islet update` checks is there and verifies |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
