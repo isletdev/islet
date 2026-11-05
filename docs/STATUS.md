@@ -1,6 +1,6 @@
 # Status
 
-**Head:** `44699ca`, tagged `v0.40.4`, 2026-10-29. 273 commits, 114 tags, CI green on `main`.
+**Head:** `3964e10`, tagged `v0.40.5`, 2026-11-05. 276 commits, 115 tags, CI green on `main`.
 
 The installed daemon on the development server is running this release, updated
 through the official GitHub channel rather than from the working tree — which is
@@ -128,6 +128,7 @@ recent history, because it is the half that was found rather than designed.
 | v0.40.2 | `84eeba6` | **Every Claude agent starts with Remote Control.** A workspace agent is launched with `--remote-control '<workspace>/<agent>'`, so it can be picked up from claude.ai or the phone without typing `/remote-control` into its window after each start. A flag rather than Claude Code's `remoteControlAtStartup`, which would cover every Claude on the machine from the operator's own settings file. Measured with 2.1.302 on a first start and a resume; left out when the command already asks for it, uses `--teleport`, or points at another endpoint |
 | v0.40.3 | `ce4142b` | **The assistant can start a project.** Its token gains `workspaces`, its file tool gains `chown` (recursive, links not followed), and folders and files Islet creates take the owner of the folder they are made in instead of `root:root 0750`; saving a file keeps its owner. A refusal names the scope that would have worked, and the assistant no longer sends people to a token setting that does not exist. Measured with the assistant's exact scopes against a scratch daemon over MCP |
 | v0.40.4 | `44699ca` | **Uploads you can watch and stop.** The Files page sends each file as its own request, three at a time, each with a progress bar, its bytes and an X that cancels it; a taken name offers Replace. The deploy upload uses the same list. A cancelled upload leaves nothing behind: the server writes beside the destination and takes the name only when the last byte is in, and uploads take their folder's owner. Measured in headless Chrome at 4 MB/s, 1440px and 390px |
+| v0.40.5 | `3964e10` | **An open tab says when Islet was updated, and workspace agents can do their job.** The shell checks this daemon's commit once a minute and, when it changes, shows "Islet was updated to … — Reload" under the header instead of leaving an old tab running old screens. Workspace tokens carry every named scope (still never token minting) instead of read/logs/containers/notify, which blocked agents at domains, deploys and databases while their root shell could do it anyway; existing workspace tokens are widened in place at start, so running agents keep working. Both measured: a commit swap under an open tab in headless Chrome, and a pre-existing four-scope token widened by start-up in a test |
 
 Six of these — v0.7.2, v0.8.0, v0.8.1, v0.11.2, v0.11.3 and v0.11.4 — were each
 the second or third attempt at one reported symptom. `DECISIONS.md` records what
