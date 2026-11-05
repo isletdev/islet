@@ -7,6 +7,7 @@ import { NAV, NAV_GROUPS, type NavItem } from "@/nav";
 import { t } from "@/lib/i18n";
 import CommandPalette, { openPalette } from "@/components/CommandPalette";
 import { Mark } from "@/components/ui";
+import UpdateNotice from "@/components/UpdateNotice";
 import { pollInterval } from "@/lib/poll";
 import {
   NAV_ICONS, MenuIcon, CloseIcon, SunIcon, MoonIcon, UserIcon, ChevronDownIcon,
@@ -311,6 +312,7 @@ export default function Shell() {
             </div>
           </div>
         </header>
+        <UpdateNotice />
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet key={server} context={{ health }} />

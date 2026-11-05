@@ -3787,3 +3787,30 @@ one form, so it is one row.
 
 What would reverse it: `useUploads` in `web/app/src/lib/uploads.ts` and
 `Receive` in `internal/files`.
+
+## An open tab says when Islet was updated under it (v0.40.5)
+
+After v0.40.4 shipped a new upload screen, its user opened Files in a tab
+loaded before the update, saw the old screen, and was rightly angry at being
+told it was live. A page is a program downloaded once: the daemon served the
+new panel, and the tab kept running the old one until it was reloaded. Nothing
+said so.
+
+The shell now asks this daemon's `/api/v1/health` once a minute, and at once
+on returning to a hidden tab that has gone a minute without asking. When the
+commit differs from the one it saw first, a bar under the header says Islet
+was updated to that version and offers Reload.
+
+- **This daemon, not the server in view.** The header's own health poll
+  follows the server picker; the code in the tab came from here, and a managed
+  server updating changes none of it.
+- **The commit, not the version,** so a rebuild under the same number counts.
+  A failed request (the daemon mid-restart) and a signed-out answer carry no
+  commit and are not news.
+- **A bar to click, not an automatic reload,** which would throw away a half
+  typed form or a running upload.
+- **Measured** in headless Chrome: two builds stamped with different commits,
+  swapped on one port under an open tab. No bar before, the bar within the
+  minute after, gone after Reload; no sideways scroll at 390px.
+
+What would reverse it: removing `<UpdateNotice />` from the shell.
