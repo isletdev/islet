@@ -44,22 +44,9 @@ func (s *Service) CreateToken(ctx context.Context, userID, name, scopes string, 
 	if name == "" || len(name) > 60 {
 		return "", nil, errors.New("name must be 1-60 characters")
 	}
-	scopes = strings.TrimSpace(scopes)
-	if scopes == "" {
-		scopes = "*"
-	}
-	if scopes != "*" {
-		for _, sc := range strings.Split(scopes, ",") {
-			ok := false
-			for _, known := range Scopes {
-				if known == strings.TrimSpace(sc) {
-					ok = true
-				}
-			}
-			if !ok {
-				return "", nil, errors.New("unknown scope " + sc)
-			}
-		}
+	scopes, err := checkScopes(scopes)
+	if err != nil {
+		return "", nil, err
 	}
 	secret, err := randomHex(24)
 	if err != nil {
@@ -79,6 +66,43 @@ func (s *Service) CreateToken(ctx context.Context, userID, name, scopes string, 
 		return "", nil, err
 	}
 	return plain, &Token{ID: id, UserID: userID, Name: name, Scopes: scopes, ExpiresAt: exp, Prefix: plain[:12]}, nil
+}
+
+// checkScopes normalises a scope list, refusing any name it does not know.
+func checkScopes(scopes string) (string, error) {
+	scopes = strings.TrimSpace(scopes)
+	if scopes == "" {
+		return "*", nil
+	}
+	if scopes == "*" {
+		return scopes, nil
+	}
+	for _, sc := range strings.Split(scopes, ",") {
+		ok := false
+		for _, known := range Scopes {
+			if known == strings.TrimSpace(sc) {
+				ok = true
+			}
+		}
+		if !ok {
+			return "", errors.New("unknown scope " + sc)
+		}
+	}
+	return scopes, nil
+}
+
+// SetTokenScopes changes what an existing token may do, keeping its secret.
+// Scopes are read on every request, so whoever holds it gets the change on
+// their next call — which is the point: an agent already running with the
+// token in its configuration keeps working, and a new token would have
+// stranded it until somebody restarted it.
+func (s *Service) SetTokenScopes(ctx context.Context, id, scopes string) error {
+	scopes, err := checkScopes(scopes)
+	if err != nil {
+		return err
+	}
+	_, err = s.st.DB.ExecContext(ctx, `UPDATE api_tokens SET scopes = ? WHERE id = ? AND server_id = ?`, scopes, id, s.st.ServerID)
+	return err
 }
 
 // UserByToken resolves a bearer token to its user and scopes.

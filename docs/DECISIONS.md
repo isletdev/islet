@@ -3814,3 +3814,26 @@ was updated to that version and offers Reload.
   minute after, gone after Reload; no sideways scroll at 390px.
 
 What would reverse it: removing `<UpdateNotice />` from the shell.
+
+## A workspace token covers everything its agent may need (v0.40.5)
+
+Workspace tokens were scoped to `read, logs, containers, notify`. Asked to put
+an app on a domain, an agent was refused for `domains` and sent its person to
+widen a token in the panel. That narrowness protected nothing: the agent runs
+as root in a shell on the host, so whatever the token withheld it could still
+do with a command, only without the audit log and the checks Islet adds.
+
+- **Every scope, by name**, from `auth.Scopes`, so a scope added later is
+  granted without anybody remembering to. Not `*`: a token holding `*` reaches
+  `/api/v1/auth` and can mint another token, which no named scope allows.
+- **Existing workspaces are widened in place at start.** A new token would
+  mean rewriting each workspace's configuration and restarting its agents;
+  scopes are read on every request, so changing them on the token an agent
+  already holds reaches it on its next call. `auth.SetTokenScopes` does that,
+  and `workspace.TokenIDs` lists the tokens without a tmux call per workspace.
+- This is not the assistant's list. The panel assistant has no shell of its
+  own, so withholding `shell`, `security`, `vault` and `cron` from it still
+  narrows what it can do.
+
+What would reverse it: `workspaceScopes` in `internal/api/workspaces.go`, and
+existing tokens would need narrowing back by the same start-up step.

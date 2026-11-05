@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/isletdev/islet/internal/ai"
+	"github.com/isletdev/islet/internal/auth"
 	"github.com/isletdev/islet/internal/terminal"
 	"github.com/isletdev/islet/internal/workspace"
 	"github.com/isletdev/islet/pkg/api"
@@ -127,28 +128,15 @@ func (s *Server) saveWorkspace(w http.ResponseWriter, r *http.Request, in *works
 	writeJSON(w, http.StatusOK, saved)
 }
 
-// wireMCP gives one workspace a scoped token and an MCP config file.
+// wireMCP gives one workspace its token and an MCP config file.
 //
-// The scopes are the ones an agent needs to see what it just changed: read
-// state, read logs, restart a container, say something happened. Withholding
-// "shell" is what this list is usually described by, and on its own that was
-// not the boundary it sounded like — the token's owner is the admin who made
-// the workspace, so every adminOnly check it met was already satisfied, and
-// two of the scopes reached a root shell by another door. "cron" wrote a job,
-// and a job is a command run as root on a schedule. "containers" wrote a
-// Compose file, and one line of a Compose file is the host filesystem.
-//
-// So cron is gone from this list, and writing a stack now needs "system",
-// which nothing here has. What is left really is what it says: look at the
-// server, restart something, report back. The token still belongs to an admin
-// and still does not expire, so this is a smaller hole rather than no hole —
-// docs/WORKSPACES.md says so plainly rather than claiming a sandbox.
+// The token carries workspaceScopes; see there for why that is everything.
 func (s *Server) wireMCP(r *http.Request, id, name string) error {
 	u := userFrom(r.Context())
 	if tid := s.workspaces.TokenID(r.Context(), id); tid != "" {
 		_ = s.auth.RevokeToken(r.Context(), u.ID, tid, true)
 	}
-	secret, tok, err := s.auth.CreateToken(r.Context(), u.ID, "workspace "+name, "read,logs,containers,notify", 0)
+	secret, tok, err := s.auth.CreateToken(r.Context(), u.ID, "workspace "+name, workspaceScopes(), 0)
 	if err != nil {
 		return err
 	}
@@ -526,4 +514,39 @@ func (s *Server) handleWorkspaceAgentAttach(w http.ResponseWriter, r *http.Reque
 	s.workspaces.Touch(r.Context(), id)
 	s.servePTYSeat(w, r, terminal.Options{Command: s.workspaces.AttachAgentArgv(id, a.Name), Dir: ws.Directory},
 		"workspace", ws.Name+"/"+a.Name, "ws:"+id)
+}
+
+// workspaceScopes is every scope there is, by name.
+//
+// It used to be "read,logs,containers,notify", on the theory that a narrow
+// token bounded the agent. It did not: a workspace agent runs as root in a
+// shell on the host, and anything the token withheld it could do with a
+// command instead — only without the audit log, the checks and the tools
+// that make it safe to do. So the list stopped agents at exactly the work
+// they were there for ("put this app on a domain" needed "domains"), sent
+// people to a token setting to widen it, and protected nothing.
+//
+// Named rather than "*": a token holding "*" may reach /api/v1/auth and mint
+// another, and no scope does that. Deriving it from auth.Scopes means a scope
+// added later is granted here without anybody remembering to.
+func workspaceScopes() string { return strings.Join(auth.Scopes, ",") }
+
+// widenWorkspaceTokens brings the tokens of workspaces made before the list
+// above to it, in place. A new token would have meant rewriting each
+// workspace's configuration and restarting its agents; changing the scopes of
+// the one they already hold reaches them on their next call.
+func (s *Server) widenWorkspaceTokens(ctx context.Context) {
+	if s.workspaces == nil || s.auth == nil {
+		return
+	}
+	ids, err := s.workspaces.TokenIDs(ctx)
+	if err != nil {
+		return
+	}
+	want := workspaceScopes()
+	for _, id := range ids {
+		if err := s.auth.SetTokenScopes(ctx, id, want); err != nil && s.log != nil {
+			s.log.Warn("workspace token could not be widened", "token", id, "err", err)
+		}
+	}
 }

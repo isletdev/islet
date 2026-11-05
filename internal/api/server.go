@@ -166,6 +166,7 @@ func New(d Deps) http.Handler {
 	// business, and this is the layer that holds the daemon's keys.
 	if s.workspaces != nil {
 		s.workspaces.AgentEnv = s.AgentEnv
+		s.widenWorkspaceTokens(context.Background())
 	}
 	// The SQL client costs a map and a ticker until somebody opens a
 	// connection, which is the whole argument for it living in the daemon.

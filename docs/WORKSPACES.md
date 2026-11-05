@@ -90,18 +90,20 @@ token and a configuration file pointing at this panel's MCP endpoint. The agent
 can then use Islet's own tools — read a container's logs, restart a container,
 check uptime, send you a message — instead of working it out as root.
 
-The token is scoped to `read, logs, containers, notify`, and not `shell`.
+The token carries every scope there is, by name, so the agent can do through
+Islet whatever you ask of it — put an app on a domain, deploy it, give it a
+database, schedule a job — without anybody widening a token first. It still
+cannot reach accounts or tokens: no scope covers those, so it cannot mint
+another token or change who may sign in.
 
-**Be clear about what that does and does not bound.** The token belongs to the
-admin who created the workspace, so every admin-only check it meets is already
-satisfied; the scopes are the only thing narrowing it. That makes the list worth
-reading carefully rather than trusting the absence of `shell`, and two entries
-used to be on it that should not have been: `cron` wrote a job, and a job is a
-command run as root on a schedule, and `containers` wrote a Compose file, one
-line of which — `privileged: true`, or a bind mount of `/` — is the host
-filesystem. Both doors are closed now: `cron` is gone from the list, and writing
-a stack needs `system`, which this token does not have. Bringing a stack up or
-down still only needs `containers`.
+**Why not narrower.** It used to be `read, logs, containers, notify`, on the
+theory that a small token bounded the agent. It did not. The agent runs as root
+in a shell on the host, so anything the token withheld it could still do with a
+command — only without the audit log, the validation and the rollback that come
+with doing it through Islet. The narrow list stopped agents at exactly the work
+they were there for and protected nothing. Workspaces made before v0.40.5 had
+their tokens widened in place when the daemon started, so a running agent kept
+its token and simply gained the scopes.
 
 What remains is real and should be understood before turning this on. The token
 does not expire, it lives in a file the agent can read, and a workspace runs as
@@ -129,7 +131,7 @@ feature, and it is worth saying plainly rather than burying.
 - Every attach is written to the audit log, with the address it came from.
 - Every tmux command goes through the command runner, so it appears in the
   command log too.
-- The MCP token is narrower than the shell the agent already has, so it is not
+- The MCP token is no wider than the shell the agent already has, so it is not
   the risk — it is an audited, revocable path for things the agent would
   otherwise do as root.
 

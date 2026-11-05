@@ -772,6 +772,26 @@ func (s *Service) TokenID(ctx context.Context, id string) string {
 	return tokenID
 }
 
+// TokenIDs lists the API tokens every workspace on this server holds. It reads
+// the table and nothing else, so it costs no tmux call per workspace.
+func (s *Service) TokenIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.st.DB.QueryContext(ctx,
+		`SELECT mcp_token_id FROM workspaces WHERE server_id = ? AND mcp_token_id != ''`, s.st.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // Save inserts or updates a workspace.
 func (s *Service) Save(ctx context.Context, actor string, w *Workspace) (*Workspace, error) {
 	if err := w.Validate(); err != nil {
