@@ -56,27 +56,71 @@ func currentCookieDomain(r *http.Request) string {
 // they have already completed would only loop.
 func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 	site := r.Header.Get("X-Forwarded-Host")
+	list := r.URL.Query().Get("u")
+	signedIn := ""
 	if u := s.gateUser(r); u != nil {
-		if !userAllowed(r.URL.Query().Get("u"), u.Username) {
-			s.denyProtected(w, r, u.Username, site)
+		if userAllowed(list, u.Username) {
+			w.Header().Set("X-Islet-User", u.Username)
+			w.Header().Set("X-Islet-Role", u.Role)
+			w.WriteHeader(http.StatusOK)
 			return
 		}
-		w.Header().Set("X-Islet-User", u.Username)
-		w.Header().Set("X-Islet-Role", u.Role)
-		w.WriteHeader(http.StatusOK)
+		signedIn = u.Username
+	}
+	// A site person, signed in on this host and named on this route. Their
+	// session is bound to the host it was made on, so a cookie an application
+	// has seen cannot be replayed at another protected site.
+	if c, err := r.Cookie(siteCookie); err == nil && c.Value != "" {
+		if sess, p, err := s.auth.SiteSessionByToken(r.Context(), c.Value, site); err == nil && !sess.MFAPending {
+			if siteAllowed(list, p.Username) {
+				w.Header().Set("X-Islet-User", p.Username)
+				w.Header().Set("X-Islet-Role", "site")
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			if signedIn == "" {
+				s.denySite(w, r, p.Username, site)
+				return
+			}
+		}
+	}
+	if signedIn != "" {
+		s.denyProtected(w, r, signedIn, site)
 		return
 	}
 	proto := r.Header.Get("X-Forwarded-Proto")
 	if proto == "" {
 		proto = "https"
 	}
-	next := proto + "://" + site + r.Header.Get("X-Forwarded-Uri")
-	panel := s.panelURL(r.Context())
-	if panel == "" {
-		http.Error(w, "sign in to the Islet panel first", http.StatusUnauthorized)
-		return
+	// To the sign-in page on the site itself. It offers the panel as well when
+	// this route admits panel accounts, which is the only reason it needs to
+	// know anything about the rule.
+	q := url.Values{"next": {r.Header.Get("X-Forwarded-Uri")}}
+	if admitsPanel(list) {
+		q.Set("a", "1")
 	}
-	http.Redirect(w, r, panel+"/login?next="+url.QueryEscape(next), http.StatusFound)
+	http.Redirect(w, r, proto+"://"+site+"/_islet/login?"+q.Encode(), http.StatusFound)
+}
+
+// siteAllowed reports whether a rule names this site person. An empty list is
+// "any signed-in Islet user" and has always meant panel accounts; a site
+// person gets in only where they are named.
+func siteAllowed(list, username string) bool {
+	return slices.Contains(splitUsers(list), auth.SitePrefix+auth.NormSiteUsername(username))
+}
+
+// admitsPanel reports whether a rule lets any panel account in.
+func admitsPanel(list string) bool {
+	names := splitUsers(list)
+	if len(names) == 0 {
+		return true
+	}
+	for _, n := range names {
+		if !strings.HasPrefix(n, auth.SitePrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // userAllowed reports whether a rule's allow-list admits this account.
@@ -87,7 +131,7 @@ func (s *Server) handleForwardAuth(w http.ResponseWriter, r *http.Request) {
 // working rather than turning into a site nobody can reach.
 func userAllowed(list, username string) bool {
 	allowed := splitUsers(list)
-	return len(allowed) == 0 || slices.Contains(allowed, strings.ToLower(username))
+	return len(allowed) == 0 || slices.Contains(allowed, proxy.AnyAccount) || slices.Contains(allowed, strings.ToLower(username))
 }
 
 // gateUser is who is asking, as far as the gate is concerned.

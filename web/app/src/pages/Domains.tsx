@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { pollInterval } from "@/lib/poll";
-import { api, RequestError, type Container, type Domain, type DomainLocation, type ProxyStatus , type DNSCheck } from "@/lib/api";
+import { api, RequestError, type Container, type Domain, type DomainLocation, type LoginPageLook, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { failure, useDialog } from "@/lib/dialogs";
@@ -117,11 +117,28 @@ function protectBadge(d: Domain): string {
 
 const listed = (l: string | undefined) => (l ?? "").split(",").map((u) => u.trim()).filter(Boolean);
 
-/** Add or remove one name, keeping the order people entered it in. */
+/** "*" on a list is any panel account, which an empty list already means. */
+const ANY = "*";
+const SITE = "site:";
+
+/**
+ * Add or remove one name, keeping the order people entered it in.
+ *
+ * A site person added to an empty list brings "*" with them, so the panel
+ * accounts the empty list let in are still let in — naming somebody from
+ * outside should not quietly lock everybody else out. On its own "*" is the
+ * empty list again.
+ */
 function toggleUser(list: string | undefined, u: string): string {
   const cur = listed(list);
-  return (cur.includes(u) ? cur.filter((n) => n !== u) : [...cur, u]).join(",");
+  let out = cur.includes(u) ? cur.filter((n) => n !== u) : [...cur, u];
+  if (!cur.includes(u) && cur.length === 0 && u.startsWith(SITE)) out = [ANY, u];
+  if (out.length === 1 && out[0] === ANY) out = [];
+  return out.join(",");
 }
+
+/** Whether any of these lists lets a panel account in. */
+const admitsPanel = (lists: string[]) => lists.some((l) => { const n = listed(l); return n.length === 0 || n.some((x) => !x.startsWith(SITE)); });
 
 /**
  * Who may reach what, as one grid.
@@ -138,14 +155,14 @@ function toggleUser(list: string | undefined, u: string): string {
  * single "protect" switch always meant — so the grid has no state the old
  * checkbox could not reach, and nothing to migrate.
  */
-function Protection({ value, users, onChange, cookieDom }: { value: Domain; users: string[]; onChange: (patch: Partial<Domain>) => void; cookieDom: string }) {
+function Protection({ value, users, sitePeople, onChange, cookieDom }: { value: Domain; users: string[]; sitePeople: string[]; onChange: (patch: Partial<Domain>) => void; cookieDom: string }) {
   const locs = value.locations ?? [];
   const setLoc = (i: number, patch: Partial<DomainLocation>) =>
     onChange({ locations: locs.map((l, n) => (n === i ? { ...l, ...patch } : l)) });
 
   // Names already on a list stay in the grid even when no such account
   // exists any more: a tick nobody can see is a tick nobody can remove.
-  const names = [...users];
+  const names = [ANY, ...users, ...sitePeople.map((u) => SITE + u)];
   for (const l of [value.protectUsers, ...locs.map((l) => l.protectUsers)]) {
     for (const u of listed(l)) if (!names.includes(u)) names.push(u);
   }
@@ -169,7 +186,14 @@ function Protection({ value, users, onChange, cookieDom }: { value: Domain; user
   // An inherited row shows its host's list, greyed: what it would enforce.
   const effUsers = (r: Row) => (r.protect === "inherit" ? value.protectUsers ?? "" : r.users);
   const anyOn = rows.some(on);
-  const warning = anyOn ? protectWarning(value.host, cookieDom, value.tls) : "";
+  // The cookie-domain limits are about panel accounts, whose sign-in happens
+  // on the panel and has to reach the site in a cookie. Site people sign in on
+  // the site itself, so a route only they can open has nothing to warn about.
+  const warning = anyOn && admitsPanel(rows.filter(on).map(effUsers)) ? protectWarning(value.host, cookieDom, value.tls) : "";
+  const ticked = (r: Row, u: string) => {
+    const l = listed(effUsers(r));
+    return u === ANY ? l.length === 0 || l.includes(ANY) : l.includes(u);
+  };
 
   return (
     <div className="rounded-md border border-border p-3">
@@ -178,14 +202,18 @@ function Protection({ value, users, onChange, cookieDom }: { value: Domain; user
         A protected route asks for an Islet login before the request reaches the app. It does not replace
         the app&rsquo;s own login — it keeps the outside world from ever seeing it.
       </p>
-      {warning && <div className="mt-3"><Alert tone="warning">{warning}</Alert></div>}
+      {warning && <div className="mt-3"><Alert tone="warning">{warning} People from Site access are not affected: they sign in on this site&rsquo;s own page.</Alert></div>}
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[26rem] border-collapse text-xs">
           <thead>
             <tr className="text-left text-ink-muted">
               <th className="sticky left-0 z-10 w-full bg-surface py-1 pr-3 font-medium">Route</th>
               <th className="py-1 pr-3 font-medium">Access</th>
-              {names.map((u) => <th key={u} className="px-2 py-1 text-center font-medium whitespace-nowrap">{u}</th>)}
+              {names.map((u) => (
+                <th key={u} className="px-2 py-1 text-center font-medium whitespace-nowrap">
+                  {u === ANY ? "Any Islet account" : u.startsWith(SITE) ? <>{u.slice(SITE.length)} <span className="rounded-sm border border-border-strong px-1 text-[10px] font-normal text-ink-muted">site</span></> : u}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -205,28 +233,131 @@ function Protection({ value, users, onChange, cookieDom }: { value: Domain; user
                         </>}
                   </Select>
                 </td>
-                {names.map((u) => (
-                  <td key={u} className="px-2 py-1.5 text-center">
-                    <label className="-my-1 inline-flex py-1" title={on(r) ? `Let ${u} reach ${r.label}` : "This route does not ask for a login"}>
-                      <input
-                        type="checkbox"
-                        aria-label={`${u} may reach ${r.label}`}
-                        disabled={!on(r) || r.protect === "inherit" || (isPanel && r.key === "root")}
-                        checked={on(r) && listed(effUsers(r)).includes(u)}
-                        onChange={() => r.onUsers(toggleUser(r.users, u))}
-                      />
-                    </label>
-                  </td>
-                ))}
+                {names.map((u) => {
+                  const who = u === ANY ? "any Islet account" : u.startsWith(SITE) ? u.slice(SITE.length) : u;
+                  // An empty list already is "any account": there is nothing to
+                  // untick until somebody is named.
+                  const implied = u === ANY && listed(r.users).length === 0;
+                  return (
+                    <td key={u} className="px-2 py-1.5 text-center">
+                      <label className="-my-1 inline-flex py-1" title={on(r) ? `Let ${who} reach ${r.label}` : "This route does not ask for a login"}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${who} may reach ${r.label}`}
+                          disabled={!on(r) || r.protect === "inherit" || (isPanel && r.key === "root") || implied}
+                          checked={on(r) && ticked(r, u)}
+                          onChange={() => r.onUsers(toggleUser(r.users, u))}
+                        />
+                      </label>
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <p className="mt-2 text-xs text-ink-muted">
-        Tick nobody and a protected route lets in any signed-in Islet user. Tick names and only those
-        accounts get through; anyone else signed in is told so.
+        Tick nobody and a protected route lets in any signed-in Islet account. Tick names and only those get
+        through; anyone else signed in is told so. People marked <em>site</em> are from{" "}
+        <Link to="/site-access" className="underline">Site access</Link>: they sign in on this site&rsquo;s own page and can
+        open nothing else here.
       </p>
+    </div>
+  );
+}
+
+const LOOK_EMPTY: LoginPageLook = { title: "", message: "", logo: "", accent: "", theme: "auto", css: "", panelLink: true };
+
+/**
+ * How this domain's sign-in page looks.
+ *
+ * Saved on its own, apart from the domain: it changes nothing the proxy
+ * routes, so it needs no apply and can be tried, looked at and changed again.
+ * Fields rather than an uploaded page — the page holds a password form, and
+ * one written by hand could post it somewhere else.
+ */
+function LoginLook({ domainId, host, tls }: { domainId: string; host: string; tls: Domain["tls"] }) {
+  const [look, setLook] = useState<LoginPageLook>(LOOK_EMPTY);
+  const [saved, setSaved] = useState<LoginPageLook>(LOOK_EMPTY);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [showCss, setShowCss] = useState(false);
+  useEffect(() => {
+    void api.loginPage(domainId).then((l) => { setLook(l); setSaved(l); setShowCss(!!l.css); }).catch(() => {});
+  }, [domainId]);
+  const set = (patch: Partial<LoginPageLook>) => { setLook({ ...look, ...patch }); setMsg(null); };
+  const dirty = JSON.stringify(look) !== JSON.stringify(saved);
+  const pickLogo = (f: File | undefined) => {
+    if (!f) return;
+    if (f.size > 300 * 1024) { setMsg({ ok: false, text: "The logo is larger than 300 KB. A small PNG or SVG is plenty." }); return; }
+    const rd = new FileReader();
+    rd.onload = () => set({ logo: String(rd.result) });
+    rd.readAsDataURL(f);
+  };
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try { const l = await api.loginPageSave(domainId, look); setLook(l); setSaved(l); setMsg({ ok: true, text: "Saved. Visitors see it on their next visit." }); }
+    catch (e) { setMsg({ ok: false, text: e instanceof RequestError ? e.message : String(e) }); }
+    finally { setBusy(false); }
+  };
+  const url = `${tls === "none" ? "http" : "https"}://${host.replace(/^\*\./, "x.")}/_islet/login`;
+  return (
+    <div className="rounded-md border border-border p-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-sm font-medium">Sign-in page</span>
+        {!host.startsWith("*.") && <a href={url} target="_blank" rel="noreferrer" className="ml-auto text-xs text-ink-muted underline">Open it</a>}
+      </div>
+      <p className="mt-0.5 text-xs text-ink-muted">
+        What visitors see at <span className="font-mono">/_islet/login</span> on this site. Turn off the Islet link below and it says
+        nothing about Islet or where this panel is.
+      </p>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Title" hint="Empty shows “Sign in”."><Input value={look.title} onChange={(e) => set({ title: e.target.value })} placeholder="Acme client portal" maxLength={120} /></Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Accent colour">
+            <span className="flex gap-2">
+              <input type="color" value={look.accent || "#0a0a0a"} onChange={(e) => set({ accent: e.target.value })} className="h-9 w-10 shrink-0 cursor-pointer rounded-md border border-border-strong bg-bg p-1" aria-label="Pick the accent colour" />
+              <Input value={look.accent} onChange={(e) => set({ accent: e.target.value })} placeholder="default" className="min-w-0 font-mono" />
+            </span>
+          </Field>
+          <Field label="Theme">
+            <Select value={look.theme} onChange={(e) => set({ theme: e.target.value as LoginPageLook["theme"] })}>
+              <option value="auto">Follow the visitor</option><option value="light">Light</option><option value="dark">Dark</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="Message" hint="Under the title. Empty shows “Sign in to continue to …”." className="md:col-span-2">
+          <textarea value={look.message} onChange={(e) => set({ message: e.target.value })} rows={2} maxLength={2000} placeholder="Ask Jasir if you need access." className="w-full rounded-md border border-border-strong bg-bg p-2 text-sm" />
+        </Field>
+        <Field label="Logo" hint="PNG, JPEG, SVG, WebP or GIF, up to 300 KB. Stored in the page itself." className="md:col-span-2">
+          <span className="flex flex-wrap items-center gap-3">
+            {look.logo && <img src={look.logo} alt="Logo preview" className="h-10 max-w-[160px] rounded-sm border border-border bg-surface-2 object-contain p-1" />}
+            <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" onChange={(e) => { pickLogo(e.target.files?.[0]); e.target.value = ""; }} className="min-w-0 text-xs" aria-label="Choose a logo" />
+            {look.logo && <button type="button" onClick={() => set({ logo: "" })} className="-my-1 py-1 text-xs text-ink-muted underline">Remove logo</button>}
+          </span>
+        </Field>
+        <label className="flex items-start gap-2 text-sm md:col-span-2">
+          <input type="checkbox" className="mt-0.5" checked={look.panelLink} onChange={(e) => set({ panelLink: e.target.checked })} />
+          <span>
+            Offer &ldquo;Sign in with an Islet account instead&rdquo;
+            <span className="block text-xs text-ink-muted">Shown only where panel accounts are allowed. Off, the page never mentions Islet; you can still get in by signing in to the panel first.</span>
+          </span>
+        </label>
+        <div className="md:col-span-2">
+          {!showCss
+            ? <button type="button" onClick={() => setShowCss(true)} className="-my-1 py-1 text-xs text-ink-muted underline">Add custom CSS</button>
+            : (
+              <Field label="Custom CSS" hint="Restyles the page; it cannot load anything from elsewhere or send the form anywhere. Variables: --bg, --card, --ink, --muted, --line, --accent.">
+                <textarea value={look.css} onChange={(e) => set({ css: e.target.value })} rows={4} spellCheck={false} placeholder="main { border-radius: 0 }" className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" />
+              </Field>
+            )}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button type="button" className="h-8 px-3 text-xs" disabled={busy || !dirty} onClick={() => void save()}>{busy ? "Saving…" : "Save sign-in page"}</Button>
+        {msg && <span className={`text-xs ${msg.ok ? "text-success" : "text-danger"}`}>{msg.text}</span>}
+      </div>
     </div>
   );
 }
@@ -263,6 +394,10 @@ export default function Domains() {
   // an editor may still open this form, so a refusal means the grid shows only
   // the names already on a list rather than nothing at all.
   const [userNames, setUserNames] = useState<string[]>([]);
+  // People from Site access, offered as columns too. Admin-only like the
+  // accounts above, with the same fallback.
+  const [sitePeople, setSitePeople] = useState<string[]>([]);
+  useEffect(() => { void api.sitePeople().then((r) => setSitePeople(r.people.map((p) => p.username))).catch(() => {}); }, []);
   const formRef = useRef<HTMLDivElement>(null);
   // The form opens under the table, where it is off the bottom of the screen
   // once there are a few domains. Editing that looks like nothing happened is
@@ -633,10 +768,14 @@ export default function Domains() {
               <Protection
                 value={editing}
                 users={userNames}
+                sitePeople={sitePeople}
                 cookieDom={cookieDom}
                 onChange={(patch) => setEditing({ ...editing, ...patch })}
               />
             </div>
+            {isAdmin && editing.id && editing.targetType !== "panel" && (editing.protect || (editing.locations ?? []).some((l) => l.protect === "on")) && (
+              <div className="md:col-span-2"><LoginLook domainId={editing.id} host={editing.host} tls={editing.tls} /></div>
+            )}
             <Field label="Basic auth (optional)" hint={hadBasicAuth ? "This site already asks for a username and password. Leave this empty to keep those users; anything you type replaces them." : "user:password per line. Passwords are hashed on save."}><textarea value={editing.basicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: e.target.value, clearBasicAuth: false })} rows={2} className="w-full rounded-md border border-border-strong bg-bg p-2 font-mono text-xs" />{hadBasicAuth && <label className="mt-1 flex items-center gap-2 text-xs text-ink-muted"><input type="checkbox" checked={!!editing.clearBasicAuth} onChange={(e) => setEditing({ ...editing, basicAuth: "", clearBasicAuth: e.target.checked })} />Remove the users already set, so the site asks for nothing</label>}</Field>
             <Field label="IP allowlist (optional)" hint="CIDRs, comma separated. Everyone else gets 403."><Input value={editing.ipAllowlist} onChange={(e) => setEditing({ ...editing, ipAllowlist: e.target.value })} placeholder="203.0.113.7/32, 10.0.0.0/8" /></Field>
             <Field label="Rate limit (req/s, 0 = off)"><Input value={String(editing.rateLimit)} onChange={(e) => setEditing({ ...editing, rateLimit: Number(e.target.value) || 0 })} inputMode="numeric" /></Field>

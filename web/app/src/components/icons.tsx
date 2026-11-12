@@ -493,7 +493,18 @@ export const MediaIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** A person and a key: somebody let into a site, not into the panel. */
+export const SiteAccessIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.8 19.5a6.3 6.3 0 0 1 10.9-3.6" />
+    <circle cx="17" cy="15" r="2.3" />
+    <path d="M17 17.3V21M17 19.3h1.8" />
+  </Icon>
+);
+
 export const NAV_ICONS: Record<string, (p: IconProps) => ReactNode> = {
+  siteaccess: SiteAccessIcon,
   vpn: VpnIcon,
   assistant: AssistantIcon,
   vault: VaultIcon,

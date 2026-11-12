@@ -180,6 +180,12 @@ paths:
       summary: Revoke a token
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
       responses: { "204": { description: Revoked }, "404": { $ref: "#/components/responses/Error" } }
+    put:
+      tags: [Auth]
+      summary: "Change a token's scopes, keeping its secret (browser session only)"
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { scopes: { type: string } } } } } }
+      responses: { "200": { description: The scopes as stored }, "404": { $ref: "#/components/responses/Error" } }
   /api/v1/system:
     get: { tags: [System], summary: Host facts, responses: { "200": { description: OK } } }
   /api/v1/metrics/latest:
@@ -252,6 +258,19 @@ paths:
     delete: { tags: [Domains], summary: Remove a domain, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: Done } } }
   /api/v1/domains/{id}/dns:
     get: { tags: [Domains], summary: Does the DNS point here?, parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/domains/{id}/login-page:
+    get: { tags: [Domains], summary: "How the domain's sign-in page looks", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    put: { tags: [Domains], summary: "Set the sign-in page: title, message, logo (data URI), accent, theme, CSS, panelLink (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/site-users:
+    get: { tags: [Domains], summary: "People who may sign in to protected sites only, and every protected route (admin)", responses: { "200": { description: OK } } }
+    post: { tags: [Domains], summary: "Add a person: username, name, optional password, requireTotp (admin)", responses: { "201": { description: OK } } }
+  /api/v1/site-users/{id}:
+    put: { tags: [Domains], summary: "Change name, disabled, requireTotp or password, or reset the authenticator (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+    delete: { tags: [Domains], summary: "Remove a person and take them off every allow-list (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "204": { description: OK } } }
+  /api/v1/site-users/{id}/access:
+    put: { tags: [Domains], summary: "Set exactly which protected routes the person may open; routes are domainId or domainId/locationId (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
+  /api/v1/site-users/{id}/invite:
+    post: { tags: [Domains], summary: "A one-time link, valid 72 hours, for the person to set their own password on a protected host (admin)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: OK } } }
   /api/v1/proxy:
     get: { tags: [Domains], summary: Proxy status, responses: { "200": { description: OK } } }
   /api/v1/proxy/install:

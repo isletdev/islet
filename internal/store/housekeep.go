@@ -55,5 +55,11 @@ func (s *Store) Housekeep(ctx context.Context) error {
 			return fmt.Errorf("prune %s by count: %w", t.table, err)
 		}
 	}
+	// A site session is looked at only when its cookie comes back, so one
+	// whose cookie never does would stay for ever. Expiry is RFC 3339 in UTC,
+	// which compares correctly as text.
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM site_sessions WHERE server_id = ? AND expires_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`, s.ServerID); err != nil {
+		return fmt.Errorf("prune site sessions: %w", err)
+	}
 	return nil
 }

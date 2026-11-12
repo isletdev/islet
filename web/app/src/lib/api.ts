@@ -123,6 +123,11 @@ export type TargetType = "container" | "panel" | "url";
 /** One extra path on a host, forwarded somewhere of its own. */
 export type LocationProtect = "inherit" | "on" | "off";
 export interface DomainLocation { id?: string; path: string; targetType: TargetType; target: string; port: number; stripPath: boolean; protect?: LocationProtect; protectUsers?: string }
+/** Somebody who may sign in to protected sites and to nothing else. */
+export interface SitePerson { id: string; username: string; name: string; hasPassword: boolean; totpEnabled: boolean; requireTotp: boolean; disabled: boolean; inviteExpires?: string; createdAt: string; createdBy: string; lastLoginAt: string }
+/** A route that asks for a login: a whole domain, or one path of it. users is its allow-list. */
+export interface ProtectedRoute { key: string; domainId: string; host: string; path: string; users: string }
+export interface LoginPageLook { domainId?: string; title: string; message: string; logo: string; accent: string; theme: "auto" | "light" | "dark"; css: string; panelLink: boolean }
 export interface Domain { id: string; host: string; targetType: TargetType; target: string; port: number; pathPrefix: string; tls: "letsencrypt" | "letsencrypt-dns" | "self" | "none"; redirectWww: boolean; basicAuth: string; clearBasicAuth?: boolean; ipAllowlist: string; rateLimit: number; headers: string; maintenance: boolean; protect?: boolean; protectUsers?: string; enabled: boolean; passHost?: boolean; blockExploits?: boolean; locations?: DomainLocation[]; createdAt: string; updatedAt: string }
 /** One host found in another proxy's configuration. */
 export interface FoundSite {
@@ -606,6 +611,14 @@ export const api = {
   assistantSave: (b: { provider: string; model: string; baseUrl: string; key: string; mcpConfig: string }) => post<{ ok: boolean }>("/api/v1/assistant", b),
   tokenCreate: (b: { name: string; scopes: string; ttlDays: number }) => post<{ token: string; info: ApiToken }>("/api/v1/auth/tokens", b),
   tokenRevoke: (id: string) => post<void>(`/api/v1/auth/tokens/${id}`, undefined, "DELETE"),
+  sitePeople: () => request<{ people: SitePerson[]; routes: ProtectedRoute[] }>("/api/v1/site-users"),
+  sitePersonCreate: (b: { username: string; name: string; password: string; requireTotp: boolean }) => post<SitePerson>("/api/v1/site-users", b),
+  sitePersonUpdate: (id: string, b: { name?: string; disabled?: boolean; requireTotp?: boolean; password?: string; resetTotp?: boolean }) => post<SitePerson>(`/api/v1/site-users/${id}`, b, "PUT"),
+  sitePersonDelete: (id: string) => post<void>(`/api/v1/site-users/${id}`, undefined, "DELETE"),
+  sitePersonAccess: (id: string, routes: string[]) => post<{ routes: ProtectedRoute[] }>(`/api/v1/site-users/${id}/access`, { routes }, "PUT"),
+  sitePersonInvite: (id: string, host: string) => post<{ link: string; expiresAt: string }>(`/api/v1/site-users/${id}/invite`, { host }),
+  loginPage: (domainId: string) => request<LoginPageLook>(`/api/v1/domains/${domainId}/login-page`),
+  loginPageSave: (domainId: string, b: LoginPageLook) => post<LoginPageLook>(`/api/v1/domains/${domainId}/login-page`, b, "PUT"),
   tokenScopes: (id: string, scopes: string) => post<{ id: string; scopes: string }>(`/api/v1/auth/tokens/${id}`, { scopes }, "PUT"),
   sessions: () => request<Session[]>("/api/v1/auth/sessions"),
   revokeSession: (id: string) => post<void>(`/api/v1/auth/sessions/${id}`, undefined, "DELETE"),

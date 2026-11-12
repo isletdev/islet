@@ -227,6 +227,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
 	mux.HandleFunc("/_islet/blocked", s.handleBlockedPage)
 	mux.HandleFunc("/_islet/auth", s.handleForwardAuth)
+	// The sign-in a protected site serves on its own name. The proxy routes
+	// only these three paths of such a host here; each handler refuses any host
+	// that is not a protected domain.
+	mux.HandleFunc("/_islet/login", s.handleSiteLogin)
+	mux.HandleFunc("/_islet/logout", s.handleSiteLogout)
+	mux.HandleFunc("/_islet/invite", s.handleSiteInvite)
 	mux.HandleFunc("GET /api/v1/auth/cookie-domain", s.requireAuth(s.handleCookieDomain))
 	mux.HandleFunc("POST /api/v1/auth/cookie-domain", requireJSON(s.requireAuth(s.handleCookieDomain)))
 	// A GET that changes something, on purpose and as an exception.
@@ -417,6 +423,14 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/domains", s.requireAuth(s.handleDomains))
 	mux.HandleFunc("POST /api/v1/domains", requireJSON(s.requireAuth(s.handleDomainSave)))
 	mux.HandleFunc("PUT /api/v1/domains/{id}", requireJSON(s.requireAuth(s.handleDomainSave)))
+	mux.HandleFunc("GET /api/v1/domains/{id}/login-page", s.requireAuth(s.handleLoginPage))
+	mux.HandleFunc("PUT /api/v1/domains/{id}/login-page", requireJSON(s.requireAuth(s.handleLoginPage)))
+	mux.HandleFunc("GET /api/v1/site-users", s.requireAuth(s.handleSiteUsers))
+	mux.HandleFunc("POST /api/v1/site-users", requireJSON(s.requireAuth(s.handleSiteUsers)))
+	mux.HandleFunc("PUT /api/v1/site-users/{id}", requireJSON(s.requireAuth(s.handleSiteUser)))
+	mux.HandleFunc("DELETE /api/v1/site-users/{id}", s.requireAuth(s.handleSiteUser))
+	mux.HandleFunc("PUT /api/v1/site-users/{id}/access", requireJSON(s.requireAuth(s.handleSiteUserAccess)))
+	mux.HandleFunc("POST /api/v1/site-users/{id}/invite", requireJSON(s.requireAuth(s.handleSiteUserInvite)))
 	mux.HandleFunc("DELETE /api/v1/domains/{id}", requireJSON(s.requireAuth(s.handleDomainDelete)))
 	mux.HandleFunc("GET /api/v1/domains/{id}/dns", s.requireAuth(s.handleDomainDNS))
 	mux.HandleFunc("GET /api/v1/dns-check", s.requireAuth(s.handleDNSCheck))

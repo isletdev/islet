@@ -3866,3 +3866,78 @@ that had since moved to another server, which answered `bad_token`.
 What would reverse it: the PUT route and `WorkspaceAccess` in
 `web/app/src/pages/Workspaces.tsx`.
 
+## Site access: people who may open a protected site and nothing else (v0.41.0)
+
+Asked for: give a colleague a username and password for one protected domain,
+without an Islet account, because the server holds other clients' data; and a
+sign-in page per domain that looks like the client's and not like Islet's.
+
+**Their own tables, not a role on `users`.** `site_users` and `site_sessions`
+sit beside the panel's. Every check that admits somebody to the panel, the API,
+a terminal or a file reads `users` and `sessions`, so a person who is not in
+those tables cannot get through any of them by a route somebody forgot to
+close. A fourth role would have needed "except site people" at each of those
+checks, and the cost of missing one is exactly the confidential data the
+request was about. Tested directly: a site sign-in is refused as a panel
+session, a gate token and an API token, and the panel's own login does not
+know the name.
+
+**The sign-in is served on the protected host.** Traefik routes three exact
+paths — `/_islet/login`, `/_islet/logout`, `/_islet/invite` — of every host
+that asks for a login to the daemon, above the host's locations and outside
+its gate; the handlers refuse any host that is not a protected domain. The
+cookie, `islet_site`, is host-only, and the session row records the host, so a
+cookie an application has seen cannot be replayed at another protected site.
+Three things follow: a visitor never learns the panel's address; protection for
+site people works on any domain, not only under the panel's cookie domain; and
+each site asks for its own sign-in rather than one sign-in covering all of them.
+Panel accounts keep the old path (the gate cookie), and the page offers them a
+link to it unless the domain turns that off.
+
+**Allow-lists name site people as `site:<username>`.** One list, one grid,
+one place Traefik reads it. The prefix keeps the namespaces apart: a panel
+username cannot contain a colon. An empty list keeps its meaning — any panel
+account — and a site person is admitted only where named.
+
+**`*` makes "any panel account" explicit.** Naming the first person from outside
+on an empty list would otherwise have quietly shut every panel account out of a
+site they could reach a moment earlier. Adding a site person to an empty list
+writes `*,site:anna`; `*` on its own normalises back to the empty list, so no
+stored rule changes meaning. Removing a person who was the only name on a list
+widens it to any panel account, which is what an empty list has always meant,
+and the panel says so before removing.
+
+**The look is fields, not an uploaded page.** Title, message, logo (stored as a
+data URI), accent, theme and CSS, rendered by `html/template` under
+`default-src 'none'; form-action 'self'`. A page somebody wrote could post the
+password elsewhere or drop the parts the sign-in needs; with fields and that
+policy, custom CSS can restyle the page and cannot load or send anything. CSS
+containing `</style` is refused at save.
+
+**Two-factor without a QR code.** A person who must have a code enrols on the
+site after their password: the page shows the key and an `otpauth:` link. The
+panel draws QR codes with a JavaScript library, and the sign-in page is plain
+server-rendered HTML that loads nothing; a QR encoder in Go would have been the
+only new dependency in the feature, for a step done once.
+
+**The client address is the proxy's `X-Real-Ip`, believed only from a private
+or loopback peer.** Without it every visitor shared one rate-limit bucket, the
+proxy's, and one person guessing passwords would lock everybody out.
+
+Not done: self-service password reset (it needs mail delivery Islet does not
+assume), and stripping `islet_site` before the request reaches the app — the
+app sees the cookie, as it sees the gate cookie, and can only replay it on its
+own host, which is itself.
+
+Measured end to end against a throwaway Traefik v3.5 on a spare port with two
+protected hosts and a backend echoing what it received: a stranger is sent to
+the site's own page; the right password reaches the app with `X-Islet-User` and
+`X-Islet-Role: site`, a forged `X-Islet-User` is overwritten; a path not naming
+the person answers a page that says nothing about Islet; the same cookie on the
+other host is sent to sign in; the cookie is refused by the panel API; a
+required second factor is enrolled with a real TOTP code; disabling someone
+ends their session at once; an invitation sets a password and then answers 410.
+
+What would reverse it: the `-gate` router in `Render`, `site.go` in `auth`, and
+`sitegate.go` in `api`; existing allow-lists need no change either way.
+

@@ -16,6 +16,7 @@ const Console = lazy(() => import("./pages/Console"));
 const ContainersRoot = lazy(() => import("./pages/Containers"));
 const Files = lazy(() => import("./pages/Files"));
 const Domains = lazy(() => import("./pages/Domains"));
+const SiteAccess = lazy(() => import("./pages/SiteAccess"));
 const DomainImport = lazy(() => import("./pages/DomainImport"));
 const Apps = lazy(() => import("./pages/Apps"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/containers/*" element={<ContainersRoot />} />
         <Route path="/files" element={<Files />} />
         <Route path="/domains" element={<Domains />} />
+        <Route path="/site-access" element={<SiteAccess />} />
         <Route path="/domains/import" element={<DomainImport />} />
         <Route path="/apps" element={<Apps />} />
         <Route path="/notifications" element={<Notifications />} />

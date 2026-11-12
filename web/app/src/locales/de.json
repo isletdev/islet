@@ -6,6 +6,8 @@
   "nav.files": "Dateien",
   "nav.files.blurb": "Dateien ansehen, bearbeiten und verschieben ohne SSH.",
   "nav.domains": "Domains",
+  "nav.siteaccess": "Website-Zugang",
+  "nav.siteaccess.blurb": "Personen, die sich bei einer geschützten Website anmelden dürfen, und sonst nirgends hier.",
   "nav.domains.blurb": "Eine Domain auf einen Container zeigen lassen und HTTPS bekommen.",
   "nav.apps": "Apps",
   "nav.apps.blurb": "Apps aus dem Katalog mit einem Klick und Deploys aus Git.",

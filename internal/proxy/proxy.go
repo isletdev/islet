@@ -915,7 +915,124 @@ func normUsers(s string) string {
 		seen[u] = true
 		out = append(out, u)
 	}
+	// "*" is "any panel account", which an empty list already means. It is
+	// written only beside other names — "*,site:bob" keeps every account in
+	// while adding somebody from outside — so on its own it is the empty list.
+	if len(out) == 1 && out[0] == AnyAccount {
+		return ""
+	}
 	return strings.Join(out, ",")
+}
+
+// AnyAccount in an allow-list admits every panel account, as an empty list
+// does. It exists for the list that also names site people: without it,
+// naming the first person from outside would quietly shut every panel account
+// out of a site they could reach a moment earlier.
+const AnyAccount = "*"
+
+// RouteKey names one protectable route: a domain's id, or "id/locationId".
+type RouteKey = string
+
+// ProtectedRoute is a route that asks for a login, and who it lets in.
+type ProtectedRoute struct {
+	Key      RouteKey `json:"key"`
+	DomainID string   `json:"domainId"`
+	Host     string   `json:"host"`
+	Path     string   `json:"path"` // "" for the whole site
+	Users    string   `json:"users"`
+}
+
+// ProtectedRoutes lists every route that asks for a login. A location that
+// inherits is not its own route: it follows the host's list.
+func (m *Manager) ProtectedRoutes(ctx context.Context) ([]ProtectedRoute, error) {
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []ProtectedRoute{}
+	for _, d := range doms {
+		if d.TargetType == "panel" {
+			continue
+		}
+		if d.Protect {
+			out = append(out, ProtectedRoute{Key: d.ID, DomainID: d.ID, Host: d.Host, Users: d.ProtectUsers})
+		}
+		for _, l := range d.Locations {
+			if l.Protect == "on" {
+				out = append(out, ProtectedRoute{Key: d.ID + "/" + l.ID, DomainID: d.ID, Host: d.Host, Path: l.Path, Users: l.ProtectUsers})
+			}
+		}
+	}
+	return out, nil
+}
+
+// withName adds or removes one name from an allow-list. Adding somebody to an
+// empty list writes "*" first, so the accounts the empty list admitted are
+// still admitted afterwards.
+func withName(list, name string, want bool) string {
+	cur := splitList(normUsers(list))
+	has := false
+	var kept []string
+	for _, u := range cur {
+		if u == name {
+			has = true
+			if !want {
+				continue
+			}
+		}
+		kept = append(kept, u)
+	}
+	if want && !has {
+		if len(kept) == 0 {
+			kept = append(kept, AnyAccount)
+		}
+		kept = append(kept, name)
+	}
+	return normUsers(strings.Join(kept, ","))
+}
+
+// SetAccess puts one name on exactly the protected routes in want, and takes
+// it off every other, then applies the result. Routes that do not ask for a
+// login are left alone: a name on them would mean nothing.
+func (m *Manager) SetAccess(ctx context.Context, actor, name string, want map[RouteKey]bool) error {
+	doms, err := m.Domains(ctx)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range doms {
+		d := doms[i]
+		dirty := false
+		if d.Protect && d.TargetType != "panel" {
+			if out := withName(d.ProtectUsers, name, want[d.ID]); out != normUsers(d.ProtectUsers) {
+				d.ProtectUsers, dirty = out, true
+			}
+		}
+		for j := range d.Locations {
+			l := &d.Locations[j]
+			if l.Protect != "on" {
+				continue
+			}
+			if out := withName(l.ProtectUsers, name, want[d.ID+"/"+l.ID]); out != normUsers(l.ProtectUsers) {
+				l.ProtectUsers, dirty = out, true
+			}
+		}
+		if !dirty {
+			continue
+		}
+		if err := m.writeDomain(ctx, &d); err != nil {
+			return err
+		}
+		if err := m.saveLocations(ctx, d.ID, d.Locations); err != nil {
+			return err
+		}
+		_ = m.st.Audit(ctx, actor, "domain.protect.access", d.Host, name)
+		changed = true
+	}
+	if changed {
+		return m.Reconcile(ctx)
+	}
+	return nil
 }
 
 func splitList(s string) []string {
@@ -1475,6 +1592,22 @@ func Render(domains []Domain, panelURL string) ([]byte, error) {
 		}
 		router["priority"] = priority
 		routers[name] = router
+
+		// The sign-in page lives on the protected host itself, so a visitor
+		// never sees the panel's address and its cookie belongs to this host
+		// alone — which also means protection no longer depends on the panel
+		// sharing a parent domain with the site. Three exact paths, not a
+		// prefix: nothing else the daemon serves is reachable through an
+		// application's name. Above every location on the host, and outside
+		// the gate, since it is where the gate sends people.
+		if d.AsksForLogin() {
+			grule := hostRule + " && (Path(`/_islet/login`) || Path(`/_islet/logout`) || Path(`/_islet/invite`))"
+			gr := map[string]any{"rule": grule, "entryPoints": router["entryPoints"], "middlewares": []string{proto, "islet-strip-identity"}, "service": "islet-panel", "priority": priority + 100}
+			if t, ok := router["tls"]; ok {
+				gr["tls"] = t
+			}
+			routers[name+"-gate"] = gr
+		}
 
 		// A location is a longer rule on the same host, and has to win against
 		// the root. Traefik ranks by rule length only when no priority is set,

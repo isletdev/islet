@@ -39,6 +39,7 @@ export const NAV: NavItem[] = [
 
   { path: "/apps", key: "apps", label: "Apps", group: "deploy", phase: "v0.3", ready: true, blurb: "One-click apps from the catalog and deploys from Git." },
   { path: "/domains", key: "domains", label: "Domains", group: "deploy", phase: "v0.3", ready: true, blurb: "Point a domain at a container and get HTTPS." },
+  { path: "/site-access", key: "siteaccess", label: "Site access", group: "deploy", phase: "v0.41", ready: true, blurb: "People who may sign in to a protected site, and to nothing else here." },
   { path: "/databases", key: "databases", label: "Databases", group: "deploy", phase: "v0.4", ready: true, blurb: "Postgres, MySQL, Redis and friends with backups." },
   { path: "/runners", key: "runners", label: "Runners", group: "deploy", phase: "v0.5", ready: true, blurb: "GitHub Actions, GitLab and Gitea runners on this server." },
   { path: "/media", key: "media", label: "Media", group: "deploy", phase: "v0.27", ready: true, blurb: "An upload and image API your apps call, storing here or on S3, R2, MinIO." },

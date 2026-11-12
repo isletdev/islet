@@ -276,6 +276,11 @@ var areas = []struct{ prefix, scope string }{
 	{"/api/v1/domains", "domains"},
 	{"/api/v1/proxy", "domains"},
 	{"/api/v1/certificates", "domains"},
+	// People who may sign in to protected sites and nothing else. Under the
+	// scope that decides which sites ask for a login, not beside the panel's
+	// own accounts, which no token reaches: a site person opens a site, never
+	// this panel.
+	{"/api/v1/site-users", "domains"},
 	{"/api/v1/backups", "backups"},
 	// Its own scope rather than "settings": configuring the media service mints
 	// credentials that applications on the open internet hold, and a token that
