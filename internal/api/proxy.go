@@ -8,16 +8,66 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/isletdev/islet/internal/proxy"
 	"github.com/isletdev/islet/pkg/api"
 )
 
+// handleMaintenancePage answers every request to a site in maintenance.
+//
+// Any method, since an API client posts as often as it reads, and a 405 would
+// tell it something other than the truth. A client that asked for JSON, or a
+// request whose original path was under /api, gets the same message as JSON;
+// Traefik's replacePath leaves the original in X-Replaced-Path.
 func (s *Server) handleMaintenancePage(w http.ResponseWriter, r *http.Request) {
+	mt := s.proxy.Maintenance(r.Context())
+	w.Header().Set("Retry-After", strconv.Itoa(mt.RetryAfter(time.Now())))
+	w.Header().Set("Cache-Control", "no-store")
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write(proxy.MaintenanceJSON(mt))
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Retry-After", "120")
 	w.WriteHeader(http.StatusServiceUnavailable)
-	_, _ = w.Write([]byte(proxy.MaintenancePage))
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(proxy.MaintenanceHTML(mt))
+	}
+}
+
+func wantsJSON(r *http.Request) bool {
+	orig := r.Header.Get("X-Replaced-Path")
+	if orig == "/api" || strings.HasPrefix(orig, "/api/") {
+		return true
+	}
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
+		return true
+	}
+	return strings.HasPrefix(r.Header.Get("Content-Type"), "application/json")
+}
+
+func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, s.proxy.Maintenance(r.Context()))
+		return
+	}
+	if !s.adminOnly(w, r) {
+		return
+	}
+	var in proxy.Maintenance
+	if err := decode(r, &in); err != nil {
+		s.badJSON(w, err)
+		return
+	}
+	mt, err := s.proxy.SetMaintenance(r.Context(), userFrom(r.Context()).Username, in)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "maintenance", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, mt)
 }
 
 // handleBlockedPage answers the requests the exploit filter caught.

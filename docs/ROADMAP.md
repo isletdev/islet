@@ -94,6 +94,7 @@ After this phase a user can: point a domain at any container, get a certificate 
 - [x] DNS helper: shows the exact record to create and rechecks on demand
 - [x] DNS-01 wildcards for Cloudflare, Hetzner DNS, DigitalOcean, Route53, deSEC, Porkbun, Gandi, OVH, Namecheap, Linode, Vultr, Scaleway (credentials encrypted; issuance unverified until a real domain exists)
 - [x] Per-route options: www and https redirects, basic auth, IP allowlist, rate limit, custom headers, path prefix, maintenance page
+- [x] Server-wide maintenance mode: every site answers a scheduled-maintenance page (JSON for API clients) with a message and expected end, the panel excepted
 - [x] Certificate inventory with expiry (manual renewal pending)
 - [x] Any Compose stack with Traefik labels works unchanged (Docker provider enabled, exposedByDefault off)
 - [x] Panel itself moves to the user's own domain (target type "panel")
@@ -262,6 +263,7 @@ After this phase a user can: harden SSH and the firewall with one click each, se
 - [x] Presets ("Everything nightly", "Databases hourly", "Config weekly") and a nudge while no plan exists
 - [x] Recovery kit download (repositories, keys, credentials, restore instructions)
 - [x] Recovery kit banner until downloaded, daily reminder event while missing, quarterly reminder after
+- [x] Check a kept recovery kit: open each repository with the kit's own keys and report what it can restore
 - [x] Retention in plain English with the maximum snapshot count
 - [x] Repository size after every run with a rough monthly cost
 - [x] Consistency: automatic pre-snapshot database dumps

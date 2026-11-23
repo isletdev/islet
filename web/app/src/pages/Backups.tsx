@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { api, RequestError, type BackupDestination, type BackupHost, type BackupOverview, type BackupPlan, type BackupRun, type BackupSource, type Snapshot } from "@/lib/api";
+import { api, RequestError, type BackupDestination, type BackupHost, type BackupOverview, type BackupPlan, type BackupRun, type BackupSource, type KitReport, type Snapshot } from "@/lib/api";
 import { postStream } from "@/lib/stream";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, FieldAction, Input, Select } from "@/components/ui";
@@ -32,6 +32,7 @@ export default function Backups() {
   const [editPlan, setEditPlan] = useState<Partial<BackupPlan> | null>(null);
   const [selPlan, setSelPlan] = useState<string | null>(null);
   const [browse, setBrowse] = useState<string | null>(null);
+  const [kit, setKit] = useState<KitReport | null>(null);
   const load = useCallback(() => api.backups().then((x) => { setO(x); setError(null); }).catch((e) => setError(err(e))), []);
   useEffect(() => { void load(); const stop = pollInterval(() => void load(), 20000); return stop; }, [load]);
   if (error) return <div className="mx-auto max-w-6xl"><Alert>{error}</Alert></div>;
@@ -46,8 +47,10 @@ export default function Backups() {
           <h1 className="text-xl font-semibold tracking-[-0.02em]">Backups</h1>
           <p className="mt-1 text-ink-muted">Encrypted, deduplicated snapshots with restic. Nothing to install: it runs in a container.</p>
         </div>
-        {isAdmin && o.destinations.length > 0 && <a href="/api/v1/backups/kit" className="text-sm text-ink-muted hover:text-ink">Download recovery kit</a>}
+        {isAdmin && o.destinations.length > 0 && <div className="flex flex-wrap gap-4 text-sm"><a href="/api/v1/backups/kit" className="-my-1 py-1 text-ink-muted hover:text-ink">Download recovery kit</a><KitPicker onReport={setKit} /></div>}
       </div>
+      {isAdmin && o.destinations.length > 0 && o.kitDownloadedAt && <p className="-mt-3 text-xs text-ink-muted">Recovery kit last downloaded {fmt(o.kitDownloadedAt)}. A new download is just as valid: it is written from the current keys each time.</p>}
+      {kit && <KitResult report={kit} onClose={() => setKit(null)} />}
       {o.plans.length > 0 && !o.kitDownloadedAt && isAdmin && <Alert tone="warning">The recovery kit has never been downloaded. Without it, these encrypted backups are unreadable once this server is gone. <a href="/api/v1/backups/kit" className="underline">Download it now</a> and keep it somewhere else.</Alert>}
       {o.plans.length === 0 && <Alert tone="warning">No backup plan yet. Add a destination, then a plan. "Everything nightly" takes two minutes.</Alert>}
       {o.plans.length > 0 && (
@@ -74,7 +77,7 @@ export default function Backups() {
               // which is not an improvement on running off the edge.
               <li key={d.id} className="flex flex-wrap items-start justify-between gap-2 py-2">
                 <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto"><span className="font-medium">{d.name}</span> <span className="ml-1 break-all font-mono text-[11px] text-ink-muted">{d.repo}</span><div className="text-xs break-words text-ink-muted">{d.lastCheck ? `${d.checkOk ? "verified" : "check FAILED"} ${fmt(d.lastCheck)}` : "not verified yet"}{d.size > 0 && ` · ${bytes(d.size)} stored · about $${(d.size / 1073741824 * 0.006).toFixed(2)}/month at typical object storage prices`}{d.lastRestoreTest && ` · restore test ${d.restoreTestOk ? "passed" : "FAILED"} ${fmt(d.lastRestoreTest)}`}</div></div>
-                <div className="flex flex-wrap gap-3 text-xs"><button type="button" onClick={() => setBrowse(browse === d.id ? null : d.id)} className="text-ink-muted hover:text-ink">Snapshots</button>{isAdmin && <><button type="button" onClick={async () => { try { await api.destinationVerify(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="text-ink-muted hover:text-ink">Verify</button><button type="button" onClick={async () => { try { const r = await api.destinationRestoreTest(d.id); void ask.alert({ title: "Restore test finished", body: <pre className="max-h-64 overflow-auto font-mono text-xs whitespace-pre-wrap">{r.output}</pre> }); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="text-ink-muted hover:text-ink">Restore test</button><button type="button" onClick={() => setEditDest({ ...d })} className="text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (await ask.confirm({ title: `Remove the destination ${d.name}?`, body: "Islet stops sending backups there and forgets its credentials. The snapshots already in the repository are not touched, so adding it again with the same credentials finds them.", confirmLabel: "Remove destination", tone: "danger" })) { try { await api.destinationDelete(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } } }} className="text-danger hover:underline">Remove</button></>}</div>
+                <div className="flex flex-wrap gap-3 text-xs"><button type="button" onClick={() => setBrowse(browse === d.id ? null : d.id)} className="-my-1 py-1 text-ink-muted hover:text-ink">Snapshots</button>{isAdmin && <><button type="button" onClick={async () => { try { await api.destinationVerify(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="-my-1 py-1 text-ink-muted hover:text-ink">Verify</button><button type="button" onClick={async () => { try { const r = await api.destinationRestoreTest(d.id); void ask.alert({ title: "Restore test finished", body: <pre className="max-h-64 overflow-auto font-mono text-xs whitespace-pre-wrap">{r.output}</pre> }); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } }} className="-my-1 py-1 text-ink-muted hover:text-ink">Restore test</button><button type="button" onClick={() => setEditDest({ ...d })} className="-my-1 py-1 text-ink-muted hover:text-ink">Edit</button><button type="button" onClick={async () => { if (await ask.confirm({ title: `Remove the destination ${d.name}?`, body: "Islet stops sending backups there and forgets its credentials. The snapshots already in the repository are not touched, so adding it again with the same credentials finds them.", confirmLabel: "Remove destination", tone: "danger" })) { try { await api.destinationDelete(d.id); await load(); } catch (e) { void ask.alert({ title: "That did not work", body: err(e), tone: "danger" }); } } }} className="-my-1 py-1 text-danger hover:underline">Remove</button></>}</div>
               </li>
             ))}
             {o.destinations.length === 0 && <li className="py-2 text-ink-muted">None yet.</li>}
@@ -100,6 +103,56 @@ export default function Backups() {
       {plan && <PlanDetail plan={plan} isAdmin={isAdmin} onChanged={load} onEdit={() => setEditPlan({ ...plan })} />}
       {browse && <SnapshotBrowser destId={browse} isAdmin={isAdmin} volumes={o.volumes} />}
     </div>
+  );
+}
+
+// Opens the repositories in a kit somebody kept, with the kit's own keys. A
+// kit is written from the current keys at each download, so the question is
+// never "is there a kit" but "does the copy I kept still open my backups".
+function KitPicker({ onReport }: { onReport: (r: KitReport) => void }) {
+  const ask = useDialog();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const pick = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    try { onReport(await api.recoveryKitCheck(await f.text())); }
+    catch (e) { void ask.alert({ title: "The kit could not be checked", body: err(e), tone: "danger" }); }
+    finally { setBusy(false); if (input.current) input.current.value = ""; }
+  };
+  return (
+    <>
+      <input ref={input} type="file" accept=".json,application/json" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
+      <button type="button" disabled={busy} onClick={() => input.current?.click()} className="-my-1 py-1 text-ink-muted hover:text-ink disabled:opacity-60">{busy ? "Checking the kit…" : "Check a recovery kit"}</button>
+    </>
+  );
+}
+
+function KitResult({ report, onClose }: { report: KitReport; onClose: () => void }) {
+  const good = report.destinations.filter((d) => d.ok).length;
+  const all = good === report.destinations.length && report.uncovered.length === 0;
+  return (
+    <Card title="Recovery kit check" description={`Kit made ${fmt(report.generatedAt) || "at an unknown time"}${report.hostname ? ` on ${report.hostname}` : ""}. Each repository was opened with the key in the kit; nothing from it was kept.`}>
+      <Alert tone={all ? "success" : good > 0 ? "warning" : "danger"}>{all ? "This kit opens every backup this server makes. Keep it." : good === 0 ? "This kit opens none of its repositories. Download a new one and keep that instead." : "This kit opens only some of the backups. Download a new one and keep that instead."}</Alert>
+      <ul className="mt-3 divide-y divide-border text-sm">
+        {report.destinations.map((d, i) => (
+          <li key={i} className="flex flex-wrap items-start gap-2 py-2">
+            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${d.ok ? "bg-success" : "bg-danger"}`} />
+            <div className="min-w-0 flex-1">
+              <span className="font-medium">{d.name}</span> <span className="ml-1 break-all font-mono text-[11px] text-ink-muted">{d.repo}</span>
+              <div className="text-xs break-words text-ink-muted">
+                {d.ok ? `Opens. ${d.snapshots} snapshot${d.snapshots === 1 ? "" : "s"}${d.latest ? `, latest ${fmt(d.latest)}` : ""}.` : d.error}
+                {d.here === "same" && ` Same repository and key as the destination ${d.hereName} here.`}
+                {d.here === "other-key" && ` The destination ${d.hereName} here points at this repository with a different key.`}
+                {d.here === "" && " No destination on this server points at it."}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {report.uncovered.length > 0 && <p className="mt-2 text-sm text-warning">Not in this kit: {report.uncovered.join(", ")}. Its backups could not be restored with it.</p>}
+      <div className="mt-3"><Button variant="secondary" className="h-8 text-xs" onClick={onClose}>Close</Button></div>
+    </Card>
   );
 }
 

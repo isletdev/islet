@@ -1341,6 +1341,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	underMaintenance(domains, m.Maintenance(ctx).On)
 	cfg, err := Render(domains, m.panel)
 	if err != nil {
 		return err
@@ -1965,11 +1966,6 @@ func relaxes(d Domain, l Location) bool {
 	}
 	return false
 }
-
-// MaintenancePage is served by the daemon at /_islet/maintenance.
-const MaintenancePage = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Down for maintenance</title>
-<style>body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#0A0A0A;color:#FAFAFA;display:grid;place-items:center;min-height:100vh}main{max-width:32rem;padding:2rem}h1{font-size:1.5rem;margin:0 0 .5rem}p{color:#A3A3A3;margin:0}</style>
-<main><h1>Down for maintenance</h1><p>This site is being updated and will be back shortly.</p></main>`
 
 func (m *Manager) writeMaintenancePage() error { return nil }
 

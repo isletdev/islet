@@ -8,6 +8,7 @@ import { t } from "@/lib/i18n";
 import CommandPalette, { openPalette } from "@/components/CommandPalette";
 import { Mark } from "@/components/ui";
 import UpdateNotice from "@/components/UpdateNotice";
+import MaintenanceNotice from "@/components/MaintenanceNotice";
 import { pollInterval } from "@/lib/poll";
 import {
   NAV_ICONS, MenuIcon, CloseIcon, SunIcon, MoonIcon, UserIcon, ChevronDownIcon,
@@ -313,6 +314,7 @@ export default function Shell() {
           </div>
         </header>
         <UpdateNotice />
+        <MaintenanceNotice />
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet key={server} context={{ health }} />

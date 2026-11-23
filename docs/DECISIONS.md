@@ -3941,3 +3941,65 @@ ends their session at once; an invitation sets a password and then answers 410.
 What would reverse it: the `-gate` router in `Render`, `site.go` in `auth`, and
 `sitegate.go` in `api`; existing allow-lists need no change either way.
 
+
+## Maintenance for every site at once, and checking a recovery kit you kept (v0.42.0)
+
+**The server-wide switch is the per-domain flag applied to every domain, at
+render time.** Each domain already had a maintenance flag that sends its
+routers and locations to the daemon's page. `Reconcile` now sets that flag on
+every domain before rendering when the switch is on, and writes nothing into
+the domain rows, so turning it off restores exactly what was there, including
+a site that was in maintenance on its own. A second mechanism — an entry-point
+middleware in Traefik's static configuration — would have caught traffic Islet
+does not route too, but it means recreating the proxy container to flip a
+switch, which takes every site down for a moment in the act of announcing
+downtime. The panel's own domains are left out, or the switch would lock out
+the person who has to turn it off.
+
+**One page, two answers.** The maintenance handler now takes every method,
+because an API client posts as often as it reads and a 405 would misreport
+what is happening. A request that asks for JSON, sends JSON, or had a path
+under `/api` before Traefik's `replacePath` (which keeps the original in
+`X-Replaced-Path`) gets `{"error":"maintenance","message":…,"until":…}`;
+everything else gets the page. Both are 503 with `Retry-After`, counted to the
+expected end when one is set. The end time is shown and sent, and does not
+switch anything off by itself: work overruns more often than it finishes
+early, and a site coming back mid-migration is worse than one staying down.
+The panel shows a banner on every page while it is on, because the failure
+this switch invites is forgetting it.
+
+Stored as one JSON setting, not a table: it is one value.
+
+Not covered: anything that reaches the server without going through Islet's
+routes — a container publishing its own port, another project's Traefik
+labels. Signed-in admins are not let through to the real site either; that
+needs a forwardAuth in place of `replacePath`, and was not asked for.
+
+**A recovery kit is checked by using it.** The kit is not a stored file. It is
+written from the destinations' current keys at each download, so the answer to
+"I don't know which kit I kept" is that a new download is as valid as the
+first, and an old one stays valid while the repository still accepts its key.
+What breaks an old kit is a destination removed and added again (a new key for
+a new repository) or a repository that was deleted. So "Check a recovery kit"
+opens each repository the kit names with the kit's own credentials, lists its
+snapshots, and says whether a destination here points at the same repository
+with the same key, a different key, or not at all, and which destinations here
+the kit does not cover. Nothing from the kit is stored; the check is audited.
+A local-folder repository that is not on this machine is reported rather than
+created, since the code that runs restic creates a missing folder — right for
+a backup, wrong for a check.
+
+restic's `--json` reports a fatal error as a JSON line; `lastLine` now unwraps
+that to its message, which also fixes the snapshot browser showing
+`{"message_type":"exit_error",…}`.
+
+Measured end to end with a throwaway daemon and Traefik v3.5: a site answered
+200, then 503 with the page and Retry-After for a browser, JSON for a POST
+under `/api` and for `Accept: application/json`, while the panel answered 200;
+off again, the site answered 200. A kit downloaded from a local repository
+opened it (0 snapshots, same key); the same kit with the key changed reported
+"wrong password or no key found" and "different key"; a JSON file that is not
+a kit was refused.
+
+What would reverse it: `underMaintenance` in `Reconcile`, `maintenance.go` in
+`proxy`, `kit.go` in `backup`.

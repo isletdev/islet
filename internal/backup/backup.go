@@ -754,6 +754,15 @@ func lastLine(out string) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if l := strings.TrimSpace(lines[i]); l != "" {
+			// With --json, restic reports a fatal error as JSON too, and
+			// {"message_type":"exit_error",…} is not something to show anyone.
+			var e struct {
+				Type    string `json:"message_type"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal([]byte(l), &e) == nil && e.Type == "exit_error" && e.Message != "" {
+				return strings.TrimPrefix(e.Message, "Fatal: ")
+			}
 			return l
 		}
 	}
@@ -1060,6 +1069,11 @@ func (s *Service) Snapshots(ctx context.Context, actor, destID, plan string) ([]
 	if plan != "" {
 		args = append(args, "--tag", "plan:"+plan)
 	}
+	return s.snapshotsOf(ctx, actor, d, args...)
+}
+
+// snapshotsOf lists a repository's snapshots, newest first.
+func (s *Service) snapshotsOf(ctx context.Context, actor string, d *Destination, args ...string) ([]Snapshot, error) {
 	out, err := s.restic(ctx, actor, d, nil, args...)
 	if err != nil {
 		return nil, errors.New(lastLine(out))

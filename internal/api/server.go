@@ -224,7 +224,7 @@ func New(d Deps) http.Handler {
 
 	// Public
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
-	mux.HandleFunc("GET /_islet/maintenance", s.handleMaintenancePage)
+	mux.HandleFunc("/_islet/maintenance", s.handleMaintenancePage)
 	mux.HandleFunc("/_islet/blocked", s.handleBlockedPage)
 	mux.HandleFunc("/_islet/auth", s.handleForwardAuth)
 	// The sign-in a protected site serves on its own name. The proxy routes
@@ -418,6 +418,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/proxy/dns-providers", s.requireAuth(func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, proxy.DNSProviders) }))
 	mux.HandleFunc("GET /api/v1/domains/import/scan", s.requireAuth(s.handleImportScan))
 	mux.HandleFunc("POST /api/v1/domains/import", requireJSON(s.requireAuth(s.handleImport)))
+	mux.HandleFunc("GET /api/v1/proxy/maintenance", s.requireAuth(s.handleMaintenance))
+	mux.HandleFunc("PUT /api/v1/proxy/maintenance", requireJSON(s.requireAuth(s.handleMaintenance)))
 	mux.HandleFunc("GET /api/v1/proxy/certs", s.requireAuth(s.handleProxyCerts))
 	mux.HandleFunc("GET /api/v1/proxy/preview-host", s.requireAuth(s.handlePreviewHost))
 	mux.HandleFunc("GET /api/v1/domains", s.requireAuth(s.handleDomains))
@@ -479,6 +481,7 @@ func New(d Deps) http.Handler {
 	// Backups
 	mux.HandleFunc("GET /api/v1/backups", s.requireAuth(s.handleBackupOverview))
 	mux.HandleFunc("GET /api/v1/backups/kit", s.requireAuth(s.handleRecoveryKit))
+	mux.HandleFunc("POST /api/v1/backups/kit/check", requireJSON(s.requireAuth(s.handleRecoveryKitCheck)))
 	mux.HandleFunc("POST /api/v1/backups/destinations", requireJSON(s.requireAuth(s.handleDestinationSave)))
 	mux.HandleFunc("PUT /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationSave)))
 	mux.HandleFunc("DELETE /api/v1/backups/destinations/{id}", requireJSON(s.requireAuth(s.handleDestinationDelete)))

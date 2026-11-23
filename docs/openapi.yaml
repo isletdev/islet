@@ -275,6 +275,9 @@ paths:
     get: { tags: [Domains], summary: Proxy status, responses: { "200": { description: OK } } }
   /api/v1/proxy/install:
     post: { tags: [Domains], summary: Install or reconfigure the Traefik proxy (`acmeEmail` enables Let's Encrypt), responses: { "200": { description: OK } } }
+  /api/v1/proxy/maintenance:
+    get: { tags: [Domains], summary: "Server-wide maintenance switch: on, message, until, changedAt, changedBy", responses: { "200": { description: OK } } }
+    put: { tags: [Domains], summary: "Turn maintenance on or off for every site but the panel's own domains (admin). While on, each site answers 503 with Retry-After: a page for browsers, {error, message, until} as JSON for API clients", requestBody: { content: { application/json: { schema: { type: object, properties: { on: { type: boolean }, message: { type: string, maxLength: 500 }, until: { type: string, format: date-time } } } } } }, responses: { "200": { description: OK }, "400": { $ref: "#/components/responses/Error" } } }
   /api/v1/proxy/certs:
     get: { tags: [Domains], summary: Issued certificates and expiry, responses: { "200": { description: OK } } }
   /api/v1/catalog:
@@ -403,6 +406,8 @@ paths:
     post: { tags: [Databases], summary: Add or remove PgBouncer in front of a Postgres instance (streams Compose output; admin), parameters: [{ name: name, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean } } } } } }, responses: { "200": { $ref: "#/components/responses/Stream" } } }
   /api/v1/backups/destinations/{id}/restore-database:
     post: { tags: [Backups], summary: Restore a dump from a snapshot into a brand-new database instance (admin), parameters: [{ name: id, in: path, required: true, schema: { type: string } }], requestBody: { content: { application/json: { schema: { type: object, properties: { snapshot: { type: string }, path: { type: string, description: "/data/databases/<instance>/<file>" }, slug: { type: string, description: "Engine when the original instance is gone" }, newInstance: { type: string } } } } } }, responses: { "200": { description: "{ instance, database, internalUrl }" } } }
+  /api/v1/backups/kit/check:
+    post: { tags: [Backups], summary: "Open every repository a recovery kit names with the kit's own credentials and report what was found (admin). The body is the kit file; nothing from it is stored", responses: { "200": { description: "{ generatedAt, hostname, destinations: [{ name, type, repo, ok, snapshots, latest, error, here, hereName }], uncovered }" }, "400": { $ref: "#/components/responses/Error" } } }
   /api/v1/backups/host:
     get: { tags: [Backups], summary: The rest-server this panel hosts for other Islet servers (admin), responses: { "200": { description: OK } } }
     post: { tags: [Backups], summary: Host an append-only restic rest-server behind a domain (admin), requestBody: { content: { application/json: { schema: { type: object, properties: { domain: { type: string }, tls: { type: string } } } } } }, responses: { "200": { description: "{ domain, user, password, url }" } } }

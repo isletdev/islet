@@ -415,6 +415,9 @@ export interface BackupRun { id: number; planId: string; trigger: string; status
 export interface Snapshot { id: string; time: string; paths: string[]; tags: string[]; size: number }
 export interface Registry { host: string; username: string }
 export interface BackupHost { domain: string; tls: string; user: string; password?: string; url: string }
+export interface Maintenance { on: boolean; message: string; until: string; changedAt?: string; changedBy?: string }
+export interface KitCheck { name: string; type: string; repo: string; ok: boolean; snapshots: number; latest?: string; error?: string; here: "" | "same" | "other-key"; hereName?: string }
+export interface KitReport { generatedAt: string; hostname: string; destinations: KitCheck[]; uncovered: string[] }
 export interface BackupOverview { kitDownloadedAt?: string; destinations: BackupDestination[]; plans: BackupPlan[]; health: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string; lastRestoreTest: string; size: number }; volumes: string[]; databases?: string[] }
 
 export interface Attention { securityScore: number; securityFailing: number; backups?: { plans: number; destinations: number; lastSuccess: string; nextRun: string; stale: number; failed: number; lastVerified: string }; checksDown: string[]; deploysFailed: string[]; jobsFailed: string[]; apps?: number; criticals: { title: string; at: string; link: string }[] }
@@ -644,6 +647,8 @@ export const api = {
   proxyInstall: (acmeEmail: string, dns?: { dnsProvider: string; dnsEnv: Record<string, string> }) => post<ProxyStatus>("/api/v1/proxy/install", { acmeEmail, ...(dns ?? {}) }),
   dnsProviders: () => request<Record<string, string[]>>("/api/v1/proxy/dns-providers"),
   proxyRemove: () => post<void>("/api/v1/proxy/remove"),
+  maintenance: () => request<Maintenance>("/api/v1/proxy/maintenance"),
+  maintenanceSet: (m: Maintenance) => post<Maintenance>("/api/v1/proxy/maintenance", m, "PUT"),
   proxyCerts: () => request<{ domain: string; sans: string[]; notAfter: string; issuer: string }[]>("/api/v1/proxy/certs"),
   previewHost: (name: string) => request<{ host: string; publicIp: string }>(`/api/v1/proxy/preview-host?name=${encodeURIComponent(name)}`),
   domains: () => request<Domain[]>("/api/v1/domains"),
@@ -703,6 +708,9 @@ export const api = {
   destinationSave: (d: Partial<BackupDestination>) => d.id ? post<BackupDestination>(`/api/v1/backups/destinations/${d.id}`, d, "PUT") : post<BackupDestination>("/api/v1/backups/destinations", d),
   destinationDelete: (id: string) => post<void>(`/api/v1/backups/destinations/${id}`, undefined, "DELETE"),
   destinationRestoreTest: (id: string) => post<{ output: string }>(`/api/v1/backups/destinations/${id}/restore-test`),
+  // The kit goes as the file's own text: parsing and re-serialising it here
+  // could only lose something the check should have seen.
+  recoveryKitCheck: (kit: string) => request<KitReport>("/api/v1/backups/kit/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: kit }),
   destinationVerify: (id: string) => post<{ output: string }>(`/api/v1/backups/destinations/${id}/verify`),
   snapshots: (id: string, plan?: string) => request<Snapshot[]>(`/api/v1/backups/destinations/${id}/snapshots${plan ? `?plan=${encodeURIComponent(plan)}` : ""}`),
   snapshotLs: (id: string, snap: string, path: string) => request<{ path: string; name: string; type: string; size?: number; mtime?: string }[]>(`/api/v1/backups/destinations/${id}/snapshots/${snap}/ls?path=${encodeURIComponent(path)}`),

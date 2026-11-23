@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { pollInterval } from "@/lib/poll";
-import { api, RequestError, type Container, type Domain, type DomainLocation, type LoginPageLook, type ProxyStatus , type DNSCheck } from "@/lib/api";
+import { api, RequestError, type Container, type Domain, type DomainLocation, type LoginPageLook, type Maintenance, type ProxyStatus , type DNSCheck } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Alert, Button, Card, Field, Input, Select } from "@/components/ui";
 import { failure, useDialog } from "@/lib/dialogs";
@@ -277,6 +277,53 @@ const LOOK_EMPTY: LoginPageLook = { title: "", message: "", logo: "", accent: ""
  * Fields rather than an uploaded page — the page holds a password form, and
  * one written by hand could post it somewhere else.
  */
+// datetime-local speaks the browser's local time without a zone; the API
+// speaks UTC.
+function localInput(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function SiteMaintenance({ isAdmin }: { isAdmin: boolean }) {
+  const ask = useDialog();
+  const [m, setM] = useState<Maintenance | null>(null);
+  const [message, setMessage] = useState("");
+  const [until, setUntil] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { void api.maintenance().then((x) => { setM(x); setMessage(x.message); setUntil(localInput(x.until)); }).catch(() => {}); }, []);
+  if (!m) return null;
+  const apply = async (on: boolean) => {
+    if (on && !(await ask.confirm({ title: "Take every site down for maintenance?", body: "Every domain on this server answers with the maintenance page — 503, with your message — until you turn it off. API requests get the same message as JSON. The panel keeps working.", confirmLabel: "Turn on maintenance", tone: "danger" }))) return;
+    setBusy(true); setMsg(null);
+    try {
+      const x = await api.maintenanceSet({ on, message, until: until ? new Date(until).toISOString() : "" });
+      setM(x); setMessage(x.message); setUntil(localInput(x.until));
+      window.dispatchEvent(new Event("islet:maintenance"));
+      setMsg(on === m.on ? "Saved." : on ? "Maintenance is on. Visitors see the page within a few seconds." : "Maintenance is off. Sites are back within a few seconds.");
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Card title="Maintenance mode" description="Takes every site on this server down at once with a scheduled-maintenance page. API clients get the same message as JSON. The panel is not affected.">
+      {m.on && <div className="mb-3 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">On since {new Date(m.changedAt || "").toLocaleString()}{m.changedBy ? `, by ${m.changedBy}` : ""}. Every site answers with the maintenance page.</div>}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_16rem]">
+        <Field label="Message for visitors" hint="Leave empty for the default."><textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} maxLength={500} disabled={!isAdmin} placeholder="This site is down for scheduled maintenance and will be back shortly." className="w-full rounded-md border border-border-strong bg-bg p-2 text-sm" /></Field>
+        <Field label="Expected back (optional)" hint="Shown on the page and sent as Retry-After. It does not switch off by itself."><Input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} disabled={!isAdmin} /></Field>
+      </div>
+      {isAdmin && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {m.on
+            ? <><Button disabled={busy} onClick={() => void apply(false)}>{busy ? "Working…" : "Turn off, bring the sites back"}</Button><Button variant="secondary" disabled={busy} onClick={() => void apply(true)}>Save message</Button></>
+            : <Button variant="danger" disabled={busy} onClick={() => void apply(true)}>{busy ? "Working…" : "Turn on maintenance"}</Button>}
+          {msg && <span className="text-xs text-ink-muted">{msg}</span>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function LoginLook({ domainId, host, tls }: { domainId: string; host: string; tls: Domain["tls"] }) {
   const [look, setLook] = useState<LoginPageLook>(LOOK_EMPTY);
   const [saved, setSaved] = useState<LoginPageLook>(LOOK_EMPTY);
@@ -521,6 +568,8 @@ export default function Domains() {
         <p className="mt-1 text-ink-muted">Point a domain at a container and get HTTPS. Traefik does the routing; Islet writes its config.</p>
       </div>
       {err && <Alert>{err}</Alert>}
+
+      {status?.installed && <SiteMaintenance isAdmin={isAdmin} />}
 
       <Card title="Reverse proxy" description={status?.running ? `Traefik is running on ports ${status.httpPort} and ${status.httpsPort}.` : status?.installed ? "Traefik is installed but not running." : "Not installed. Install it to route domains."}>
         {status?.needsRestart && status.running && (

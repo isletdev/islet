@@ -243,3 +243,22 @@ func (s *Server) handleRecoveryKit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=\"islet-recovery-kit.json\"")
 	_, _ = w.Write(kit)
 }
+
+// handleRecoveryKitCheck opens the repositories in a kit somebody kept, with
+// the credentials in it, and says what it found. The kit is read and dropped.
+func (s *Server) handleRecoveryKitCheck(w http.ResponseWriter, r *http.Request) {
+	if !s.adminOnly(w, r) {
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "bad_request", Message: "the kit is larger than 1 MB"})
+		return
+	}
+	rep, err := s.backup.CheckKit(r.Context(), userFrom(r.Context()).Username, raw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Error{Error: "kit", Message: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
+}
